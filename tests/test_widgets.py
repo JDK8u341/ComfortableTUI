@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from comfortable_tui import (App, Button, Checkbox, DataTable, HBox, Input, Key,
+from comfortable_tui import (App, Button, Checkbox, DataTable, HBox, Input, InputParser, Key,
                              ListView, Mouse, PageStack, Panel, Paste, Select, SelectionList, Slider, Tabs, TextArea, Tree, TreeNode)
 from comfortable_tui.demo import gallery
 from comfortable_tui import ScrollView
@@ -171,6 +171,47 @@ def test_select_popup_and_checkbox_slider():
     slider = Slider(0, maximum=10)
     slider.on_event(Key("end"))
     assert slider.value_ == 10
+
+
+@pytest.mark.parametrize("button,phase", [(35, "move"), (32, "move"), (33, "move"),
+                                         (34, "move"), (1, "press"), (2, "press"), (64, "scroll")])
+def test_slider_ignores_hover_uninitiated_drags_and_other_buttons(button, phase):
+    changes = []
+    slider = Slider(30, on_change=changes.append)
+    with App(slider) as app:
+        app.render(30, 1)
+        app.dispatch(Mouse(19, 0, button=button, phase=phase))
+        assert slider.value_ == 30
+        assert changes == []
+
+
+def test_slider_left_drag_captures_pointer_and_stops_on_release_outside():
+    changes = []
+    slider, other = Slider(30, on_change=changes.append), Slider(40)
+    parser = InputParser()
+    with App(HBox(slider, other)) as app:
+        app.render(60, 1)
+        # SGR coordinates are one-based; motion buttons include the 32 bit.
+        for event in parser.feed("\x1b[<0;6;1M\x1b[<32;16;1M"):
+            app.dispatch(event)
+        assert changes == [25, 75]
+        for event in parser.feed("\x1b[<32;41;1M\x1b[<0;41;1m"):
+            app.dispatch(event)
+        assert slider.value_ == 100 and other.value_ == 40
+        assert not slider._dragging and app._capture is None
+        for event in parser.feed("\x1b[<35;2;1M\x1b[<32;2;1M"):
+            app.dispatch(event)
+        assert changes == [25, 75, 100]
+
+
+def test_slider_cancels_drag_if_terminal_reports_no_button_held():
+    slider = Slider(30)
+    with App(slider) as app:
+        app.render(30, 1)
+        app.dispatch(Mouse(5, 0))
+        app.dispatch(Mouse(15, 0, button=35, phase="move"))
+        app.dispatch(Mouse(15, 0, button=32, phase="move"))
+        assert slider.value_ == 25
 
 
 def test_selection_list_indices_follow_insert_delete():

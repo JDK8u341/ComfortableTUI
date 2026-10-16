@@ -352,6 +352,7 @@ class Slider(Widget):
         self.minimum, self.maximum, self.step, self.on_change = minimum, maximum, step, on_change
         self.value_ = min(max(value, minimum), maximum)
         self.motion = self.value(self.value_)
+        self._dragging = False
 
     def set_value(self, value):
         self.value_ = min(max(value, self.minimum), self.maximum)
@@ -377,7 +378,22 @@ class Slider(Widget):
                     self.value_ + self.step * (1 if event.name == "right" else -1))
                 self.set_value(value)
                 return True
-        if isinstance(event, Mouse) and event.phase in ("press", "move"):
+        if isinstance(event, Mouse):
+            if event.phase == "release":
+                dragging, self._dragging = self._dragging, False
+                return dragging
+            left_button = event.button & 3 == 0 and not event.button & 64
+            if event.phase == "press":
+                self._dragging = left_button and self.rect.contains(event.x, event.y)
+                if not self._dragging:
+                    return False
+            elif event.phase == "move":
+                if not left_button:
+                    self._dragging = False
+                if not self._dragging:
+                    return False
+            else:
+                return False
             n = max(1, self.rect.width - 10)
             p = min(1, max(0, (event.x - self.rect.x) / n))
             value = self.minimum + round(p * (self.maximum - self.minimum) / self.step) * self.step

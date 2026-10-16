@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fix Slider reacting to hover: value changes now require a left click or a drag begun on the slider;
+  releasing outside the control ends the drag.
+
 ## 0.1.0 — 2026-10-17
 
 - Initial alpha with spring/easing animation, target layout, diff rendering and Unicode cells.
