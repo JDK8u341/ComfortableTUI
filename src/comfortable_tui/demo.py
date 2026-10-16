@@ -10,7 +10,7 @@ from .graphics import PixelCanvas
 
 
 def gallery(*, fps=120, reduced_motion=None) -> App:
-    status = Label("Tab moves focus · arrows edit/select · Enter activates · Ctrl+Q exits", height=1)
+    status = Label("F6 menu/content · Tab focus · arrows edit/select · Enter activates · Ctrl+Q exits", height=1)
     log = Log(max_lines=200)
     log.write("Welcome to ComfortableTUI. All controls are interactive.")
     progress = ProgressBar(35, height=1)

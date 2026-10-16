@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Make menu focus visible and reachable with F6, Up at list boundaries, and Enter/Down back into content.
+- Remember the last content focus per tab and decode enhanced-terminal function keys.
+
 - Fix content arrow keys bubbling into Tabs: only the focused tab bar changes pages.
 - Add spatial focus fallback for unhandled arrows, including table scroll boundaries.
 

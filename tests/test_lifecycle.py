@@ -52,6 +52,17 @@ def test_noninteractive_terminal_is_rejected():
             pass
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows extended key input")
+def test_windows_extended_f6_and_shift_tab_are_decoded(monkeypatch):
+    import msvcrt
+    from collections import deque
+    pending = deque(["\x00", "@", "\x00", "\x0f"])
+    monkeypatch.setattr(msvcrt, "kbhit", lambda: bool(pending))
+    monkeypatch.setattr(msvcrt, "getwch", pending.popleft)
+    terminal = Terminal(input=TTY(), output=TTY())
+    assert terminal.read(0) == [Key("f6"), Key("shift+tab")]
+
+
 def test_worker_results_and_errors_execute_on_ui_thread():
     main_thread = threading.get_ident()
     done, results = threading.Event(), []

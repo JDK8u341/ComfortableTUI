@@ -204,7 +204,11 @@ class ListView(Widget):
         delta = {"up": -1, "down": 1, "pageup": -max(1, self.rect.height // self.item_height),
                  "pagedown": max(1, self.rect.height // self.item_height)}.get(event.name)
         if delta is not None:
-            self.select(self.selected + delta)
+            previous = self.selected
+            target = self.selected + delta
+            self.select(target)
+            # Leave boundary arrows available for neighboring controls / menu.
+            return self.selected != previous or 0 <= target < len(self.items)
         elif event.name in ("home", "end"):
             self.select(0 if event.name == "home" else len(self.items) - 1)
         else:

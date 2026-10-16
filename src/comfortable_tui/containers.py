@@ -164,6 +164,7 @@ class Tabs(Widget):
             raise ValueError("at least one tab required")
         self.titles, self.selected = list(tabs), 0
         self.on_change = on_change
+        self._content_focus = {}
         self.add(*tabs.values())
         self._highlight = AnimatedHighlight(self.value)
         self._bar_scroll = self.value(0, speed=24, damping=0)
@@ -180,6 +181,24 @@ class Tabs(Widget):
     def _sync(self):
         for i, child in enumerate(self.children):
             child.visible = i == self.selected or self._offsets[child].active
+
+    def _remember_content_focus(self, widget):
+        page = self.children[self.selected]
+        if widget is not None and widget in page.walk():
+            self._content_focus[page] = widget
+
+    def focus_content(self):
+        if self.app is None:
+            return False
+        page = self.children[self.selected]
+        widgets = list(page.focusables())
+        if not widgets:
+            return False
+        saved = self._content_focus.get(page)
+        return self.app.focus(saved if saved in widgets else widgets[0])
+
+    def focus_rect(self):
+        return Rect(self.rect.x, self.rect.y, self.rect.width, min(1, self.rect.height))
 
     def select(self, index):
         selected = index % len(self.children)
@@ -226,7 +245,9 @@ class Tabs(Widget):
         style = self.content_style(canvas, self.theme.muted)
         for i, title in enumerate(self.titles):
             x = self.rect.x + round(self._tab_bounds[i][0] - self._bar_scroll.current)
-            canvas.text(x, self.rect.y, f" {title} ", style)
+            focused = self.focused and i == self.selected
+            canvas.text(x, self.rect.y, f"{'›' if focused else ' '}{title} ",
+                        style.with_(underline=focused, bold=focused))
         highlight = self.theme.selection.with_(reverse=bool(self.app and self.app.renderer.colors == "none"))
         self._highlight.paint(canvas, highlight,
                               dx=self.rect.x - self._bar_scroll.current, dy=self.rect.y)
@@ -259,6 +280,8 @@ class Tabs(Widget):
         return self.children[self.selected].hit_test(x, y) or self
 
     def on_event(self, event):
+        if self.focused and isinstance(event, Key) and event.phase != "release" and event.name in ("enter", "down"):
+            return self.focus_content()
         if self.focused and isinstance(event, Key) and event.phase != "release" and event.name in ("left", "right"):
             self.select(self.selected + (1 if event.name == "right" else -1))
             return True

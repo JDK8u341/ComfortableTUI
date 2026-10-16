@@ -94,7 +94,8 @@ class Terminal:
                     if self._special:
                         text += {"H": "\x1b[A", "P": "\x1b[B", "K": "\x1b[D", "M": "\x1b[C",
                                  "G": "\x1b[H", "O": "\x1b[F", "S": "\x1b[3~",
-                                 "I": "\x1b[5~", "Q": "\x1b[6~"}.get(char, "")
+                                 "I": "\x1b[5~", "Q": "\x1b[6~",
+                                 "@": "\x1b[17~", "\x0f": "\x1b[Z"}.get(char, "")
                         self._special = False
                     elif char in ("\x00", "\xe0"):
                         self._special = True

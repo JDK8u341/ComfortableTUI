@@ -43,7 +43,8 @@ KEYS = {"A": "up", "B": "down", "C": "right", "D": "left", "H": "home", "F": "en
         "23~": "f11", "24~": "f12"}
 KITTY_KEYS = {13: "enter", 27: "escape", 9: "tab", 127: "backspace", 57352: "up",
               57353: "down", 57350: "left", 57351: "right", 57356: "home", 57357: "end",
-              57354: "pageup", 57355: "pagedown", 57349: "delete", 57348: "insert"}
+              57354: "pageup", 57355: "pagedown", 57349: "delete", 57348: "insert",
+              **{57364 + i: f"f{i + 1}" for i in range(35)}}
 
 
 class InputParser:

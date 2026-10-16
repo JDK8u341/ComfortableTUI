@@ -2,7 +2,7 @@
 import pytest
 
 from comfortable_tui import (App, Button, DataTable, Grid, HBox, Input, Key, ListView, Panel,
-                             Rect, Slider, Tabs, Tree, TreeNode, Widget)
+                             InputParser, Rect, Slider, Tabs, Tree, TreeNode, Widget)
 from comfortable_tui.demo import gallery
 
 
@@ -159,3 +159,110 @@ def test_invalid_direction_is_rejected():
     with App(Button("a")) as app:
         with pytest.raises(ValueError):
             app.focus_direction("diagonal")
+
+
+def test_f6_focuses_menu_and_returns_to_previous_content_control():
+    first, second = Button("first"), Button("second")
+    tabs = Tabs({"one": HBox(first, second), "two": Button("other")})
+    with App(tabs) as app:
+        settle(app)
+        app.focus(second)
+        app.dispatch(Key("f6"))
+        assert app.focused is tabs
+        app.dispatch(Key("f6"))
+        assert app.focused is second
+
+
+def test_list_top_arrow_can_return_to_ancestor_menu_bar():
+    listing = ListView(["one", "two"])
+    tabs = Tabs({"one": Panel(listing), "two": Button("other")})
+    with App(tabs) as app:
+        settle(app)
+        app.focus(listing)
+        app.dispatch(Key("up"))
+        assert app.focused is tabs
+        app.dispatch(Key("down"))
+        assert app.focused is listing
+
+
+def test_menu_bar_focus_is_visually_distinct_from_selected_page():
+    content = Button("content")
+    tabs = Tabs({"one": content, "two": Button("other")})
+    with App(tabs) as app:
+        settle(app)
+        app.focus(content)
+        unfocused = app.render(100, 32, dt=.5).plain().splitlines()[0]
+        app.focus(tabs)
+        focused = app.render(100, 32, dt=.5).plain().splitlines()[0]
+        assert focused != unfocused
+
+
+@pytest.mark.parametrize("sequence", ["\x1b[17~", "\x1b[57369u"])
+def test_f6_is_decoded_for_legacy_and_enhanced_terminals(sequence):
+    content = Button("content")
+    tabs = Tabs({"one": content})
+    with App(tabs) as app:
+        settle(app)
+        app.focus(content)
+        for event in InputParser().feed(sequence):
+            app.dispatch(event)
+        assert app.focused is tabs
+        app.dispatch(Key("f6", phase="release"))
+        assert app.focused is tabs
+        app.dispatch(Key("enter"))
+        assert app.focused is content
+
+
+def test_menu_remains_reachable_by_tab_and_shift_tab_from_content():
+    content = Button("content")
+    tabs = Tabs({"one": content})
+    with App(tabs) as app:
+        settle(app)
+        app.focus(content)
+        for event in InputParser().feed("\x1b[Z"):
+            app.dispatch(event)
+        assert app.focused is tabs
+        app.dispatch(Key("tab"))
+        assert app.focused is content
+        app.dispatch(Key("tab"))
+        assert app.focused is tabs
+
+
+def test_f6_stays_inside_modal_and_uses_valid_content_after_page_change():
+    first, second = Button("first"), Button("second")
+    tabs = Tabs({"one": first, "two": second})
+    with App(tabs) as app:
+        settle(app)
+        app.focus(first)
+        app.dispatch(Key("f6"))
+        app.dispatch(Key("right"))
+        settle(app)
+        app.dispatch(Key("enter"))
+        assert app.focused is second
+        modal = Button("modal")
+        app.show_modal(Panel(modal, width=30, height=8))
+        settle(app)
+        app.dispatch(Key("f6"))
+        assert app.focused is modal
+
+
+def test_arrow_boundaries_can_leave_list_but_page_movement_still_consumes_event():
+    listing = ListView(["one", "two", "three"])
+    with App(listing) as app:
+        settle(app)
+        assert listing.on_event(Key("pagedown"))
+        assert listing.selected == 2
+        assert not listing.on_event(Key("down"))
+
+
+def test_gallery_f6_reaches_menu_from_table_and_restores_focus():
+    with gallery() as app:
+        tabs = next(w for w in app.root.walk() if isinstance(w, Tabs))
+        tabs.select(1)
+        settle(app)
+        table = next(w for w in tabs.children[1].walk() if isinstance(w, DataTable))
+        app.focus(table)
+        app.dispatch(Key("f6"))
+        assert app.focused is tabs
+        app.dispatch(Key("f6"))
+        assert app.focused is table and tabs.selected == 1

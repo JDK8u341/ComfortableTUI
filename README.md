@@ -32,6 +32,8 @@ with App(root) as app:
 Tab / Shift+Tab changes focus, arrows navigate, Enter activates, Escape closes
 dialogs or returns to a previous page, Ctrl+Q exits. Mouse click, wheel and
 bracketed paste are supported. Enhanced keyboard terminals can activate on release.
+F6 switches between the menu bar and its last focused content; Enter/Down enters
+the selected page. The focused menu title shows a `›` marker and underline.
 
 - [入门与安装](docs/getting-started.md)
 - [原理调研与来源](docs/research.md)

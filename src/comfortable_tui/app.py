@@ -76,13 +76,15 @@ class App:
         if widget not in list(scope.focusables()):
             return False
         if self.focused is not widget:
+            from .containers import ScrollView, Tabs
+            if isinstance(widget, Tabs):
+                widget._remember_content_focus(self.focused)
             if self.focused and hasattr(self.focused, "armed"):
                 self.focused.armed = False
                 self.focused.pressed.set(0)
             if self.focused and hasattr(self.focused, "_armed"):
                 self.focused._armed = False
             self.focused = widget
-            from .containers import ScrollView
             parent = widget.parent
             while parent:
                 if isinstance(parent, ScrollView):
@@ -97,11 +99,23 @@ class App:
             index = widgets.index(self.focused) if self.focused in widgets else (-1 if direction > 0 else 0)
             self.focus(widgets[(index + direction) % len(widgets)])
 
+    def focus_menu(self) -> bool:
+        """Toggle between the nearest tab bar and its last focused content."""
+        from .containers import Tabs
+        scope = self.modal or self.root
+        menus = [widget for widget in scope.focusables() if isinstance(widget, Tabs)]
+        widget = self.focused
+        while widget:
+            if widget in menus:
+                return widget.focus_content() if widget is self.focused else self.focus(widget)
+            widget = widget.parent
+        return self.focus(menus[0]) if menus else False
+
     def focus_direction(self, direction: str) -> bool:
         """Focus the nearest visible neighbor after a widget declines an arrow key.
 
-        Aligned candidates take priority over diagonal ones. Ancestors, clipped
-        controls and widgets outside the current modal/page scope are excluded.
+        Aligned candidates take priority over diagonal ones. Containers are
+        excluded unless they have a separate, non-overlapping focus region.
         """
         if direction not in ("left", "right", "up", "down"):
             raise ValueError("direction must be left, right, up, or down")
@@ -111,7 +125,7 @@ class App:
             return False
 
         def bounds(widget):
-            rect = widget.rect.intersect(Rect(0, 0, *self._size))
+            rect = widget.focus_rect().intersect(Rect(0, 0, *self._size))
             parent = widget.parent
             while parent:
                 rect = rect.intersect(parent.rect)
@@ -134,15 +148,17 @@ class App:
         cross_length = source.height if horizontal else source.width
         candidates = []
         for index, widget in enumerate(widgets):
-            if widget in ancestors:
+            if widget is self.focused:
                 continue
             parent = widget.parent
             while parent and parent is not self.focused:
                 parent = parent.parent
-            if parent is self.focused:
-                continue
+            related = widget in ancestors or parent is self.focused
             rect = bounds(widget)
             if not rect.width or not rect.height:
+                continue
+            intersection = rect.intersect(source)
+            if related and intersection.width and intersection.height:
                 continue
             other = rect.x if horizontal else rect.y
             size = rect.width if horizontal else rect.height
@@ -152,6 +168,8 @@ class App:
             if forward <= 0:
                 continue
             overlap = min(cross_start + cross_length, cross + cross_size) - max(cross_start, cross)
+            if related and overlap <= 0:
+                continue
             gap = max(0, other - start - length if sign > 0 else start - other - size)
             cross_distance = abs(cross + cross_size / 2 - cross_start - cross_length / 2)
             candidates.append(((overlap <= 0, gap, cross_distance, forward, index), widget))
@@ -234,6 +252,10 @@ class App:
             if event.name in self.bindings:
                 if event.phase == "press":
                     self.bindings[event.name]()
+                return
+            if event.name == "f6":
+                if event.phase == "press":
+                    self.focus_menu()
                 return
             if event.name in ("tab", "shift+tab"):
                 if event.phase != "release":

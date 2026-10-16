@@ -16,5 +16,6 @@
 
 公共操作：Tab / Shift+Tab 切换焦点，方向键编辑/选择，Enter 确认，Escape 关闭弹窗/返回，
 Ctrl+Q 或 Ctrl+C 退出。画廊中先聚焦顶部 Tabs，再按左右键切换页面。
+按 F6 可直接聚焦菜单栏，再按 F6 返回内容；Enter / ↓ 也可从菜单进入当前页。
 建议窗口至少 100×32；小窗口会裁剪内容，表单可滚动。
 Gallery 默认目标 120fps，CLI 可用 `python -m comfortable_tui --fps 60` 调低。
