@@ -168,7 +168,9 @@ class Input(Widget):
     def __init__(self, value="", *, placeholder="", password=False, max_length=4096,
                  validator=None, on_change=None, on_submit=None, **kwargs):
         super().__init__(**kwargs)
-        self.text = clean_text(value).replace("\n", " ")
+        if max_length < 0:
+            raise ValueError("max_length must be nonnegative")
+        self.text = "".join(graphemes(clean_text(value).replace("\n", " "))[:max_length])
         self.placeholder, self.password, self.max_length = placeholder, password, max_length
         self.validator, self.on_change, self.on_submit = validator, on_change, on_submit
         self.cursor = len(graphemes(self.text))
@@ -264,7 +266,10 @@ class TextArea(Widget):
 
     def __init__(self, value="", *, on_change=None, max_length=100_000, **kwargs):
         super().__init__(**kwargs)
-        self.text, self.on_change, self.max_length = clean_text(value), on_change, max_length
+        if max_length < 0:
+            raise ValueError("max_length must be nonnegative")
+        self.text = "".join(graphemes(clean_text(value))[:max_length])
+        self.on_change, self.max_length = on_change, max_length
         self.cursor, self.scroll_y, self.scroll_x = len(graphemes(self.text)), 0, 0
 
     def _position(self):

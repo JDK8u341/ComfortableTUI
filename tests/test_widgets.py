@@ -36,6 +36,11 @@ def test_password_snapshot_does_not_expose_secret():
         assert "secret" not in app.render(20, 1).plain()
 
 
+def test_initial_text_obeys_grapheme_limit():
+    assert Input("👩‍💻中文", max_length=2).text == "👩‍💻中"
+    assert TextArea("ab\ncd", max_length=3).text == "ab\n"
+
+
 def test_button_release_and_disabled_focus():
     clicks = []
     button = Button("Go", lambda: clicks.append(1))

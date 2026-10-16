@@ -59,3 +59,12 @@ def test_reduced_motion_and_explicit_ownership():
 def test_invalid_dt(dt):
     with pytest.raises(ValueError):
         Value().step(dt)
+    with pytest.raises(ValueError):
+        Animator().step(dt)
+
+
+@pytest.mark.parametrize("kwargs", [{"speed": math.nan}, {"damping": math.inf}, {"current": math.nan},
+                                   {"target": math.inf}, {"speed": 0}, {"damping": -1}])
+def test_invalid_initial_parameters(kwargs):
+    with pytest.raises(ValueError):
+        Value(**kwargs)

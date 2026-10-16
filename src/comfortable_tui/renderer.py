@@ -58,7 +58,9 @@ class Renderer:
     def encode(self, frame: Canvas) -> str:
         previous = self.previous
         full = previous is None or (previous.width, previous.height) != (frame.width, frame.height)
-        if full:
+        if not frame.width or not frame.height:
+            spans = []
+        elif full:
             spans = [(y * frame.width, (y + 1) * frame.width) for y in range(frame.height)]
         elif frame.width:
             spans = self.diff(previous.cells, frame.cells, frame.width)

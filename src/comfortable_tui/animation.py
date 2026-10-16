@@ -14,10 +14,14 @@ class Value:
     velocity: float = 0.0
 
     def __post_init__(self):
+        if not all(math.isfinite(v) for v in (self.current, self.speed, self.damping, self.velocity)):
+            raise ValueError("animation parameters must be finite")
         if self.speed <= 0 or self.damping < 0:
             raise ValueError("speed must be positive and damping nonnegative")
         if self.target is None:
             self.target = self.current
+        elif not math.isfinite(self.target):
+            raise ValueError("animation target must be finite")
 
     @property
     def active(self) -> bool:
@@ -96,6 +100,8 @@ class Animator:
         return any(v.active for v in self.values)
 
     def step(self, dt: float) -> bool:
+        if not math.isfinite(dt) or dt < 0:
+            raise ValueError("dt must be finite and nonnegative")
         changed = False
         for value in self.values:
             if self.reduced_motion and value.active:

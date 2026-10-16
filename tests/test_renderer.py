@@ -70,6 +70,8 @@ def test_resize_forces_repaint_and_color_modes():
     assert ";2;" not in r.encode(Canvas(4, 4))
     assert ";5;" in Renderer(colors="256").encode(Canvas(2, 2))
     assert r.encode(Canvas(0, 0)) == ""
+    assert r.encode(Canvas(0, 20)) == ""
+    assert r.encode(Canvas(20, 0)) == ""
 
 
 def test_native_matches_python():

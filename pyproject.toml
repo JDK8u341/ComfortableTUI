@@ -14,7 +14,8 @@ dependencies = ["wcwidth>=0.2.13", "regex>=2024.5.15"]
 classifiers = ["Development Status :: 3 - Alpha", "Environment :: Console", "Programming Language :: Python :: 3"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pyte>=0.8.2", "ruff>=0.9", "build>=1", "pybind11>=2.13"]
+dev = ["pytest>=8", "pyte>=0.8.2", "ruff>=0.9", "build>=1", "pybind11>=2.13",
+       "setuptools>=69", "wheel>=0.43"]
 docs = ["mkdocs>=1.6"]
 
 [project.scripts]
