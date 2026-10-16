@@ -206,7 +206,9 @@ class Tabs(Widget):
         self._sync()
         x, width = self._tab_bounds[self.selected]
         scroll = self._bar_scroll.target
-        if x < scroll:
+        if width >= rect.width:
+            scroll = x
+        elif x < scroll:
             scroll = x
         elif x + width > scroll + rect.width:
             scroll = x + width - rect.width

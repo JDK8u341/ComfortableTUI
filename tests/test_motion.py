@@ -138,6 +138,16 @@ def test_tabs_scroll_header_to_selected_title_and_clip_content_below_header():
         assert "C" in frame.plain().splitlines()[2]
 
 
+def test_header_wider_than_viewport_has_stable_scroll_target():
+    tabs = Tabs({"First": Label("A"), "A very long menu title": Label("B")})
+    with App(tabs) as app:
+        app.render(8, 6)
+        tabs.select(1)
+        for _ in range(40):
+            app.render(8, 6, dt=1 / 120)
+            assert tabs._bar_scroll.target == tabs._tab_bounds[1][0]
+
+
 def test_reduced_motion_finishes_focus_and_menu_in_one_frame():
     tabs = Tabs({"One": Button("one"), "Two": Button("two")})
     with App(tabs, reduced_motion=True) as app:
