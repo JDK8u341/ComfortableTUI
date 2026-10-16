@@ -63,6 +63,8 @@ Widget(id="", width=None, height=None, flex=1,
 | `layout(rect)` | 设置区域并为子节点布局，自定义容器覆盖 |
 | `tick(dt)` | 每轮轻量更新，默认递归到可见孩子 |
 | `paint(canvas)` | 绘制自身；不直接输出到终端 |
+| `content_style(canvas, semantic=None)` | 语义前景继承已绘制背景；显式 style 优先 |
+| `focus_rect()` / `.focus_indicator` | 共享表单高亮区域；False 由控件自行呈现选择 |
 | `draw(canvas)` | 裁剪并调用 paint/孩子 draw，通常不覆盖 |
 | `on_event(event)` | 返回 True 消费事件，False 让事件往父节点传播 |
 | `hit_test(x, y)` | 从最上层子控件向里找交互目标 |
@@ -102,6 +104,8 @@ Widget(id="", width=None, height=None, flex=1,
 | `box(rect,style,title="")` | 圆角字符边框与可选标题 |
 | `with canvas.clipped(rect)` | 临时与现有 clip 求交 |
 | `plain()` | 无 ANSI 的多行快照 |
+| `style_at(x,y,default=Style())` | 读取已绘制样式，越界返回 default |
+| `tint(x,y,width,height,style,opacity=1)` | 浮点覆盖率混色，保留字符/宽字；style.reverse 可反转覆盖超过一半的格 |
 | `text_width(text)` | 清理控制字符后的显示格数 |
 | `crop_text(text,width)` | 按 grapheme 截取到指定单元格数 |
 
@@ -132,7 +136,8 @@ Style(fg=(218,225,240), bg=(17,21,34), bold=False,
 ```
 
 RGB 通道取 0–255，fg/bg 可为 None 使用终端默认色。`with_(**changes)` 返回新的 Style，
-`ansi(colors="truecolor")` 编码 SGR。Theme 不可变，语义字段：background/panel/accent/
+`blend(other, amount)` 插值 RGB 并保留文字属性；`ansi(colors="truecolor")` 编码 SGR。
+Theme 不可变，语义字段：background/panel/accent/
 muted/selection/success/error；`Theme.light()` 提供浅色主题。
 自定义主题用 `dataclasses.replace(Theme(), accent=...)`。
 

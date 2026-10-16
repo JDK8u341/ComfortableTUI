@@ -9,7 +9,7 @@ from .data import DataTable, DirectoryTree, ListView, RadioGroup, Select, Select
 from .graphics import PixelCanvas
 
 
-def gallery(*, fps=60, reduced_motion=None) -> App:
+def gallery(*, fps=120, reduced_motion=None) -> App:
     status = Label("Tab moves focus · arrows edit/select · Enter activates · Ctrl+Q exits", height=1)
     log = Log(max_lines=200)
     log.write("Welcome to ComfortableTUI. All controls are interactive.")

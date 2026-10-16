@@ -10,7 +10,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from .animation import Animator
+from ._highlight import AnimatedHighlight
+from .animation import Animator, Value
 from .canvas import Canvas, Rect
 from .events import Capability, Key, Mouse
 from .renderer import Renderer
@@ -41,6 +42,9 @@ class App:
         if reduced_motion is None:
             reduced_motion = os.environ.get("COMFORTABLE_TUI_REDUCED_MOTION") == "1"
         self.animator = Animator(reduced_motion)
+        self._focus_highlight = AnimatedHighlight(
+            lambda initial, **kwargs: self.animator.add(Value(initial, **kwargs)))
+        self._focus_clip = Rect()
         self.renderer = Renderer(colors=colors or ("none" if "NO_COLOR" in os.environ else "truecolor"),
                                  synchronized=bool(synchronized))
         self._sync_override = synchronized
@@ -227,6 +231,11 @@ class App:
         if self.modal:
             w, h = min(width, self.modal.width or 56), min(height, self.modal.height or 12)
             self.modal.layout(Rect((width - w) // 2, (height - h) // 2, w, h))
+        scope = self.modal or self.root
+        focusable = list(scope.focusables())
+        if self.focused not in focusable:
+            self.focused = focusable[0] if focusable else None
+        self._prepare_focus(width, height)
         if self.animator.step(dt):
             self._dirty = True
         # Reflow from target geometry after advancing animated offsets.
@@ -234,16 +243,16 @@ class App:
         if self.modal:
             w, h = min(width, self.modal.width or 56), min(height, self.modal.height or 12)
             self.modal.layout(Rect((width - w) // 2, (height - h) // 2, w, h))
-        scope = self.modal or self.root
-        focusable = list(scope.focusables())
-        if self.focused not in focusable:
-            self.focused = focusable[0] if focusable else None
+        self._prepare_focus(width, height)
         frame = Canvas(width, height, self.theme.background)
         self.root.draw(frame)
         if self.modal:
             # Background image placements must not cover a cell modal.
             frame.graphics.clear()
             self.modal.draw(frame)
+        with frame.clipped(self._focus_clip):
+            highlight = self.theme.selection.with_(reverse=self.renderer.colors == "none")
+            self._focus_highlight.paint(frame, highlight)
         if self._toast and height:
             frame.graphics = {key: value for key, value in frame.graphics.items()
                               if value[2].y + value[2].height < height}
@@ -251,6 +260,23 @@ class App:
             frame.text(1, height - 1, self._toast, self.theme.selection, max(0, width - 2))
         self._dirty = False
         return frame
+
+    def _prepare_focus(self, width, height):
+        widget = self.focused
+        if widget is None or not widget.focus_indicator:
+            self._focus_highlight.hide()
+            return
+        clip = Rect(0, 0, width, height)
+        parent = widget.parent
+        while parent:
+            clip = clip.intersect(parent.rect)
+            parent = parent.parent
+        goal = widget.focus_rect().intersect(clip)
+        self._focus_clip = clip
+        if goal.width and goal.height:
+            self._focus_highlight.move_to(goal.x, goal.y, goal.width, goal.height)
+        else:
+            self._focus_highlight.hide()
 
     def encode(self, frame: Canvas) -> str:
         """Encode cells and managed images into one synchronized transaction."""
@@ -313,6 +339,8 @@ class App:
         self.exit()
         self.close_modal()
         self.root.unmount()
+        for edge in self._focus_highlight.edges:
+            self.animator.remove(edge)
         if self._executor:
             self._executor.shutdown(wait=False, cancel_futures=True)
 

@@ -29,7 +29,7 @@ class Label(Widget):
             offset = {"left": 0, "center": (self.rect.width - used) // 2,
                       "right": self.rect.width - used}.get(self.align, 0)
             canvas.text(self.rect.x + offset, self.rect.y + row, line,
-                        self.style or self.theme.background, self.rect.width - offset)
+                        self.content_style(canvas), self.rect.width - offset)
 
 
 class Paragraph(Label):
@@ -56,12 +56,12 @@ class Paragraph(Label):
 
     def paint(self, canvas):
         for row, line in enumerate(self.lines(self.rect.width)[:self.rect.height]):
-            canvas.text(self.rect.x, self.rect.y + row, line, self.style or self.theme.background)
+            canvas.text(self.rect.x, self.rect.y + row, line, self.content_style(canvas))
 
 
 class Rule(Widget):
     def paint(self, canvas):
-        canvas.text(self.rect.x, self.rect.y, "─" * self.rect.width, self.style or self.theme.muted)
+        canvas.text(self.rect.x, self.rect.y, "─" * self.rect.width, self.content_style(canvas, self.theme.muted))
 
 
 class Spacer(Widget):
@@ -86,9 +86,9 @@ class Button(Widget):
         self.invalidate()
 
     def paint(self, canvas):
-        style = self.style or (self.theme.selection if self.focused else self.theme.panel)
+        style = self.content_style(canvas, self.theme.panel)
         if self.disabled:
-            style = self.theme.muted
+            style = self.theme.muted.with_(bg=style.bg)
         canvas.fill(self.rect, style)
         text = f"[ {self.label} ]"
         x = self.rect.x + max(0, (self.rect.width - text_width(text)) // 2)
@@ -141,7 +141,7 @@ class Checkbox(Button):
         self.invalidate()
 
     def paint(self, canvas):
-        style = self.style or (self.theme.selection if self.focused else self.theme.background)
+        style = self.content_style(canvas)
         canvas.text(self.rect.x, self.rect.y, f"[{'x' if self.checked else ' '}] {self.label}", style,
                     self.rect.width)
 
@@ -149,17 +149,17 @@ class Checkbox(Button):
 class Switch(Checkbox):
     def __init__(self, label: str, checked=False, **kwargs):
         super().__init__(label, checked, **kwargs)
-        self.position = self.value(1 if checked else 0, speed=22)
+        self.position = self.value(1 if checked else 0, speed=26, damping=0.85)
 
     def activate(self):
         super().activate()
         self.position.set(1 if self.checked else 0)
 
     def paint(self, canvas):
-        style = self.theme.selection if self.focused else self.theme.background
+        style = self.content_style(canvas)
         canvas.text(self.rect.x, self.rect.y, "[     ] " + self.label, style, self.rect.width)
         canvas.put(self.rect.x + 1 + round(self.position.current * 4), self.rect.y,
-                   "●", self.theme.success if self.checked else self.theme.muted)
+                   "●", (self.theme.success if self.checked else self.theme.muted).with_(bg=style.bg))
 
 
 class Input(Widget):
@@ -205,7 +205,7 @@ class Input(Widget):
 
     def paint(self, canvas):
         r = self.rect
-        style = self.style or (self.theme.selection if self.focused else self.theme.panel)
+        style = self.content_style(canvas, self.theme.panel)
         canvas.fill(r, style)
         available = max(0, r.width - 2)
         chars = list(graphemes(self.text))
@@ -216,7 +216,7 @@ class Input(Widget):
             self._offset += 1
         start_col = text_width("".join(display[:self._offset]))
         text = "".join(display[self._offset:]) if self.text else self.placeholder
-        canvas.text(r.x + 1, r.y, text, style if self.text else self.theme.muted, available)
+        canvas.text(r.x + 1, r.y, text, style if self.text else self.theme.muted.with_(bg=style.bg), available)
         if self.focused and available:
             x = r.x + 1 + min(available - 1, cursor_col - start_col)
             char = display[self.cursor] if self.cursor < len(display) else " "
@@ -277,7 +277,7 @@ class TextArea(Widget):
         return before.count("\n"), len(graphemes(before.split("\n")[-1]))
 
     def paint(self, canvas):
-        style = self.style or self.theme.panel
+        style = self.content_style(canvas, self.theme.panel)
         canvas.fill(self.rect, style)
         row, col = self._position()
         lines = self.text.split("\n")
@@ -351,7 +351,7 @@ class Slider(Widget):
             raise ValueError("maximum must exceed minimum and step must be positive")
         self.minimum, self.maximum, self.step, self.on_change = minimum, maximum, step, on_change
         self.value_ = min(max(value, minimum), maximum)
-        self.motion = self.value(self.value_)
+        self.motion = self.value(self.value_, speed=26, damping=0.9)
         self._dragging = False
 
     def set_value(self, value):
@@ -364,8 +364,8 @@ class Slider(Widget):
     def paint(self, canvas):
         r = self.rect
         n = max(0, r.width - 9)
-        style = self.theme.selection if self.focused else self.theme.accent
-        canvas.text(r.x, r.y, "─" * n, self.theme.muted)
+        style = self.content_style(canvas, self.theme.accent)
+        canvas.text(r.x, r.y, "─" * n, self.theme.muted.with_(bg=style.bg))
         if n:
             p = (self.motion.current - self.minimum) / (self.maximum - self.minimum)
             canvas.put(r.x + min(n - 1, max(0, round(p * (n - 1)))), r.y, "●", style)
@@ -408,7 +408,7 @@ class ProgressBar(Widget):
         if total <= 0:
             raise ValueError("total must be positive")
         self.total = total
-        self.progress = self.value(min(total, max(0, value)))
+        self.progress = self.value(min(total, max(0, value)), speed=20, damping=0)
 
     def set_value(self, value):
         self.progress.set(min(self.total, max(0, value)))
@@ -421,9 +421,11 @@ class ProgressBar(Widget):
         subpixels = round(width * fraction * 8)
         full, partial = divmod(subpixels, 8)
         text = "█" * full + (" ▏▎▍▌▋▊▉"[partial] if partial else "")
-        canvas.text(r.x, r.y, "░" * width, self.theme.muted)
-        canvas.text(r.x, r.y, text, self.style or self.theme.accent, width)
-        canvas.text(r.x + width + 1, r.y, f"{fraction:3.0%}", self.theme.muted, max(0, r.width - width - 1))
+        style = self.content_style(canvas, self.theme.accent)
+        canvas.text(r.x, r.y, "░" * width, self.theme.muted.with_(bg=style.bg))
+        canvas.text(r.x, r.y, text, style, width)
+        canvas.text(r.x + width + 1, r.y, f"{fraction:3.0%}", self.theme.muted.with_(bg=style.bg),
+                    max(0, r.width - width - 1))
 
 
 class Spinner(Widget):
@@ -443,7 +445,7 @@ class Spinner(Widget):
         if self.app and self.app.animator.reduced_motion:
             glyph = "…" if self.running else "✓"
         canvas.text(self.rect.x, self.rect.y, glyph + " " + self.label,
-                    self.style or self.theme.accent, self.rect.width)
+                    self.content_style(canvas, self.theme.accent), self.rect.width)
 
 
 class Sparkline(Widget):
@@ -457,7 +459,7 @@ class Sparkline(Widget):
             return
         lo, hi = min(values), max(values)
         text = "".join("▁▂▃▄▅▆▇█"[round((v - lo) / (hi - lo or 1) * 7)] for v in values)
-        canvas.text(self.rect.x, self.rect.y, text, self.style or self.theme.success)
+        canvas.text(self.rect.x, self.rect.y, text, self.content_style(canvas, self.theme.success))
 
 
 class BarChart(Widget):
@@ -473,11 +475,13 @@ class BarChart(Widget):
         label_width = min(14, max(0, self.rect.width // 3))
         n = max(0, self.rect.width - label_width - 8)
         for i, (label, value) in enumerate(list(self.samples.items())[:self.rect.height]):
-            canvas.text(self.rect.x, self.rect.y + i, crop_text(label, label_width), self.theme.muted)
+            style = self.content_style(canvas)
+            canvas.text(self.rect.x, self.rect.y + i, crop_text(label, label_width),
+                        self.theme.muted.with_(bg=style.bg))
             canvas.text(self.rect.x + label_width + 1, self.rect.y + i,
-                        "█" * max(0, round(n * value / max_value)), self.theme.accent, n)
+                        "█" * max(0, round(n * value / max_value)), self.theme.accent.with_(bg=style.bg), n)
             canvas.text(self.rect.x + label_width + n + 2, self.rect.y + i,
-                        f"{value:g}", self.theme.background, 6)
+                        f"{value:g}", style, 6)
 
 
 class Log(Widget):
@@ -499,7 +503,7 @@ class Log(Widget):
         end = max(0, len(self.lines) - self.offset)
         lines = self.lines[max(0, end - self.rect.height):end]
         for i, line in enumerate(lines):
-            canvas.text(self.rect.x, self.rect.y + i, line, self.style or self.theme.muted, self.rect.width)
+            canvas.text(self.rect.x, self.rect.y + i, line, self.content_style(canvas, self.theme.muted), self.rect.width)
 
     def on_event(self, event):
         if isinstance(event, Key) and event.phase != "release" and event.name in ("up", "down", "home", "end"):

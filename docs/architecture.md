@@ -23,6 +23,10 @@ App.encode → synchronized transaction when negotiated → one terminal write
 `mount(app)` 注册动画；`unmount()` 递归释放。PageStack 的页面在退场完成后才移除。
 没有全局动画注册表，因此销毁应用和重复打开页面不会遗留活动动画。
 
+表单焦点由 App 的共享高亮绘制：四条边分别追踪目标，在文字已绘制的画布上做覆盖率
+混色。控件默认继承父画面底色，避免退焦后留下深色矩形。ListView 与 Tabs 自行呈现选择，
+不额外叠加表单高亮。
+
 `visible=False` 从布局和交互中移除；`disabled=True` 保留显示但阻止交互。
 `find(id)` 搜索整个子树，未找到时抛 `KeyError`。动态修改树用 `add/remove`。
 
@@ -64,6 +68,9 @@ x.jump(0)    # 同时改当前位置、目标，清空速度
 `speed` 必须大于 0，单位为 rad/s（弹簧）或 1/s（指数趋近）。阻尼非负。
 位置误差 < 0.001 且速度绝对值 < 0.01 时吸附到目标，停止动画。
 `active` 表示仍有位移或速度；`Animator(reduced_motion=True)` 直接 snap。
+
+Tabs 同时维护标题选中条和各页偏移。离场页继续绘制，只有选中页接收焦点/鼠标。
+快速重新选择仍在移动的页面时保留速度，未在场的页面才从边界进入。
 
 自定义控件用 `self.value(...)` 自动登记所有权，通常只需设置目标，勿自行重复 step。
 独立 Value（如像素示例）需要调用方自行推进。

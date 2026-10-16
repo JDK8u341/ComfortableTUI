@@ -5,6 +5,10 @@ Spring-driven Python terminal interfaces, inspired by the 128×64 OLED UI in
 smooth scrolling and focus, animated page transitions, Unicode-aware cell
 rendering, and an optional RGB pixel canvas using Kitty graphics.
 
+![Motion preview from actual cell frames](docs/images/motion.gif)
+
+The preview is an offline cell-frame illustration, not a terminal FPS recording.
+
 **状态：0.1 alpha。** 面向开发者的通用 TUI 库，Python 3.10+，支持 Windows、Linux、macOS
 的 VT 终端。字符文字仍然受终端网格限制；像素画布在支持 Kitty graphics 的终端中可按像素移动。
 
@@ -31,6 +35,7 @@ bracketed paste are supported. Enhanced keyboard terminals can activate on relea
 
 - [入门与安装](docs/getting-started.md)
 - [原理调研与来源](docs/research.md)
+- [Exa 调研：焦点与菜单动画优化](docs/motion-research.md)
 - [架构与动画](docs/architecture.md)
 - [全部控件与交互](docs/widgets.md)
 - [公共 API](docs/api.md)

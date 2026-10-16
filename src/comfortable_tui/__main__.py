@@ -6,7 +6,7 @@ from .demo import gallery
 
 def main():
     parser = argparse.ArgumentParser(description="ComfortableTUI interactive widget gallery")
-    parser.add_argument("--fps", type=int, default=60)
+    parser.add_argument("--fps", type=int, default=120)
     parser.add_argument("--reduced-motion", action="store_true", default=None)
     parser.add_argument("--snapshot", action="store_true", help="Print a headless frame and exit")
     args = parser.parse_args()

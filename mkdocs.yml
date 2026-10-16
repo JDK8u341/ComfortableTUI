@@ -5,6 +5,7 @@ nav:
   - 首页: index.md
   - 入门: getting-started.md
   - 调研: research.md
+  - 动画优化: motion-research.md
   - 架构: architecture.md
   - 控件: widgets.md
   - API: api.md

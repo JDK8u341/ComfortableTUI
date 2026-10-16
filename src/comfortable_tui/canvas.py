@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
+import math
 
 import regex
 from wcwidth import wcswidth
@@ -39,6 +40,11 @@ class Cell:
 
 
 @lru_cache(maxsize=8192)
+def _cell(text: str, style: Style, width: int = 1) -> Cell:
+    return Cell(text, style, width)
+
+
+@lru_cache(maxsize=8192)
 def graphemes(text: str) -> tuple[str, ...]:
     return tuple(regex.findall(r"\X", text))
 
@@ -68,7 +74,7 @@ def crop_text(text: str, width: int) -> str:
 class Canvas:
     def __init__(self, width: int, height: int, style: Style = Style()):
         self.width, self.height = max(0, width), max(0, height)
-        self.cells = [Cell(style=style)] * (self.width * self.height)
+        self.cells = [_cell(" ", style)] * (self.width * self.height)
         self.clip = Rect(0, 0, self.width, self.height)
         self.graphics: dict = {}
 
@@ -81,18 +87,67 @@ class Canvas:
         finally:
             self.clip = old
 
+    def style_at(self, x: int, y: int, default: Style = Style()) -> Style:
+        if 0 <= x < self.width and 0 <= y < self.height:
+            return self.cells[y * self.width + x].style
+        return default
+
+    def tint(self, x: float, y: float, width: float, height: float, style: Style, opacity=1.0):
+        """Composite a fractional-cell highlight without replacing text or wide-cell owners."""
+        if width <= 0 or height <= 0 or opacity <= 0:
+            return
+        left, right = max(self.clip.x, math.floor(x)), min(self.clip.x + self.clip.width, math.ceil(x + width))
+        top, bottom = max(self.clip.y, math.floor(y)), min(self.clip.y + self.clip.height, math.ceil(y + height))
+        colors = {}
+        cells = {}
+        for yy in range(top, bottom):
+            coverage_y = max(0, min(yy + 1, y + height) - max(yy, y))
+            xx = left
+            while xx < right:
+                index = yy * self.width + xx
+                cell = self.cells[index]
+                owner = xx - 1 if cell.width == 0 else xx
+                glyph = self.cells[yy * self.width + owner]
+                size = glyph.width
+                # A clipped wide glyph cannot be recolored in halves.
+                if owner < self.clip.x or owner + size > self.clip.x + self.clip.width:
+                    xx += 1
+                    continue
+                coverage_x = max(0, min(owner + size, x + width) - max(owner, x)) / size
+                coverage = coverage_x * coverage_y * opacity
+                key = glyph.style, coverage
+                color = colors.get(key)
+                if color is None:
+                    color = glyph.style.blend(style, coverage)
+                    if style.reverse and coverage >= .5:
+                        color = color.with_(reverse=not glyph.style.reverse)
+                    colors[key] = color
+                for column in range(owner, owner + size):
+                    previous = self.cells[yy * self.width + column]
+                    key = previous, color
+                    updated = cells.get(key)
+                    if updated is None:
+                        updated = _cell(previous.text, color, previous.width)
+                        cells[key] = updated
+                    self.cells[yy * self.width + column] = updated
+                xx = owner + size
+
     def _erase_owner(self, x: int, y: int):
         index = y * self.width + x
         old = self.cells[index]
         if old.width == 0 and x > 0:
-            self.cells[index - 1] = Cell(style=old.style)
+            self.cells[index - 1] = _cell(" ", old.style)
         elif old.width == 2 and x + 1 < self.width:
-            self.cells[index + 1] = Cell(style=old.style)
+            self.cells[index + 1] = _cell(" ", old.style)
 
     def put(self, x: int, y: int, glyph: str, style: Style = Style()):
         clusters = graphemes(clean_text(glyph))
         glyph = clusters[0] if clusters else ""
         n = wcswidth(glyph)
+        self._put_glyph(x, y, glyph, style, n)
+
+    def _put_glyph(self, x: int, y: int, glyph: str, style: Style, n: int):
+        # Internal text path already sanitized and segmented this grapheme.
         if n not in (1, 2) or not self.clip.contains(x, y):
             return
         if n == 2 and not self.clip.contains(x + 1, y):
@@ -101,9 +156,9 @@ class Canvas:
         if n == 2:
             self._erase_owner(x + 1, y)
         index = y * self.width + x
-        self.cells[index] = Cell(glyph, style, n)
+        self.cells[index] = _cell(glyph, style, n)
         if n == 2:
-            self.cells[index + 1] = Cell("", style, 0)
+            self.cells[index + 1] = _cell("", style, 0)
 
     def text(self, x: int, y: int, text: str, style: Style = Style(), width: int | None = None):
         start = x
@@ -113,7 +168,7 @@ class Canvas:
             if glyph == "\n" or x + n > start + limit:
                 break
             if n:
-                self.put(x, y, glyph, style)
+                self._put_glyph(x, y, glyph, style, n)
                 x += n
         return x - start
 
@@ -121,7 +176,7 @@ class Canvas:
         area = rect.intersect(self.clip)
         if text_width(glyph) != 1 or len(graphemes(glyph)) != 1:
             raise ValueError("fill glyph must occupy one cell")
-        row = [Cell(glyph, style)] * area.width
+        row = [_cell(glyph, style)] * area.width
         for y in range(area.y, area.y + area.height):
             if area.width:
                 self._erase_owner(area.x, y)

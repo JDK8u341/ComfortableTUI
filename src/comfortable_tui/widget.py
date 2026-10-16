@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class Widget:
     focusable = False
+    focus_indicator = True
 
     def __init__(self, *, id: str = "", width: int | None = None, height: int | None = None,
                  flex: float = 1, style: Style | None = None, disabled: bool = False,
@@ -117,6 +118,17 @@ class Widget:
 
     def paint(self, canvas: Canvas):
         pass
+
+    def content_style(self, canvas: Canvas, semantic: Style | None = None) -> Style:
+        """Inherit the painted parent surface unless an explicit widget style is supplied."""
+        if self.style is not None:
+            return self.style
+        area = self.rect.intersect(canvas.clip)
+        base = canvas.style_at(area.x, area.y, self.theme.background)
+        return (semantic or self.theme.background).with_(bg=base.bg)
+
+    def focus_rect(self) -> Rect:
+        return self.rect
 
     def draw(self, canvas: Canvas):
         if not self.visible or self.rect.width <= 0 or self.rect.height <= 0:

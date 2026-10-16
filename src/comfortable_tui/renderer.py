@@ -75,7 +75,8 @@ class Renderer:
             return ""
         chunks = ["\x1b[?2026h"] if self.synchronized else []
         if full:
-            chunks.append("\x1b[2J")
+            # Erase using the new surface color, not terminal-default black.
+            chunks.extend((frame.cells[0].style.ansi(self.colors), "\x1b[2J"))
         style = None
         for start, end in spans:
             # Repaint the owning glyph when its continuation is dirty.

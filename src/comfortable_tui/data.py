@@ -14,6 +14,7 @@ from .widget import Widget
 
 class ListView(Widget):
     focusable = True
+    focus_indicator = False  # Selection already has its own animated geometry.
 
     def __init__(self, items=(), *, on_select=None, on_change=None, item_height=1, **kwargs):
         super().__init__(**kwargs)
@@ -22,8 +23,8 @@ class ListView(Widget):
         self.items = [str(x) for x in items]
         self.selected, self.item_height = 0, item_height
         self.on_select, self.on_change = on_select, on_change
-        self.scroll = self.value()
-        self.cursor = self.value()
+        self.scroll = self.value(speed=22, damping=0.85)
+        self.cursor = self.value(speed=28, damping=0)
         self.edge = self.value(speed=22)
         self._effects = {}  # index -> [Value, deleting]
         self._prefix = []
@@ -135,38 +136,36 @@ class ListView(Widget):
     def paint(self, canvas):
         r = self.rect
         if not self.items or not r.height:
-            canvas.text(r.x, r.y, "(empty)", self.theme.muted, r.width)
+            canvas.text(r.x, r.y, "(empty)", self.content_style(canvas, self.theme.muted), r.width)
             return
         self._rebuild()
         offset = self.scroll.current - self.edge.current
         first = max(0, bisect.bisect_right(self._prefix, offset) - 1)
         last = min(len(self.items), bisect.bisect_left(self._prefix, offset + r.height) + 1)
-        # Fade between adjacent cell rows so fractional cursor motion stays visible.
+        # Composite against the actual parent surface, including fractional rows.
         cy = self.cursor.current - offset
-        for y in range(max(0, math.floor(cy)), min(r.height, math.ceil(cy + self.item_height))):
-            overlap = max(0, min(y + 1, cy + self.item_height) - max(y, cy))
-            base = self.theme.background.bg
-            focus = self.theme.selection.bg
-            bg = tuple(round(a + (b - a) * overlap) for a, b in zip(base, focus)) if base and focus else focus
-            canvas.fill(Rect(r.x, r.y + y, max(0, r.width - 1), 1),
-                        self.theme.selection.with_(bg=bg, bold=self.focused))
+        highlight = self.theme.selection.with_(reverse=bool(self.app and self.app.renderer.colors == "none"))
+        canvas.tint(r.x, r.y + cy, max(0, r.width - 1), self.item_height, highlight,
+                    opacity=1 if self.focused else 0.5)
         for i in range(first, last):
             if self._prefix[i + 1] - self._prefix[i] < 0.5:
                 continue
             y = r.y + round(self._prefix[i] - offset)
             if not canvas.clip.y <= y < canvas.clip.y + canvas.clip.height:
                 continue
-            style = canvas.cells[y * canvas.width + r.x].style if r.width and r.x >= 0 and r.x < canvas.width else self.theme.background
+            style = canvas.style_at(max(r.x, canvas.clip.x), y, self.theme.background)
             canvas.text(r.x + 2, y, self.item_text(i), self.style or style, max(0, r.width - 4))
         marker_y = math.floor(cy)
         if 0 <= marker_y < r.height:
             # Four vertical braille positions per row, independent of text rounding.
             marker = ("⠉", "⠒", "⠤", "⣀")[min(3, int((cy - marker_y) * 4))]
-            canvas.put(r.x, r.y + marker_y, marker, self.theme.accent)
+            bg = canvas.style_at(r.x, r.y + marker_y).bg
+            canvas.put(r.x, r.y + marker_y, marker, self.theme.accent.with_(bg=bg))
         if self._prefix[-1] > r.height and r.width:
             size = max(1, round(r.height * r.height / self._prefix[-1]))
             top = round((r.height - size) * self.scroll.current / max(1, self._prefix[-1] - r.height))
-            canvas.fill(Rect(r.x + r.width - 1, r.y + top, 1, size), self.theme.accent, "┃")
+            canvas.fill(Rect(r.x + r.width - 1, r.y + top, 1, size),
+                        self.content_style(canvas, self.theme.accent), "┃")
 
     def _activate(self):
         if self.items and self.on_select:
@@ -419,8 +418,9 @@ class DataTable(ListView):
 
     def paint(self, canvas):
         canvas.text(self.rect.x + 2, self.rect.y, self._slice(self._format(self.columns)),
-                    self.theme.accent, max(0, self.rect.width - 4))
-        canvas.text(self.rect.x, self.rect.y + 1, "─" * self.rect.width, self.theme.muted)
+                    self.content_style(canvas, self.theme.accent), max(0, self.rect.width - 4))
+        canvas.text(self.rect.x, self.rect.y + 1, "─" * self.rect.width,
+                    self.content_style(canvas, self.theme.muted))
         rect = self.rect
         self.rect = self._body_rect
         with canvas.clipped(self._body_rect):

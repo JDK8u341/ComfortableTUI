@@ -11,8 +11,10 @@
 | `python examples/pixel_oled.py` | OLED 风格的 128×64 像素动画；自动降级 braille |
 | `python examples/pixel_oled.py --backend braille` | 强制通用字符画布 |
 | `python examples/benchmark.py --frames 300` | CPU 基准；不包含真实终端显示耗时 |
+| `python examples/record_motion.py --output motion.gif` | 可选 Pillow 生成离线动画预览，非终端屏幕录制 |
 | `python -m comfortable_tui --snapshot` | 无交互终端也可输出一帧，用于自动化检查 |
 
 公共操作：Tab / Shift+Tab 切换焦点，方向键编辑/选择，Enter 确认，Escape 关闭弹窗/返回，
 Ctrl+Q 或 Ctrl+C 退出。画廊中先聚焦顶部 Tabs，再按左右键切换页面。
 建议窗口至少 100×32；小窗口会裁剪内容，表单可滚动。
+Gallery 默认目标 120fps，CLI 可用 `python -m comfortable_tui --fps 60` 调低。

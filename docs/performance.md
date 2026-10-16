@@ -30,6 +30,8 @@ python examples/benchmark.py --frames 300 --json docs/benchmark-results.json
 | 200×60 / 10,000 | 4.298 / 6.054 | 4.404 / 5.660 | 879 |
 
 原始记录：[benchmark-results.json](benchmark-results.json)。所有场景稳定后均输出 0 字节。
+以上是初始版本记录；焦点/菜单优化后的同类测试见
+[benchmark-motion.json](benchmark-motion.json) 和 [优化报告](motion-research.md)。
 这是一次本机测试，运行顺序、温度、缓存和系统负载会影响结果；C++ 的小幅差异不应被
 理解为稳定加速承诺。8.33ms 为 120fps 的 CPU 帧预算，16.67ms 为 60fps 的预算。
 

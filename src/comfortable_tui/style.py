@@ -16,6 +16,15 @@ class Style:
     def with_(self, **changes):
         return replace(self, **changes)
 
+    def blend(self, other: "Style", amount: float):
+        """Interpolate colors while retaining the original text attributes."""
+        amount = min(1.0, max(0.0, amount))
+        def mix(a, b):
+            if a is None or b is None:
+                return b if amount >= 1 else a
+            return tuple(round(x + (y - x) * amount) for x, y in zip(a, b))
+        return self.with_(fg=mix(self.fg, other.fg), bg=mix(self.bg, other.bg))
+
     def ansi(self, colors: str = "truecolor") -> str:
         codes = ["0"]
         for enabled, code in [(self.bold, "1"), (self.italic, "3"),

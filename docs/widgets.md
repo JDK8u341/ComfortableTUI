@@ -102,13 +102,17 @@ TreeNode 数据。刷新文件系统树需重建数据或清空相应节点 chil
 | `Grid(*children, columns=2, gap=1)` | 固定列数 | 行优先，均分网格 |
 | `Panel(child, title="", padding=0)` | 一个子控件 | 边框/标题，焦点在子树内时突出边框 |
 | `ScrollView(child)` | 一个可测量子树 | 按 child.measure 布局；滚轮和方向键滚动，Tab 进入子控件时保证可见 |
-| `Tabs(tabs: dict[str, Widget], on_change=None)` | 至少一个页面；`.selected` | 标签栏聚焦时左右切换，或鼠标点标题；`select(index)`，`on_change(index)` |
+| `Tabs(tabs: dict[str, Widget], on_change=None)` | 至少一个页面；`.selected` | 选中条与内容滑动过渡；标签聚焦时左右切换或点标题；`select(index)`，`on_change(index)` |
 | `Collapsible(title, child, expanded=True)` | `.expanded`、`toggle()` | Enter/Space/标题点击；展开高度渐变；不指定 height 时可推动兄弟布局 |
 | `PageStack(root)` | `.top`、`push(page)`、`pop()` | 整页弹簧滑入/滑出，挂起页面保留状态，根页不可 pop |
 
 容器超出空间时裁剪，不会自动让整个屏幕滚动。使用 ScrollView 指明滚动域。
 Frame 的 Layout 使用整数单元格；一般宽高变化直接重排，动画目前集中于列表、滚动、
 开关、按钮反馈、折叠和页面切换。
+
+表单共享焦点高亮以浮点边缘在控件之间移动，使用覆盖率混色；文字仍保持在网格上。
+控件默认从父画面继承背景，显式 style 可指定独立表面。Tabs 过渡时同时绘制进出两页，
+但仅选中页接收交互；快速反向选择会保留运动速度。标题超出宽度时自动滚动。
 
 ## 像素图形
 
