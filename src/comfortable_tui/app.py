@@ -97,6 +97,68 @@ class App:
             index = widgets.index(self.focused) if self.focused in widgets else (-1 if direction > 0 else 0)
             self.focus(widgets[(index + direction) % len(widgets)])
 
+    def focus_direction(self, direction: str) -> bool:
+        """Focus the nearest visible neighbor after a widget declines an arrow key.
+
+        Aligned candidates take priority over diagonal ones. Ancestors, clipped
+        controls and widgets outside the current modal/page scope are excluded.
+        """
+        if direction not in ("left", "right", "up", "down"):
+            raise ValueError("direction must be left, right, up, or down")
+        scope = self.modal or self.root
+        widgets = list(scope.focusables())
+        if self.focused not in widgets:
+            return False
+
+        def bounds(widget):
+            rect = widget.rect.intersect(Rect(0, 0, *self._size))
+            parent = widget.parent
+            while parent:
+                rect = rect.intersect(parent.rect)
+                parent = parent.parent
+            return rect
+
+        ancestors = set()
+        parent = self.focused
+        while parent:
+            ancestors.add(parent)
+            parent = parent.parent
+        source = bounds(self.focused)
+        if not source.width or not source.height:
+            return False
+        horizontal = direction in ("left", "right")
+        sign = 1 if direction in ("right", "down") else -1
+        start = source.x if horizontal else source.y
+        length = source.width if horizontal else source.height
+        cross_start = source.y if horizontal else source.x
+        cross_length = source.height if horizontal else source.width
+        candidates = []
+        for index, widget in enumerate(widgets):
+            if widget in ancestors:
+                continue
+            parent = widget.parent
+            while parent and parent is not self.focused:
+                parent = parent.parent
+            if parent is self.focused:
+                continue
+            rect = bounds(widget)
+            if not rect.width or not rect.height:
+                continue
+            other = rect.x if horizontal else rect.y
+            size = rect.width if horizontal else rect.height
+            cross = rect.y if horizontal else rect.x
+            cross_size = rect.height if horizontal else rect.width
+            forward = sign * (other + size / 2 - start - length / 2)
+            if forward <= 0:
+                continue
+            overlap = min(cross_start + cross_length, cross + cross_size) - max(cross_start, cross)
+            gap = max(0, other - start - length if sign > 0 else start - other - size)
+            cross_distance = abs(cross + cross_size / 2 - cross_start - cross_length / 2)
+            candidates.append(((overlap <= 0, gap, cross_distance, forward, index), widget))
+        if not candidates:
+            return False
+        return self.focus(min(candidates, key=lambda item: item[0])[1])
+
     def bind(self, key: str, callback):
         self.bindings[key] = callback
 
@@ -196,6 +258,8 @@ class App:
                 self.invalidate()
                 return
             target = target.parent
+        if isinstance(event, Key) and event.phase != "release" and event.name in ("left", "right", "up", "down"):
+            self.focus_direction(event.name)
 
     def _advance(self, dt):
         self._clock += dt

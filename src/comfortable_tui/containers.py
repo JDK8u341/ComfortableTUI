@@ -259,7 +259,7 @@ class Tabs(Widget):
         return self.children[self.selected].hit_test(x, y) or self
 
     def on_event(self, event):
-        if isinstance(event, Key) and event.phase != "release" and event.name in ("left", "right"):
+        if self.focused and isinstance(event, Key) and event.phase != "release" and event.name in ("left", "right"):
             self.select(self.selected + (1 if event.name == "right" else -1))
             return True
         if isinstance(event, Mouse) and event.phase == "press" and event.y == self.rect.y:

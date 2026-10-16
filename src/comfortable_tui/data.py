@@ -434,7 +434,10 @@ class DataTable(ListView):
     def on_event(self, event):
         if isinstance(event, Key) and event.phase != "release" and event.name in ("left", "right"):
             maximum = max(0, text_width(self._format(self.columns)) - max(0, self.rect.width - 4))
-            self.horizontal_offset = min(maximum, max(0, self.horizontal_offset + (4 if event.name == "right" else -4)))
+            offset = min(maximum, max(0, self.horizontal_offset + (4 if event.name == "right" else -4)))
+            if offset == self.horizontal_offset:
+                return False
+            self.horizontal_offset = offset
             self.invalidate()
             return True
         if isinstance(event, Mouse) and event.y < self._body_rect.y and event.phase != "scroll":

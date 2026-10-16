@@ -59,7 +59,7 @@ with App(root, fps=60) as app:
 | 操作 | 行为 |
 | --- | --- |
 | Tab / Shift+Tab | 在当前页面或弹窗中前后移动焦点 |
-| 方向键、Home、End、PageUp、PageDown | 按控件执行选择、编辑或滚动 |
+| 方向键、Home、End、PageUp、PageDown | 优先执行控件的选择/编辑/滚动；未被处理的方向键移动到相邻控件 |
 | Enter / Space | 激活按钮/复选框；列表 Enter 选择，SelectionList Space 勾选 |
 | Escape | 关闭弹窗；在 PageStack 内回到上一页 |
 | Ctrl+Q / Ctrl+C | 退出应用 |

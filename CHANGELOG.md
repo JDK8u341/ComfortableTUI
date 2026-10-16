@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix content arrow keys bubbling into Tabs: only the focused tab bar changes pages.
+- Add spatial focus fallback for unhandled arrows, including table scroll boundaries.
+
 - Inherit painted surfaces for controls and panel borders to remove dark focus cutouts.
 - Add a shared, fractional-cell focus highlight with independent leading/trailing edges.
 - Animate Tabs selection and content, preserve page velocity on reversal and scroll overflowing headers.

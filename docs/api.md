@@ -25,6 +25,7 @@ App(root, theme=None, fps=60, reduced_motion=None,
 | `dispatch(event)` | 路由一个输入/能力事件，可用于测试和自定义宿主 |
 | `focus(widget)` | 若在当前焦点域可聚焦则设置，返回 bool |
 | `focus_next(direction=1)` | 按树顺序循环切换焦点；负数向前 |
+| `focus_direction(direction)` | left/right/up/down，转到可见的最近相邻控件；优先同一行/列，返回 bool |
 | `bind(key, callback)` | 全局键绑定，回调无参数；覆盖同名绑定 |
 | `show_modal(widget)` / `close_modal()` | 一层模态，替换已有 modal，关闭恢复焦点 |
 | `notify(text, duration=3)` | 底行临时消息，再次调用替换并重置计时 |

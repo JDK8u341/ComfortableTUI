@@ -75,7 +75,8 @@ DataTable(columns, rows=(), column_widths=None,
 ```
 
 固定表头和分隔行；正文复用 ListView 的虚拟化与动画。`column_widths` 为各列单元格宽度，
-默认按容器均分。左右键水平滚动，上下和翻页键选择行。`set_rows(rows)` 更新数据。
+默认按容器均分。左右键优先水平滚动，达到横向边界后可以移动焦点到相邻区域；上下和
+翻页键选择行。`set_rows(rows)` 更新数据。
 确认回调为 `on_select(index, tuple_of_cell_strings)`。本版选择单位为行；无排序、多列
 单元格编辑、冻结列和拖动列宽功能。对超长中文列的水平裁切按 grapheme 处理。
 
