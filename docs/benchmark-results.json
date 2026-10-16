@@ -1,0 +1,85 @@
+{
+  "python": "3.12.14",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "workload": "headless list layout + draw + ANSI encode; no terminal I/O",
+  "results": [
+    {
+      "size": [
+        80,
+        24
+      ],
+      "items": 1000,
+      "frames": 300,
+      "backend": "python",
+      "median_ms": 1.25,
+      "p95_ms": 2.085,
+      "mean_bytes": 413,
+      "idle_bytes": 0
+    },
+    {
+      "size": [
+        120,
+        40
+      ],
+      "items": 10000,
+      "frames": 300,
+      "backend": "python",
+      "median_ms": 2.269,
+      "p95_ms": 3.392,
+      "mean_bytes": 632,
+      "idle_bytes": 0
+    },
+    {
+      "size": [
+        200,
+        60
+      ],
+      "items": 10000,
+      "frames": 300,
+      "backend": "python",
+      "median_ms": 4.298,
+      "p95_ms": 6.054,
+      "mean_bytes": 879,
+      "idle_bytes": 0
+    },
+    {
+      "size": [
+        80,
+        24
+      ],
+      "items": 1000,
+      "frames": 300,
+      "backend": "cpp",
+      "median_ms": 1.193,
+      "p95_ms": 1.673,
+      "mean_bytes": 413,
+      "idle_bytes": 0
+    },
+    {
+      "size": [
+        120,
+        40
+      ],
+      "items": 10000,
+      "frames": 300,
+      "backend": "cpp",
+      "median_ms": 2.235,
+      "p95_ms": 3.161,
+      "mean_bytes": 632,
+      "idle_bytes": 0
+    },
+    {
+      "size": [
+        200,
+        60
+      ],
+      "items": 10000,
+      "frames": 300,
+      "backend": "cpp",
+      "median_ms": 4.404,
+      "p95_ms": 5.66,
+      "mean_bytes": 879,
+      "idle_bytes": 0
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comfortable-tui"
+version = "0.1.0"
+description = "A spring-driven Python TUI toolkit inspired by embedded OLED interfaces"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "ComfortableTUI contributors"}]
+dependencies = ["wcwidth>=0.2.13", "regex>=2024.5.15"]
+classifiers = ["Development Status :: 3 - Alpha", "Environment :: Console", "Programming Language :: Python :: 3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pyte>=0.8.2", "ruff>=0.9", "build>=1", "pybind11>=2.13"]
+docs = ["mkdocs>=1.6"]
+
+[project.scripts]
+comfortable-tui = "comfortable_tui.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/JDK8u341/ComfortableTUI"
+Documentation = "https://github.com/JDK8u341/ComfortableTUI/tree/main/docs"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

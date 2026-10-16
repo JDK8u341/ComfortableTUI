@@ -1,0 +1,18 @@
+site_name: ComfortableTUI
+site_description: Spring-driven Python terminal interfaces
+repo_url: https://github.com/JDK8u341/ComfortableTUI
+nav:
+  - 首页: index.md
+  - 入门: getting-started.md
+  - 调研: research.md
+  - 架构: architecture.md
+  - 控件: widgets.md
+  - API: api.md
+  - 终端协议: terminal-protocols.md
+  - 性能: performance.md
+  - 开发: development.md
+theme:
+  name: readthedocs
+validation:
+  links:
+    not_found: warn

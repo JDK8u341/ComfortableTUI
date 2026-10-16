@@ -1,0 +1,141 @@
+"""Retained widget tree with target-based layout and explicit animation ownership."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Iterator
+
+from .animation import Value
+from .canvas import Canvas, Rect
+from .events import Event
+from .style import Style, Theme
+
+if TYPE_CHECKING:
+    from .app import App
+
+
+class Widget:
+    focusable = False
+
+    def __init__(self, *, id: str = "", width: int | None = None, height: int | None = None,
+                 flex: float = 1, style: Style | None = None, disabled: bool = False,
+                 visible: bool = True):
+        self.id, self.width, self.height, self.flex = id, width, height, max(0, flex)
+        self.style, self.disabled, self.visible = style, disabled, visible
+        self.parent: Widget | None = None
+        self.app: App | None = None
+        self.children: list[Widget] = []
+        self.rect, self.target_rect = Rect(), Rect()
+        self._values: list[Value] = []
+
+    @property
+    def theme(self) -> Theme:
+        return self.app.theme if self.app else Theme()
+
+    @property
+    def focused(self) -> bool:
+        return self.app is not None and self.app.focused is self
+
+    def value(self, initial=0.0, *, speed=18.0, damping=1.0) -> Value:
+        v = Value(initial, speed, damping)
+        self._values.append(v)
+        if self.app:
+            self.app.animator.add(v)
+        return v
+
+    def mount(self, app: App):
+        if self.app is app:
+            return
+        if self.app:
+            self.unmount()
+        self.app = app
+        for value in self._values:
+            app.animator.add(value)
+        for child in self.children:
+            child.mount(app)
+
+    def unmount(self):
+        for child in self.children:
+            child.unmount()
+        if self.app:
+            for value in self._values:
+                self.app.animator.remove(value)
+            if self.app.focused is self:
+                self.app.focused = None
+        self.app = None
+
+    def add(self, *children: Widget):
+        for child in children:
+            if child is self or any(node is self for node in child.walk()):
+                raise ValueError("widget trees cannot contain cycles")
+            if child.parent is not None or child.app is not None:
+                raise ValueError("a widget may have only one owner")
+            self.children.append(child)
+            child.parent = self
+            if self.app:
+                child.mount(self.app)
+        self.invalidate()
+        return self
+
+    def remove(self, child: Widget):
+        self.children.remove(child)
+        child.unmount()
+        child.parent = None
+        self.invalidate()
+
+    def walk(self) -> Iterator[Widget]:
+        yield self
+        for child in self.children:
+            yield from child.walk()
+
+    def focusables(self) -> Iterator[Widget]:
+        if not self.visible or self.disabled:
+            return
+        if self.focusable and self.rect.width > 0 and self.rect.height > 0:
+            yield self
+        for child in self.children:
+            yield from child.focusables()
+
+    def find(self, id: str) -> Widget:
+        for widget in self.walk():
+            if widget.id == id:
+                return widget
+        raise KeyError(id)
+
+    def invalidate(self):
+        if self.app:
+            self.app.invalidate()
+
+    def measure(self, width: int) -> int:
+        return self.height if self.height is not None else 1
+
+    def layout(self, rect: Rect):
+        self.rect = self.target_rect = rect
+
+    def tick(self, dt: float):
+        for child in self.children:
+            if child.visible:
+                child.tick(dt)
+
+    def paint(self, canvas: Canvas):
+        pass
+
+    def draw(self, canvas: Canvas):
+        if not self.visible or self.rect.width <= 0 or self.rect.height <= 0:
+            return
+        with canvas.clipped(self.rect):
+            if not canvas.clip.width or not canvas.clip.height:
+                return
+            self.paint(canvas)
+            for child in self.children:
+                child.draw(canvas)
+
+    def on_event(self, event: Event) -> bool:
+        return False
+
+    def hit_test(self, x: int, y: int) -> Widget | None:
+        if not self.visible or self.disabled or not self.rect.contains(x, y):
+            return None
+        for child in reversed(self.children):
+            hit = child.hit_test(x, y)
+            if hit:
+                return hit
+        return self if self.focusable else None

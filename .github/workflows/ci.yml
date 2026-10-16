@@ -1,0 +1,41 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.10', '3.12', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m ruff check .
+      - name: Test pure Python
+        run: python -m pytest -q
+        env:
+          COMFORTABLE_TUI_PURE_PYTHON: '1'
+      - name: Build optional extension
+        run: python -m pip install --no-build-isolation -e .
+        env:
+          COMFORTABLE_TUI_BUILD_NATIVE: '1'
+      - name: Verify native import
+        run: python -c "from comfortable_tui import Renderer; assert Renderer().backend == 'cpp'"
+      - name: Test native extension
+        run: python -m pytest -q
+      - run: python -m comfortable_tui --snapshot
+      - run: python -m build
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[docs]"
+      - run: python -m mkdocs build --strict
