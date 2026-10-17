@@ -136,3 +136,10 @@ pixels = PixelCanvas(128, 64, painter=paint, animate=True, backend="auto",
 `animate=True` 定期请求重绘；非动画的 surface 手动改动后调用 invalidate。
 braille 用 2×4 采样点/格，单格前景色取点的平均值，不是完整彩色图像显示。
 像素缩放由终端按 cell placement 实现，终端字体纵横比可能改变图像比例。
+
+## 外部缓冲区画布（Windows）
+
+`OverlayCanvas(FrameBuffer(...), on_event=..., fit="contain")` 使用独立的透明原生窗口
+显示外部渲染方提交的图像，不依赖终端图像协议。包含自动 DPI/布局对齐、裁剪、
+缩放、鼠标/键盘/IME 和窗口事件。需安装 `.[overlay]`；完整接口见
+[原生缓冲区画布](overlay-canvas.md)。

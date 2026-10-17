@@ -95,3 +95,23 @@ Remove-Item Env:COMFORTABLE_TUI_PURE_PYTHON
 
 PixelCanvas 的 braille 后端为 Python 采样，每终端格最多八次采样；大画布可能成为主要
 开销。Kitty 后端使用标准库的 C 实现 zlib 压缩，但高熵 RGB 帧传输量可能更大。
+
+## Windows 原生缓冲区画布
+
+OverlayCanvas 不经过终端图像协议。生产者直接写三槽共享内存，独立 Qt 进程用
+QImage/QPainter 缩放显示；布局控制与输入队列均有界，慢帧不会积压像素数据。
+可选 Qt 绘制为原生 C++ 实现，本路径不需要额外编译 pybind11 扩展。
+
+本机 Windows 11 / Python 3.12，120 次采样（另有10次预热），预乘 BGRA 不缩放
+离屏绘制结果；单位 ms，详见 [原始数据](benchmark-overlay.json)：
+
+| 源尺寸 | submit 完整复制 median / p95 | Qt 离屏绘制 median / p95 |
+| --- | --- | --- |
+| 640×360 | 0.039 / 0.064 | 0.029 / 0.044 |
+| 1920×1080 | 0.517 / 0.724 | 0.576 / 1.005 |
+| 3840×2160 | 1.876 / 2.715 | 2.727 / 3.840 |
+
+这些数据不包含外部图像生成、GUI 调度、跨进程等待、窗口缩放和 DWM/显示器呈现，
+不能推导实际 FPS。`write()` 允许省去 submit 复制，但渲染器仍需生成完整像素。
+完整内存/事件/定位约定和真实 Windows Terminal 验证方法见
+[原生画布](overlay-canvas.md) 与 [Exa 调研](overlay-research.md)。

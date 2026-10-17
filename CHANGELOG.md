@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add Windows OverlayCanvas: transparent owned windows, shared three-slot image buffers,
+  automatic cell/DPI alignment, clipping, scaling, and native input/IME/lifecycle events.
+- Keep overlay windows above their terminal, restore group z-order after activation,
+  and bind the actual terminal stream through a temporary UIA text marker.
+- Add external-renderer, performance and real Windows Terminal verification examples;
+  document the optional Qt backend, event contract, research and measured limits.
+
 - Make menu focus visible and reachable with F6, Up at list boundaries, and Enter/Down back into content.
 - Remember the last content focus per tab and decode enhanced-terminal function keys.
 

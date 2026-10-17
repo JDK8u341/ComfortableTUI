@@ -8,6 +8,8 @@ from .controls import (BarChart, Button, Checkbox, Input, Label, Log, Paragraph,
 from .data import DataTable, DirectoryTree, ListView, RadioGroup, Select, SelectionList, Tree, TreeNode
 from .events import Capability, InputParser, Key, Mouse, Paste
 from .graphics import KittyEncoder, PixelCanvas, Surface
+from .overlay import (CanvasEvent, CanvasTransform, FrameBuffer, FrameBufferInfo, FrameLease,
+                      OverlayCanvas, PixelRect, TerminalHost)
 from .renderer import FrameStats, Renderer
 from .style import Style, Theme
 from .widget import Widget
@@ -21,4 +23,6 @@ __all__ = [
     "RadioGroup", "Select", "SelectionList", "Tree", "TreeNode", "Capability", "InputParser", "Key",
     "Mouse", "Paste", "KittyEncoder", "PixelCanvas", "Surface", "FrameStats", "Renderer", "Style",
     "Theme", "Widget",
+    "CanvasEvent", "CanvasTransform", "FrameBuffer", "FrameBufferInfo", "FrameLease",
+    "OverlayCanvas", "PixelRect", "TerminalHost",
 ]

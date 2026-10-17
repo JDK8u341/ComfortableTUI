@@ -61,6 +61,8 @@ class App:
         self._callbacks = queue.SimpleQueue()
         self._executor: ThreadPoolExecutor | None = None
         self._images = {}
+        self._overlay_sessions = {}
+        self._overlay_placements = {}
         self._terminal = None
         self._toast, self._toast_timer = "", None
         self.bindings = {"ctrl+c": self.exit, "ctrl+q": self.exit}
@@ -284,6 +286,8 @@ class App:
             self.focus_direction(event.name)
 
     def _advance(self, dt):
+        for session in list(self._overlay_sessions.values()):
+            session.poll()
         self._clock += dt
         while not self._callbacks.empty():
             self._callbacks.get()()
@@ -335,6 +339,7 @@ class App:
         if self.modal:
             # Background image placements must not cover a cell modal.
             frame.graphics.clear()
+            frame.overlays.clear()
             self.modal.draw(frame)
         with frame.clipped(self._focus_clip):
             highlight = self.theme.selection.with_(reverse=self.renderer.colors == "none")
@@ -342,10 +347,35 @@ class App:
         if self._toast and height:
             frame.graphics = {key: value for key, value in frame.graphics.items()
                               if value[2].y + value[2].height < height}
+            frame.overlays = {key: (widget, rect, clip.intersect(Rect(0, 0, width, height - 1)))
+                              for key, (widget, rect, clip) in frame.overlays.items()}
             frame.fill(Rect(0, height - 1, width, 1), self.theme.selection)
             frame.text(1, height - 1, self._toast, self.theme.selection, max(0, width - 2))
         self._dirty = False
+        self._overlay_placements = frame.overlays
         return frame
+
+    def _sync_overlays(self):
+        from .overlay import _OverlaySession
+        for key, (widget, rect, clip) in self._overlay_placements.items():
+            if key not in self._overlay_sessions and not widget._closed:
+                session = _OverlaySession(widget)
+                self._overlay_sessions[key] = widget._session = session
+        for key, session in list(self._overlay_sessions.items()):
+            widget = session.widget
+            if widget.app is not self or widget._closed:
+                session.close()
+                del self._overlay_sessions[key]
+                continue
+            placement = self._overlay_placements.get(key)
+            session.sync((placement[1], placement[2]) if placement else None, self._size)
+
+    def _close_overlays(self):
+        for session in self._overlay_sessions.values():
+            session.close()
+            session.widget._session = None
+        self._overlay_sessions.clear()
+        self._native_overlay_host = None
 
     def _prepare_focus(self, width, height):
         widget = self.focused
@@ -405,6 +435,7 @@ class App:
                         self._advance(dt)
                         if self._dirty or self.animator.active:
                             terminal.write(self.encode(self._compose(width, height, dt)))
+                            self._sync_overlays()
                         deadline = start + 1 / self.fps
                         while True:
                             wait = max(0, deadline - time.monotonic())
@@ -413,6 +444,7 @@ class App:
                             if not self._running or time.monotonic() >= deadline:
                                 break
                 finally:
+                    self._close_overlays()
                     for encoder in self._images.values():
                         terminal.write(encoder.delete())
                     self._images.clear()
@@ -423,6 +455,7 @@ class App:
 
     def close(self):
         self.exit()
+        self._close_overlays()
         self.close_modal()
         self.root.unmount()
         for edge in self._focus_highlight.edges:

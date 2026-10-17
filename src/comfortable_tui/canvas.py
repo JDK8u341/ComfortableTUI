@@ -77,6 +77,7 @@ class Canvas:
         self.cells = [_cell(" ", style)] * (self.width * self.height)
         self.clip = Rect(0, 0, self.width, self.height)
         self.graphics: dict = {}
+        self.overlays: dict = {}
 
     @contextmanager
     def clipped(self, rect: Rect):

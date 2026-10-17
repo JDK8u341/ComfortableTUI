@@ -10,6 +10,9 @@
 | `python examples/dashboard.py` | 定时器、曲线、进度条、后台任务 |
 | `python examples/pixel_oled.py` | OLED 风格的 128×64 像素动画；自动降级 braille |
 | `python examples/pixel_oled.py --backend braille` | 强制通用字符画布 |
+| `python examples/overlay_canvas.py` | Windows 透明原生画布、独立渲染进程、缓冲区、缩放与输入；先安装 `.[overlay]` |
+| `python examples/benchmark_overlay.py --qt` | 共享缓冲区与 Qt 离屏性能；不代表屏幕 FPS |
+| `python examples/verify_overlay_windows.py` | 创建专用 Windows Terminal，验证原生定位/层级/输入并退出 |
 | `python examples/benchmark.py --frames 300` | CPU 基准；不包含真实终端显示耗时 |
 | `python examples/record_motion.py --output motion.gif` | 可选 Pillow 生成离线动画预览，非终端屏幕录制 |
 | `python -m comfortable_tui --snapshot` | 无交互终端也可输出一帧，用于自动化检查 |

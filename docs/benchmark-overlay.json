@@ -1,0 +1,80 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.14",
+  "frames": 120,
+  "note": "offscreen CPU timings; not DWM/GPU/presentation latency",
+  "results": [
+    {
+      "size": [
+        640,
+        360
+      ],
+      "slots": 3,
+      "frame_bytes": 921600,
+      "submit_copy": {
+        "median_ms": 0.03949998063035309,
+        "p95_ms": 0.06399996345862746
+      },
+      "write_lease_overhead": {
+        "median_ms": 0.009800016414374113,
+        "p95_ms": 0.01650000922381878
+      },
+      "read_lease_overhead": {
+        "median_ms": 0.0053000112529844046,
+        "p95_ms": 0.00890000956133008
+      },
+      "qt_offscreen_draw": {
+        "median_ms": 0.02854998456314206,
+        "p95_ms": 0.04429998807609081
+      }
+    },
+    {
+      "size": [
+        1920,
+        1080
+      ],
+      "slots": 3,
+      "frame_bytes": 8294400,
+      "submit_copy": {
+        "median_ms": 0.5171500088181347,
+        "p95_ms": 0.7243999862112105
+      },
+      "write_lease_overhead": {
+        "median_ms": 0.019050028640776873,
+        "p95_ms": 0.04869996337220073
+      },
+      "read_lease_overhead": {
+        "median_ms": 0.010200019460171461,
+        "p95_ms": 0.01950003206729889
+      },
+      "qt_offscreen_draw": {
+        "median_ms": 0.5761999927926809,
+        "p95_ms": 1.0053000296466053
+      }
+    },
+    {
+      "size": [
+        3840,
+        2160
+      ],
+      "slots": 3,
+      "frame_bytes": 33177600,
+      "submit_copy": {
+        "median_ms": 1.876299997093156,
+        "p95_ms": 2.714599948376417
+      },
+      "write_lease_overhead": {
+        "median_ms": 0.03125000512227416,
+        "p95_ms": 0.0543000060133636
+      },
+      "read_lease_overhead": {
+        "median_ms": 0.012500007869675756,
+        "p95_ms": 0.026899971999228
+      },
+      "qt_offscreen_draw": {
+        "median_ms": 2.727050014073029,
+        "p95_ms": 3.839800017885864
+      }
+    }
+  ]
+}

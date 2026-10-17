@@ -153,3 +153,16 @@ muted/selection/success/error；`Theme.light()` 提供浅色主题。
 `KittyEncoder(image_id=None)`：`encode(surface,rect,force=False)` 返回压缩图像分块，
 重复画面/位置返回空；`delete()` 删除该 ID 并重置缓存。通常由 PixelCanvas 与 App 自动管理。
 独立编码器的 image_id 由调用方确保不与其他终端应用冲突。
+
+## FrameBuffer / OverlayCanvas（Windows）
+
+导出 `FrameBuffer`, `FrameBufferInfo`, `FrameLease`, `OverlayCanvas`, `TerminalHost`,
+`PixelRect`, `CanvasTransform`, `CanvasEvent`。安装 `.[overlay]` 后可在本机 Windows
+桌面显示外部渲染方提供的原始像素；导入公共 API 或 App.render 不依赖 Qt。
+
+`OverlayCanvas(buffer, on_event=None, fit="contain", smooth=True, input_mode="capture",
+host=None, fps=120, **widget_kwargs)` 支持 configure、set_buffer、set_ime、close。
+`FrameBuffer(width,height,pixel_format="rgba8",stride=None,max_bytes=512*1024*1024)`
+支持 submit、write/read 租约、attach(info)、close 和上下文管理器。
+
+完整格式、坐标、事件、生命周期、宿主定位与性能约定见 [原生画布](overlay-canvas.md)。

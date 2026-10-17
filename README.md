@@ -5,6 +5,10 @@ Spring-driven Python terminal interfaces, inspired by the 128×64 OLED UI in
 smooth scrolling and focus, animated page transitions, Unicode-aware cell
 rendering, and an optional RGB pixel canvas using Kitty graphics.
 
+Windows also has an optional **native overlay canvas**: external renderers write
+shared image buffers, displayed in transparent owned windows with scaling and
+mouse/keyboard/IME events. See the [canvas guide](docs/overlay-canvas.md).
+
 ![Motion preview from actual cell frames](docs/images/motion.gif)
 
 The preview is an offline cell-frame illustration, not a terminal FPS recording.
@@ -38,6 +42,8 @@ the selected page. The focused menu title shows a `›` marker and underline.
 - [入门与安装](docs/getting-started.md)
 - [原理调研与来源](docs/research.md)
 - [Exa 调研：焦点与菜单动画优化](docs/motion-research.md)
+- [Windows 原生缓冲区画布](docs/overlay-canvas.md)
+- [Exa 调研：覆盖窗口与性能](docs/overlay-research.md)
 - [架构与动画](docs/architecture.md)
 - [全部控件与交互](docs/widgets.md)
 - [公共 API](docs/api.md)

@@ -76,6 +76,12 @@ python -m mkdocs serve
 - alpha API，无 CSS、Markdown、完整富文本、语法高亮或文本选区/撤销。
 - 动画支持常用控件属性，未承诺每个控件矩形自动 tween。
 - 不支持嵌套在另一个全屏 TUI 中运行。
-- 无 touch、屏幕阅读器专用语义或 IME composition 事件；输入采用宿主终端提交后的字符。
+- 字符终端输入采用宿主提交后的字符，没有 touch / IME composition 或屏幕阅读器专用语义；
+  Windows OverlayCanvas 另行提供原生触摸、笔与 IME 事件，详见其文档。
 - 同步更新、键盘增强、图像传输均需实际终端支持。
 - 自定义 painter、网络盘目录和 worker 退出策略由应用负责控制耗时。
+
+可选原生画布的测试：安装 `.[dev,overlay]` 后执行
+`python -m pytest tests/test_overlay.py tests/test_overlay_qt.py`；Qt 单元测试使用 offscreen。
+本机 Windows 桌面可运行 `python examples/verify_overlay_windows.py` 验证真实窗口层级、
+DPI 对齐和输入回传。CI 的专门 Windows overlay job 安装 Qt 并运行这些 offscreen 测试。
