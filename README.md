@@ -56,4 +56,5 @@ python examples/benchmark.py --frames 300
 The default installation needs no compiler. An opt-in C++17 / pybind11 extension
 scans dirty spans; see the performance guide for build commands and measured limits.
 The core is an independent implementation. No osu-mc source or assets are bundled.
-MIT licensed.
+Licensed under the [Apache License, Version 2.0](LICENSE).
+Copyright 2026 ComfortableTUI contributors. See [NOTICE](NOTICE).
