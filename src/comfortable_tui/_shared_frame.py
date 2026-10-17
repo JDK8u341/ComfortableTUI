@@ -120,7 +120,8 @@ class FrameBuffer:
         size = _OFFSET + stride * height * 3
         if size > max_bytes:
             raise ValueError("frame allocation exceeds max_bytes (includes all three slots)")
-        shm = shared_memory.SharedMemory(name="ctui_" + uuid.uuid4().hex, create=True, size=size)
+        # Darwin limits POSIX shared-memory names (including '/') to 31 bytes.
+        shm = shared_memory.SharedMemory(name="ctui_" + uuid.uuid4().hex[:20], create=True, size=size)
         info = FrameBufferInfo(shm.name, width, height, stride, pixel_format)
         self._setup(info, shm, True)
         _HEADER.pack_into(shm.buf, 0, _MAGIC, -1, -1, 0, 0.0)

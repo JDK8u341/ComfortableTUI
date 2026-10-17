@@ -13,7 +13,7 @@ from .overlay import CanvasEvent, CanvasTransform, PixelRect
 
 class _EventSink:
     """Bounded input backlog. High-rate state events are coalesced, never pixels."""
-    _coalesced = {"mouse_move", "transform", "move", "resize", "metrics", "host_status"}
+    _coalesced = {"mouse_move", "transform", "move", "resize", "metrics", "host_status", "layer_status", "detached"}
 
     def __init__(self, output):
         self.output, self.pending, self.latest = output, deque(), {}
@@ -21,7 +21,7 @@ class _EventSink:
 
     def emit(self, event):
         if event.kind in self._coalesced:
-            self.latest[event.kind] = event
+            self.latest[(event.data.get("canvas_id"), event.data.get("canvas_token"), event.kind)] = event
         else:
             if len(self.pending) >= 1024:
                 self.pending.popleft()
@@ -83,8 +83,10 @@ def _make_window_class():
         return "+".join((*mods, name))
 
     class OverlayWindow(QWidget):
-        def __init__(self, buffer, emit, owner=None):
-            super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        def __init__(self, buffer, emit, owner=None, parent=None):
+            # Child surfaces are alien widgets: never call winId() on them.
+            super().__init__(parent, Qt.WindowType.Widget if parent else
+                             Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
             self.buffer, self.emit, self.owner = buffer, emit, owner
             self.api = None
             self.full, self.clipped = PixelRect(), PixelRect()
@@ -93,6 +95,7 @@ def _make_window_class():
             self.ime = {"cursor": (0, 0, 1, 20), "text": "", "position": 0, "anchor": 0}
             self._logical_focus = False
             self._want_focus = False
+            self._pressed_buttons = 0
             self._sequence = 0
             self._frames = self._skipped = 0
             self._draw_ms = self._age_ms = 0.0
@@ -120,7 +123,7 @@ def _make_window_class():
             mode = state["input_mode"]
             if mode != self.input_mode:
                 self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, mode == "passthrough")
-                if self.api:
+                if self.api and self.isWindow():
                     hwnd = int(self.winId())
                     # Qt's widget flag alone does not route input to another process.
                     get_style = self.api.user.GetWindowLongPtrW
@@ -137,8 +140,10 @@ def _make_window_class():
             self._want_focus = (state["focused"] and mode == "capture" and
                                 (self._want_focus or not self._logical_focus))
             self._logical_focus = state["focused"]
-            if (not self._logical_focus or mode == "passthrough") and self.isActiveWindow() and self.api:
-                self.api.user.SetForegroundWindow(self.owner)
+            layer = self.window()
+            api = self.api or getattr(layer, "api", None)
+            if (not self._logical_focus or mode == "passthrough") and self.hasFocus() and api:
+                api.user.SetForegroundWindow(layer.owner)
                 self.clearFocus()
             QApplication.inputMethod().update(Qt.InputMethodQuery.ImQueryAll)
             if changed:
@@ -149,9 +154,10 @@ def _make_window_class():
             transform = CanvasTransform.calculate((self.buffer.info.width, self.buffer.info.height),
                                                    (self.full.width, self.full.height), self.fit,
                                                    self.devicePixelRatioF())
-            if transform != self.transform:
+            if transform != self.transform or getattr(self, "_transform_geometry", None) != (self.full, self.clipped):
                 previous = self.transform
                 self.transform = transform
+                self._transform_geometry = (self.full, self.clipped)
                 self.emit(CanvasEvent("transform", {"transform": transform, "previous": previous,
                                                      "screen_rect": self.full, "clip_rect": self.clipped}))
 
@@ -161,7 +167,12 @@ def _make_window_class():
             x, y = round(clipped.x), round(clipped.y)
             width = max(1, round(clipped.x + clipped.width) - x)
             height = max(1, round(clipped.y + clipped.height) - y)
-            if self.api:
+            if self.parentWidget():
+                layer = self.parentWidget()
+                dpr = layer.devicePixelRatioF()
+                self.setGeometry(round((x - layer.clipped.x) / dpr), round((y - layer.clipped.y) / dpr),
+                                 max(1, round(width / dpr)), max(1, round(height / dpr)))
+            elif self.api:
                 # Qt owns its backing-store geometry. Mixing raw SetWindowPos
                 # sizes with Qt's logical sizes makes layered-window flushes
                 # reset the HWND at fractional DPI. Convert explicitly instead.
@@ -178,11 +189,12 @@ def _make_window_class():
                 if changed:
                     self.setGeometry(x, y, width, height)
             self._transform()
-            self.update()
+            if changed:
+                self.update()
 
         def request_focus(self):
             if self._want_focus and self.input_mode == "capture" and self.isVisible() and self.isEnabled():
-                self.activateWindow()
+                self.window().activateWindow()
                 self.setFocus(Qt.FocusReason.OtherFocusReason)
                 self._want_focus = False
 
@@ -233,11 +245,18 @@ def _make_window_class():
             dpr = self.devicePixelRatioF()
             x = position.x() * dpr + self.clipped.x - self.full.x
             y = position.y() * dpr + self.clipped.y - self.full.y
-            return {"position": (x, y), "source_position": self.transform.source_at(x, y) if self.transform else None,
+            data = {"position": (x, y), "source_position": self.transform.source_at(x, y) if self.transform else None,
                     "inside_source": self.transform.contains_source(x, y) if self.transform else False,
                     "screen_position": (x + self.full.x, y + self.full.y)}
+            if self.parentWidget():
+                layer = self.parentWidget()
+                data["terminal_position"] = (
+                    int((x + self.full.x - layer.clipped.x) * layer.grid[0] / max(1, layer.clipped.width)),
+                    int((y + self.full.y - layer.clipped.y) * layer.grid[1] / max(1, layer.clipped.height)))
+            return data
 
         def _mouse(self, kind, event):
+            self._pressed_buttons = event.buttons().value
             data = self._position(event.position())
             data.update(button=event.button().value, buttons=event.buttons().value,
                         modifiers=modifiers(event.modifiers()), native=True)
@@ -245,6 +264,7 @@ def _make_window_class():
             event.accept()
 
         def mousePressEvent(self, event):
+            self.window().activateWindow()
             self.setFocus(Qt.FocusReason.MouseFocusReason)
             self._mouse("mouse_down", event)
 
@@ -296,6 +316,9 @@ def _make_window_class():
             self.emit(CanvasEvent("show"))
 
         def hideEvent(self, event):
+            if self._pressed_buttons:
+                self.emit(CanvasEvent("pointer_cancel", {"buttons": self._pressed_buttons}))
+                self._pressed_buttons = 0
             self.emit(CanvasEvent("hide"))
 
         def moveEvent(self, event):
@@ -441,10 +464,150 @@ def _pixel_placement(placement, grid, viewport):
     return convert(full), convert(clip)
 
 
-def run_overlay(host, info, commands, events, stop, parent_pid, fps):
-    """Spawn target: Qt owns the process main thread; TUI owns the parent thread."""
+def _make_layer_class():
+    """A single native window with non-native QWidget surfaces and one backing store."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QColor, QPainter, QWindow
+    from PySide6.QtWidgets import QApplication, QWidget
+    Surface = _make_window_class()
+
+    class OverlayLayer(QWidget):
+        def __init__(self, emit, owner=None):
+            super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+            self.emit, self.owner, self.api = emit, owner, None
+            self.items, self.states, self.scheduled = {}, {}, {}
+            self.full, self.clipped = PixelRect(), PixelRect()
+            self.grid = (80, 24)
+            self.setWindowTitle("ComfortableTUI shared overlay layer")
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+            self.setMouseTracking(True)
+            if owner:
+                from ._win32_host import Win32
+                self.api = Win32()
+                self._foreign_owner = QWindow.fromWinId(owner)
+                self.winId()
+                self.windowHandle().setTransientParent(self._foreign_owner)
+                self.api.own(int(self.winId()), owner)
+
+        place = Surface.place
+
+        def _transform(self):
+            pass  # The layer has terminal coordinates; each surface has its own transform.
+
+        def apply(self, state, viewport):
+            self.grid = state["grid"]
+            self.place(viewport, viewport)
+            wanted = {item["id"]: item for item in state["items"]}
+            for key in list(self.items):
+                incoming = wanted.get(key)
+                if key not in wanted or self.states[key].get("token") != incoming.get("token"):
+                    item = self.items.pop(key)
+                    item.hide()
+                    item.buffer.close()
+                    item.deleteLater()
+                    self.states.pop(key, None)
+                    self.scheduled.pop(key, None)
+            for spec in state["items"]:
+                key = spec["id"]
+                item = self.items.get(key)
+                if item is None:
+                    def route(event, key=key, token=spec.get("token")):
+                        self.emit(CanvasEvent(event.kind, dict(event.data, canvas_id=key,
+                                              canvas_token=token, layer_rect=self.clipped), event.timestamp))
+                    item = Surface(FrameBuffer.attach(spec["buffer"]), route, parent=self)
+                    self.items[key] = item
+                    item.emit(CanvasEvent("ready", {"hwnd": int(self.winId()), "pid": os.getpid(),
+                                          "host_hwnd": self.owner, "shared_layer": True,
+                                          "platform": QApplication.platformName(),
+                                          "host_class": self.api.class_name(self.owner) if self.api else ""}))
+                    item.emit(CanvasEvent("buffer_attached", {"buffer": item.buffer.info}))
+                if item.buffer.info != spec["buffer"]:
+                    replacement = FrameBuffer.attach(spec["buffer"])
+                    item.buffer.close()
+                    item.buffer = replacement
+                    item._sequence = 0
+                    self.scheduled.pop(key, None)
+                    item.emit(CanvasEvent("buffer_attached", {"buffer": replacement.info}))
+                    item.update()
+                if self.states.get(key) != spec:
+                    item.configure(spec)
+                    self.states[key] = dict(spec)
+                mapped = _pixel_placement(spec["placement"], self.grid, viewport) if spec["placement"] else None
+                visible = bool(mapped and min(mapped[1].width, mapped[1].height) > 0)
+                if visible:
+                    item.place(*mapped)
+                    item.raise_()  # Scene order is the TUI's paint order.
+                item.setVisible(visible)
+            for retired in state.get("retired", ()):
+                self.emit(CanvasEvent("detached", {"canvas_id": retired["id"], "canvas_token": retired["token"]}))
+
+        def animate(self):
+            for key, item in self.items.items():
+                if item.isVisible():
+                    item.request_focus()
+                    now = time.perf_counter()
+                    seq, deadline = self.scheduled.get(key, (-1, 0))
+                    if now >= deadline and item.buffer.sequence != seq:
+                        self.scheduled[key] = (item.buffer.sequence, now + 1 / self.states[key]["fps"])
+                        item.update()  # Qt merges dirty regions and composes in C++.
+                item.report_metrics()
+
+        def paintEvent(self, event):
+            painter = QPainter(self)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            painter.fillRect(event.rect(), QColor(0, 0, 0, 0))
+            painter.end()
+
+        def _tui_mouse(self, event, phase, button=None):
+            x, y = event.position().x(), event.position().y()
+            data = {"x": int(x * self.grid[0] / max(1, self.width())),
+                    "y": int(y * self.grid[1] / max(1, self.height())),
+                    "phase": phase, "button": button if button is not None else
+                    {1: 0, 4: 1, 2: 2}.get(event.button().value, 0)}
+            self.emit(CanvasEvent("tui_mouse", {"event": data}))
+            if self.api and phase == "release":
+                self.api.user.SetForegroundWindow(self.owner)
+            event.accept()
+
+        def mousePressEvent(self, event):
+            self._tui_mouse(event, "press")
+
+        def mouseReleaseEvent(self, event):
+            self._tui_mouse(event, "release")
+
+        def mouseMoveEvent(self, event):
+            self._tui_mouse(event, "move", 0)
+
+        def wheelEvent(self, event):
+            self._tui_mouse(event, "scroll", 64 if event.angleDelta().y() > 0 else 65)
+
+        def closeEvent(self, event):
+            event.ignore()
+            for item in self.items.values():
+                item.emit(CanvasEvent("close_request"))
+
+        def changeEvent(self, event):
+            if event.type() == QEvent.Type.WindowStateChange:
+                for item in getattr(self, "items", {}).values():
+                    item.emit(CanvasEvent("window_state", {"state": self.windowState().value,
+                                                           "old_state": event.oldState().value}))
+            super().changeEvent(event)
+
+        def shutdown(self):
+            self.hide()
+            for item in self.items.values():
+                item.buffer.close()
+            self.items.clear()
+            self.destroy()
+
+    return OverlayLayer
+
+
+def run_overlay(host, commands, events, stop, parent_pid):
+    """One Qt main thread, one owned HWND, many logical surfaces."""
     sink = _EventSink(events)
-    buffer, tracker, window = None, None, None
+    tracker, window = None, None
     try:
         from ._win32_host import HostTracker, Win32
         import ctypes
@@ -454,17 +617,13 @@ def run_overlay(host, info, commands, events, stop, parent_pid, fps):
         from PySide6.QtWidgets import QApplication
         application = QApplication([])
         application.setQuitOnLastWindowClosed(False)
-        buffer = FrameBuffer.attach(info)
-        window = _make_window_class()(buffer, sink.emit, host.hwnd)
-        sink.emit(CanvasEvent("ready", {"hwnd": int(window.winId()), "pid": os.getpid(), "host_hwnd": host.hwnd,
-                                       "host_class": api.class_name(host.hwnd)}))
-        sink.emit(CanvasEvent("buffer_attached", {"buffer": info}))
-        state, applied, scheduled, last_error = None, None, -1, ""
+        window = _make_layer_class()(sink.emit, host.hwnd)
+        state, applied, last_error = None, None, ""
         started = time.perf_counter()
-        closing = False
+        calibrated, closing, decision = False, False, None
 
         def tick():
-            nonlocal state, applied, buffer, tracker, scheduled, last_error, closing
+            nonlocal state, applied, tracker, last_error, closing, calibrated, decision
             if closing:
                 return
             try:
@@ -483,41 +642,29 @@ def run_overlay(host, info, commands, events, stop, parent_pid, fps):
                 if tracker is None:
                     tracker = HostTracker(host, state["grid"])
                 tracker.grid = state["grid"]
-                if state["buffer"] != buffer.info:
-                    replacement = FrameBuffer.attach(state["buffer"])
-                    window.buffer = replacement
-                    buffer.close()
-                    buffer = replacement
-                    window._sequence, scheduled = 0, -1
-                    window._transform()
-                    sink.emit(CanvasEvent("buffer_attached", {"buffer": buffer.info}))
-                if state != applied:
-                    window.configure(state)
-                    applied = state
                 snapshot = tracker.snapshot()
                 if snapshot.error != last_error:
                     last_error = snapshot.error
-                    sink.emit(CanvasEvent("host_status", {"error": last_error,
-                                                           "available": snapshot.available}))
-                placement = state["placement"]
-                visible = (placement is not None and snapshot.available and snapshot.viewport is not None
-                           and tracker.visible(int(window.winId())))
-                if visible:
-                    mapped = _pixel_placement(placement, state["grid"], snapshot.viewport)
-                    visible = mapped is not None and min(mapped[1].width, mapped[1].height) > 0
-                    if visible:
-                        window.place(*mapped)
+                    sink.emit(CanvasEvent("host_status", {"error": last_error, "available": snapshot.available}))
+                visible = (snapshot.available and snapshot.viewport is not None and
+                           tracker.visible(int(window.winId())) and any(s["placement"] for s in state["items"]))
+                if snapshot.available and snapshot.viewport is not None:
+                    if applied != (state, snapshot.viewport):
+                        window.apply(state, snapshot.viewport)
+                        applied = (state, snapshot.viewport)
+                    calibrated = True
                 window.setVisible(bool(visible))
+                current = (bool(visible), api.user.GetForegroundWindow(), int(window.winId()), snapshot.available)
+                if current != decision:
+                    decision = current
+                    sink.emit(CanvasEvent("layer_status", {"visible": current[0], "foreground": current[1],
+                        "hwnd": current[2], "host": host.hwnd, "qt_visible": window.isVisible(),
+                        "available": snapshot.available, "items": len(state["items"])}))
                 if visible:
                     api.keep_above_owner(int(window.winId()), host.hwnd)
-                    window.request_focus()
-                    seq = buffer.sequence
-                    if seq != scheduled:
-                        scheduled = seq
-                        window.update()
-                elif not snapshot.available and time.perf_counter() - started > 10 and not window.transform:
+                    window.animate()
+                elif not snapshot.available and time.perf_counter() - started > 10 and not calibrated:
                     raise RuntimeError(snapshot.error or "terminal viewport calibration timed out")
-                window.report_metrics()
                 sink.flush()
             except (EOFError, BrokenPipeError):
                 closing = True
@@ -530,7 +677,7 @@ def run_overlay(host, info, commands, events, stop, parent_pid, fps):
 
         timer = QTimer()
         timer.setTimerType(Qt.TimerType.PreciseTimer)
-        timer.setInterval(max(1, round(1000 / fps)))
+        timer.setInterval(4)  # Item-specific deadlines cap rendering to each requested FPS.
         timer.timeout.connect(tick)
         timer.start()
         application.exec()
@@ -539,12 +686,8 @@ def run_overlay(host, info, commands, events, stop, parent_pid, fps):
         sink.flush()
     finally:
         if window:
-            window.hide()
-            window.destroy()
+            window.shutdown()
         if tracker:
             tracker.close()
-        if buffer:
-            buffer.close()
         commands.close()
-        # The parent may already have stopped draining input during shutdown.
         events.cancel_join_thread()

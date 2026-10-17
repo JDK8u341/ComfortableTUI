@@ -10,6 +10,8 @@
 | `python examples/dashboard.py` | 定时器、曲线、进度条、后台任务 |
 | `python examples/pixel_oled.py` | OLED 风格的 128×64 像素动画；自动降级 braille |
 | `python examples/pixel_oled.py --backend braille` | 强制通用字符画布 |
+| `python examples/embedded_canvas.py` | 一个 HWND 中的列表行、表格单元格、Text 混排、标签切换与弹窗画布；安装 `.[overlay]` |
+| `python examples/benchmark_overlay_layer.py` | 1/4/16 画布局部/全部更新的 Qt CPU 合成采样 |
 | `python examples/overlay_canvas.py` | Windows 透明原生画布、独立渲染进程、缓冲区、缩放与输入；先安装 `.[overlay]` |
 | `python examples/benchmark_overlay.py --qt` | 共享缓冲区与 Qt 离屏性能；不代表屏幕 FPS |
 | `python examples/verify_overlay_windows.py` | 创建专用 Windows Terminal，验证原生定位/层级/输入并退出 |
@@ -22,3 +24,5 @@ Ctrl+Q 或 Ctrl+C 退出。画廊中先聚焦顶部 Tabs，再按左右键切换
 按 F6 可直接聚焦菜单栏，再按 F6 返回内容；Enter / ↓ 也可从菜单进入当前页。
 建议窗口至少 100×32；小窗口会裁剪内容，表单可滚动。
 Gallery 默认目标 120fps，CLI 可用 `python -m comfortable_tui --fps 60` 调低。
+
+`python examples/verify_overlay_windows.py --embedded` 在自己创建的 Windows Terminal 中验证多画布共享窗口、原生输入、标签页隐藏与恢复。

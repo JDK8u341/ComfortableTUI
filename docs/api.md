@@ -166,3 +166,17 @@ host=None, fps=120, **widget_kwargs)` 支持 configure、set_buffer、set_ime、
 支持 submit、write/read 租约、attach(info)、close 和上下文管理器。
 
 完整格式、坐标、事件、生命周期、宿主定位与性能约定见 [原生画布](overlay-canvas.md)。
+
+
+## 共享附加层与内嵌控件
+
+OverlayCanvas 现在共享 App 的一个 GUI 进程/原生窗口，无需改写原有创建代码。
+各画布保留独立 fit、fps、输入模式和回调；ready.hwnd/pid 可相同，canvas_id/token
+标识逻辑节点。新 detached 事件确认移除完成，可停止专用渲染器并释放源。
+TerminalHost 须一致；详见 [画布接口](overlay-canvas.md)。
+
+- `ListView(..., item_widget=None)`：工厂 `(index, text) -> fresh Widget`，只保留可见行。
+- `DataTable(..., cell_widget=None)`：工厂 `(row, column, value) -> fresh Widget | None`。
+- `Text(*runs, **Widget_kwargs)`：字符串/Widget 混排，内嵌控件需指定 width。
+
+`Label`、`Paragraph` 和 `TextArea` 的原有字符串接口不变。

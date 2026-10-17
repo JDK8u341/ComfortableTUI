@@ -4,7 +4,7 @@ from .app import App, Timer
 from .canvas import Canvas, Cell, Rect, crop_text, text_width
 from .containers import Collapsible, Grid, HBox, PageStack, Panel, ScrollView, Tabs, VBox
 from .controls import (BarChart, Button, Checkbox, Input, Label, Log, Paragraph, ProgressBar,
-                       Rule, Slider, Spacer, Sparkline, Spinner, Switch, TextArea)
+                       Rule, Slider, Spacer, Sparkline, Spinner, Switch, Text, TextArea)
 from .data import DataTable, DirectoryTree, ListView, RadioGroup, Select, SelectionList, Tree, TreeNode
 from .events import Capability, InputParser, Key, Mouse, Paste
 from .graphics import KittyEncoder, PixelCanvas, Surface
@@ -19,7 +19,7 @@ __all__ = [
     "Animator", "Value", "App", "Timer", "Canvas", "Cell", "Rect", "crop_text", "text_width",
     "Collapsible", "Grid", "HBox", "PageStack", "Panel", "ScrollView", "Tabs", "VBox", "BarChart",
     "Button", "Checkbox", "Input", "Label", "Log", "Paragraph", "ProgressBar", "Rule", "Slider",
-    "Spacer", "Sparkline", "Spinner", "Switch", "TextArea", "DataTable", "DirectoryTree", "ListView",
+    "Spacer", "Sparkline", "Spinner", "Switch", "Text", "TextArea", "DataTable", "DirectoryTree", "ListView",
     "RadioGroup", "Select", "SelectionList", "Tree", "TreeNode", "Capability", "InputParser", "Key",
     "Mouse", "Paste", "KittyEncoder", "PixelCanvas", "Surface", "FrameStats", "Renderer", "Style",
     "Theme", "Widget",

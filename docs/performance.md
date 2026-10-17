@@ -115,3 +115,26 @@ QImage/QPainter 缩放显示；布局控制与输入队列均有界，慢帧不�
 不能推导实际 FPS。`write()` 允许省去 submit 复制，但渲染器仍需生成完整像素。
 完整内存/事件/定位约定和真实 Windows Terminal 验证方法见
 [原生画布](overlay-canvas.md) 与 [Exa 调研](overlay-research.md)。
+
+
+### 多画布共享层
+
+运行 `python examples/benchmark_overlay_layer.py --output docs/benchmark-overlay-layer.json`。
+1280×720 层、每源160×90、Qt6.12/Windows11/120次采样：
+
+| 画布数量 | 单个更新 median / p95 (ms) | 全部更新 median / p95 (ms) | 原生窗口 |
+| --- | --- | --- | --- |
+| 1 | 0.837 / 1.097 | 0.840 / 1.059 | 1 |
+| 4 | 0.389 / 0.642 | 1.757 / 2.201 | 1 |
+| 16 | 0.191 / 0.280 | 2.825 / 3.495 | 1 |
+
+数据来自离屏 Qt update/processEvents，不含生产者复制、IPC、DWM 或显示延迟；
+画布越多时单个视图面积越小，不能据此比较同尺寸下的画布数量扩展性。
+各节点按序号与 fps 单独更新，稳定布局不重排；Qt 合并脏区。多处同时更新可能产生
+接近整个窗口的上传包围矩形，原生共享层不是 GPU 纹理零复制路径。
+[原始数据](benchmark-overlay-layer.json) 和 [调研依据](shared-overlay-research.md)。
+
+ListView/DataTable 的 widget 工厂只构建可见行，离屏控件立即卸载。共享一个源
+缓冲区可以节省源三槽内存；独立源仍各自占 stride×height×3。共享层本身需要
+终端文本区对应的 backing store。真实桌面检查使用
+`python examples/verify_overlay_windows.py --embedded`。

@@ -357,23 +357,18 @@ class App:
 
     def _sync_overlays(self):
         from .overlay import _OverlaySession
-        for key, (widget, rect, clip) in self._overlay_placements.items():
-            if key not in self._overlay_sessions and not widget._closed:
-                session = _OverlaySession(widget)
-                self._overlay_sessions[key] = widget._session = session
-        for key, session in list(self._overlay_sessions.items()):
-            widget = session.widget
-            if widget.app is not self or widget._closed:
-                session.close()
-                del self._overlay_sessions[key]
-                continue
-            placement = self._overlay_placements.get(key)
-            session.sync((placement[1], placement[2]) if placement else None, self._size)
+        if not self._overlay_sessions:
+            widget = next((w for w, _, _ in self._overlay_placements.values() if not w._closed), None)
+            if widget is None:
+                return
+            self._overlay_sessions["layer"] = _OverlaySession(widget)
+        self._overlay_sessions["layer"].sync(self._overlay_placements, self._size)
 
     def _close_overlays(self):
         for session in self._overlay_sessions.values():
             session.close()
-            session.widget._session = None
+            for widget in session.widgets.values():
+                widget._session = None
         self._overlay_sessions.clear()
         self._native_overlay_host = None
 

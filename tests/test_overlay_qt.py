@@ -12,7 +12,7 @@ from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from comfortable_tui import FrameBuffer, PixelRect  # noqa: E402
-from comfortable_tui._overlay_qt import _make_window_class  # noqa: E402
+from comfortable_tui._overlay_qt import _make_layer_class, _make_window_class  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -111,3 +111,113 @@ def test_close_is_a_provider_request_and_does_not_destroy_window(window):
     assert not widget.close()
     assert widget.isVisible()
     assert events[-1].kind == "close_request"
+
+
+def layer_state(buffers, placements=None):
+    from comfortable_tui import Rect
+    return {"grid": (40, 20), "items": [
+        {"id": i, "buffer": buffer.info, "placement": placements[i] if placements else
+         (Rect(2 + i * 18, 2, 16, 8), Rect(2 + i * 18, 2, 16, 8)),
+         "fit": "stretch", "smooth": False, "input_mode": "capture", "enabled": True,
+         "focused": False, "ime": {"cursor": (0, 0, 1, 1), "text": "", "position": 0, "anchor": 0},
+         "fps": 60} for i, buffer in enumerate(buffers)]}
+
+
+def test_layer_has_one_native_window_routes_input_and_clears_old_pixels(qt_app):
+    from comfortable_tui import Rect
+    observed = []
+    with FrameBuffer(2, 2) as a, FrameBuffer(2, 2) as b:
+        a.submit(bytes([255, 0, 0, 255]) * 4)
+        b.submit(bytes([0, 255, 0, 255]) * 4)
+        layer = _make_layer_class()(observed.append)
+        try:
+            state = layer_state([a, b])
+            layer.apply(state, PixelRect(0, 0, 400, 200))
+            layer.show()
+            qt_app.processEvents()
+            assert all(not item.isWindow() and not item.internalWinId() for item in layer.items.values())
+            ready = [event for event in observed if event.kind == "ready"]
+            assert len({event.data["hwnd"] for event in ready}) == 1
+            image = layer.grab().toImage()
+            assert image.pixelColor(30, 30).red() == 255
+            assert image.pixelColor(210, 30).green() == 255
+            assert image.pixelColor(5, 5).alpha() == 0
+            for key, item in layer.items.items():
+                QTest.mouseClick(item, Qt.MouseButton.LeftButton, pos=QPoint(20, 20))
+                event = next(e for e in reversed(observed) if e.kind == "mouse_down")
+                assert event.data["canvas_id"] == key
+                assert event.data["source_position"] == (0.25, 0.5)
+            state["items"][0]["placement"] = (Rect(2, 12, 16, 8), Rect(2, 12, 16, 8))
+            state["items"][1]["placement"] = None
+            layer.apply(state, PixelRect(0, 0, 400, 200))
+            qt_app.processEvents()
+            image = layer.grab().toImage()
+            assert image.pixelColor(30, 30).alpha() == 0
+            assert image.pixelColor(210, 30).alpha() == 0
+            assert image.pixelColor(30, 130).red() == 255
+            assert not layer.items[1].isVisible()
+            state["items"] = state["items"][:1]
+            layer.apply(state, PixelRect(0, 0, 400, 200))
+            assert list(layer.items) == [0]
+        finally:
+            layer.shutdown()
+            qt_app.processEvents()
+
+
+def test_layer_clip_hit_order_keyboard_ime_and_passthrough(qt_app):
+    from comfortable_tui import Rect
+    observed = []
+    with FrameBuffer(2, 2) as buffer:
+        layer = _make_layer_class()(observed.append)
+        try:
+            placement = (Rect(2, 2, 16, 8), Rect(4, 4, 10, 6))
+            state = layer_state([buffer, buffer], [placement, placement])
+            layer.apply(state, PixelRect(100, 200, 400, 200))
+            layer.show()
+            qt_app.processEvents()
+            top = layer.childAt(QPoint(60, 60))
+            assert top is layer.items[1]
+            assert layer.childAt(QPoint(30, 30)) is None
+            QTest.mouseClick(top, Qt.MouseButton.LeftButton, pos=QPoint(20, 20))
+            click = next(e for e in reversed(observed) if e.kind == "mouse_down")
+            assert click.data["source_position"] == (0.5, 1)
+            QTest.keyClick(top, Qt.Key.Key_A)
+            QApplication.sendEvent(top, QInputMethodEvent("拼", []))
+            assert next(e for e in reversed(observed) if e.kind == "ime").data["canvas_id"] == 1
+            state["items"][1]["input_mode"] = "passthrough"
+            layer.apply(state, PixelRect(100, 200, 400, 200))
+            assert layer.childAt(QPoint(60, 60)) is layer.items[0]
+            # An opaque pass-through item over a TUI area routes to terminal cells.
+            QTest.mouseClick(layer, Qt.MouseButton.LeftButton, pos=QPoint(390, 190))
+            routed = [e for e in observed if e.kind == "tui_mouse"]
+            assert [e.data["event"]["phase"] for e in routed] == ["press", "release"]
+            assert routed[0].data["event"]["x"] == 39
+        finally:
+            layer.shutdown()
+            qt_app.processEvents()
+
+
+def test_layer_retirement_ack_follows_buffer_release_and_ids_can_be_reused(qt_app):
+    observed = []
+    with FrameBuffer(2, 2) as buffer:
+        layer = _make_layer_class()(observed.append)
+        try:
+            state = layer_state([buffer])
+            state["items"][0]["token"] = "old"
+            layer.apply(state, PixelRect(0, 0, 400, 200))
+            old = layer.items[0]
+            state["items"][0]["token"] = "new"
+            state["retired"] = [{"id": 0, "token": "old"}]
+            layer.apply(state, PixelRect(0, 0, 400, 200))
+            assert layer.items[0] is not old
+            assert old.buffer._closed
+            event = next(e for e in reversed(observed) if e.kind == "detached")
+            assert event.data["canvas_token"] == "old"
+            state["items"] = []
+            state["retired"] = [{"id": 0, "token": "new"}]
+            layer.apply(state, PixelRect(0, 0, 400, 200))
+            assert not layer.items
+            assert next(e for e in reversed(observed) if e.kind == "detached").data["canvas_token"] == "new"
+        finally:
+            layer.shutdown()
+            qt_app.processEvents()

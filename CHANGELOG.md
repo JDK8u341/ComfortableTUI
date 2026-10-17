@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Replace per-canvas GUI processes/windows with one shared terminal overlay layer and non-native Qt surfaces.
+- Add virtualized ListView item_widget, DataTable cell_widget and inline Text widget composition.
+- Route input per logical canvas, bubble unconsumed keys/wheel, cancel hidden drags and acknowledge detached sources.
+- Add shared-layer research, embedded examples, local-composition benchmarks and native Windows verification.
+- Shorten shared-memory names for the macOS POSIX limit.
+
 - Add Windows OverlayCanvas: transparent owned windows, shared three-slot image buffers,
   automatic cell/DPI alignment, clipping, scaling, and native input/IME/lifecycle events.
 - Keep overlay windows above their terminal, restore group z-order after activation,

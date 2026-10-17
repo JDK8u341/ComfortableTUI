@@ -143,3 +143,17 @@ braille 用 2×4 采样点/格，单格前景色取点的平均值，不是完�
 显示外部渲染方提交的图像，不依赖终端图像协议。包含自动 DPI/布局对齐、裁剪、
 缩放、鼠标/键盘/IME 和窗口事件。需安装 `.[overlay]`；完整接口见
 [原生缓冲区画布](overlay-canvas.md)。
+
+
+### 内嵌控件与混排 Text
+
+`ListView(..., item_height=5, item_widget=lambda index, text: Widget(...))` 只创建可见行
+控件，离屏即卸载；工厂需每次返回新控件。回收不会保存控件内部状态，请放入数据模型。
+`DataTable(..., cell_widget=lambda row, column, value: widget_or_none)` 为可见单元格
+创建控件，None 保留普通文字。两者继承父容器裁剪，表格水平滚动不会覆盖表头。
+
+`Text(*runs)` 支持字符串和 Widget 混排。控件必须指定 width，height 默认 measure；
+控件是不可拆分的矩形，自动换行，行高适应最高控件。Text 是显示控件，不是编辑器。
+
+这些接口也适用于普通 TUI 控件；内嵌 OverlayCanvas 的完整代码及生命周期约定见
+[共享画布](overlay-canvas.md)。

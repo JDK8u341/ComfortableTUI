@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from wcwidth import wcswidth
 
-from .canvas import clean_text, crop_text, graphemes, text_width
+from .canvas import Rect, clean_text, crop_text, graphemes, text_width
 from .events import Key, Mouse, Paste
 from .widget import Widget
 
@@ -57,6 +57,84 @@ class Paragraph(Label):
     def paint(self, canvas):
         for row, line in enumerate(self.lines(self.rect.width)[:self.rect.height]):
             canvas.text(self.rect.x, self.rect.y + row, line, self.content_style(canvas))
+
+
+class Text(Widget):
+    """Wrapping text mixed with fixed-cell-size widgets, including OverlayCanvas.
+
+    Text("Video: ", OverlayCanvas(buffer, width=16, height=4), " caption")
+    Widget runs are indivisible boxes; lines grow to the tallest box.
+    """
+
+    def __init__(self, *runs, **kwargs):
+        super().__init__(**kwargs)
+        self.runs = []
+        for run in runs:
+            if isinstance(run, Widget):
+                if run.width is None or run.width < 1 or run.height is not None and run.height < 1:
+                    raise ValueError("inline widgets require width >= 1 and positive height")
+                self.add(run)
+                self.runs.append(run)
+            else:
+                self.runs.append(str(run))
+
+    def _flow(self, width):
+        if width <= 0:
+            return [], 0
+        result, line = [], []
+        x, y, height = 0, 0, 1
+
+        def newline():
+            nonlocal x, y, height, line
+            result.extend((run, xx, y, w, h) for run, xx, w, h in line)
+            y += height
+            x, height, line = 0, 1, []
+
+        for run in self.runs:
+            if isinstance(run, Widget):
+                if not run.visible:
+                    continue
+                w = min(width, run.width)
+                h = run.height or run.measure(w)
+                if x and x + w > width:
+                    newline()
+                line.append((run, x, w, h))
+                x, height = x + w, max(height, h)
+            else:
+                for glyph in graphemes(clean_text(run)):
+                    w = max(0, text_width(glyph))
+                    if glyph == "\n":
+                        newline()
+                        continue
+                    if x + w > width:
+                        newline()
+                    if w <= width:
+                        line.append((glyph, x, w, 1))
+                        x += w
+        newline()
+        return result, y
+
+    def measure(self, width):
+        return self.height if self.height is not None else self._flow(width)[1]
+
+    def layout(self, rect):
+        super().layout(rect)
+        self._placements, _ = self._flow(rect.width)
+        for run, x, y, width, height in self._placements:
+            if isinstance(run, Widget):
+                run.layout(Rect(rect.x + x, rect.y + y, width, height))
+
+    def paint(self, canvas):
+        for run, x, y, width, height in self._placements:
+            if isinstance(run, str):
+                canvas.text(self.rect.x + x, self.rect.y + y, run, self.content_style(canvas), width)
+
+    def focusables(self):
+        if self.visible and not self.disabled:
+            for child in self.children:
+                clip = child.rect.intersect(self.rect)
+                if min(clip.width, clip.height) > 0:
+                    yield from child.focusables()
 
 
 class Rule(Widget):

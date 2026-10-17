@@ -8,6 +8,7 @@ import multiprocessing as mp
 import os
 import queue
 import time
+import uuid
 
 from ._shared_frame import FrameBuffer, FrameBufferInfo, FrameLease
 from .events import Key, Mouse, Paste
@@ -104,7 +105,7 @@ class TerminalHost:
 
 
 class OverlayCanvas(Widget):
-    """A TUI layout slot backed by an owned, transparent Windows window.
+    """A logical canvas composited into the App's shared transparent layer.
 
     on_canvas_event is always called on the TUI thread. Return True to consume
     navigation keys. App bindings (Tab/F6/Ctrl+Q etc.) retain their meaning.
@@ -126,6 +127,8 @@ class OverlayCanvas(Widget):
         self.ime = {"cursor": (0, 0, 1, 20), "text": "", "position": 0, "anchor": 0}
         self._session = None
         self._closed = False
+        self._detached = False
+        self._event_token = uuid.uuid4().hex
 
     @staticmethod
     def _validate(fit, input_mode, fps):
@@ -165,22 +168,53 @@ class OverlayCanvas(Widget):
             canvas.overlays[id(self)] = (self, self.rect, self.rect.intersect(canvas.clip))
 
     def _emit(self, event):
+        if event.kind == "detached":
+            if self._detached:
+                return False
+            self._detached = True
         if event.kind == "transform":
             self.transform = event.data["transform"]
-        elif event.kind == "focus_in" and self.app:
+        elif event.kind in ("focus_in", "mouse_down") and self.app:
+            ancestor, child = self.parent, self
+            while ancestor:
+                rows = getattr(ancestor, "_row_widgets", {})
+                index = next((i for i, row in rows.items() if row is child), None)
+                if index is not None:
+                    ancestor.select(index)
+                    break
+                child, ancestor = ancestor, ancestor.parent
             self.app.focus(self)
         consumed = bool(self.on_canvas_event(event)) if self.on_canvas_event else False
         return consumed
 
     def _native_event(self, event):
         consumed = self._emit(event)
+        if self.app and event.kind == "wheel" and not consumed:
+            x, y = event.data.get("terminal_position", (self.rect.x, self.rect.y))
+            delta = event.data.get("angle_delta", (0, 0))[1] or event.data.get("pixel_delta", (0, 0))[1]
+            parent = self.parent
+            while parent:
+                if not parent.disabled and parent.on_event(Mouse(x, y, 64 if delta > 0 else 65, "scroll")):
+                    self.app.invalidate()
+                    break
+                parent = parent.parent
         if self.app and event.kind in ("key_down", "key_up"):
             name = event.data.get("name", "")
             phase = "release" if event.kind == "key_up" else "repeat" if event.data.get("repeat") else "press"
-            if name in self.app.bindings or name in ("tab", "shift+tab", "f6"):
+            if (name in self.app.bindings or name in ("tab", "shift+tab", "f6") or
+                    self.app.modal is not None and name == "escape"):
                 self.app.dispatch(Key(name, text=event.data.get("text", ""), phase=phase))
-            elif not consumed and phase != "release" and name in ("left", "right", "up", "down"):
-                self.app.focus_direction(name)
+            elif not consumed:
+                parent = self.parent
+                key = Key(name, text=event.data.get("text", ""), phase=phase)
+                while parent:
+                    if not parent.disabled and parent.on_event(key):
+                        self.app.invalidate()
+                        break
+                    parent = parent.parent
+                else:
+                    if phase != "release" and name in ("left", "right", "up", "down"):
+                        self.app.focus_direction(name)
 
     def on_event(self, event):
         if isinstance(event, Key):
@@ -196,10 +230,13 @@ class OverlayCanvas(Widget):
         return False
 
     def close(self):
-        if self._session:
-            self._session.close()
-            self._session = None
+        if self._closed:
+            return
+        session = self._session
+        self._session = None
         self._closed = True
+        if session is None:
+            self._emit(CanvasEvent("detached"))
         self.invalidate()
 
     def unmount(self):
@@ -208,7 +245,7 @@ class OverlayCanvas(Widget):
 
 
 class _OverlaySession:
-    """TUI-side lifetime and IPC; one GUI process per canvas isolates Qt's loop."""
+    """One GUI process/window per App terminal pane; items remain logical widgets."""
 
     def __init__(self, widget):
         if os.name != "nt":
@@ -218,6 +255,10 @@ class _OverlaySession:
         from ._win32_host import resolve_host
         from ._overlay_qt import run_overlay
         self.widget = widget
+        self.app = widget.app
+        self.widgets = {}
+        self.retired = {}
+        self.host_spec = widget.host
         self._last = None
         self._pending = None
         self._failed = False
@@ -241,16 +282,37 @@ class _OverlaySession:
         self._events = context.Queue(maxsize=512)
         self._stop = context.Event()
         self._process = context.Process(target=run_overlay,
-                                        args=(host, widget.buffer.info, self._commands, self._events,
-                                              self._stop, os.getpid(), widget.fps), daemon=True)
+                                        args=(host, self._commands, self._events,
+                                              self._stop, os.getpid()), daemon=True)
         self._process.start()
         self._started = time.perf_counter()
 
-    def sync(self, placement, grid):
-        widget = self.widget
-        state = {"placement": placement, "grid": grid, "buffer": widget.buffer.info,
-                 "fit": widget.fit, "smooth": widget.smooth, "input_mode": widget.input_mode,
-                 "enabled": not widget.disabled, "focused": widget.focused, "ime": widget.ime}
+    def sync(self, placements, grid):
+        for key, widget in self.widgets.items():
+            if widget.app is not self.app or widget._closed:
+                self.retired[widget._event_token] = (key, widget)
+        self.widgets = {key: widget for key, widget in self.widgets.items()
+                        if widget.app is self.app and not widget._closed}
+        for key, (widget, _, _) in placements.items():
+            if not widget._closed:
+                if widget.host not in (TerminalHost(), self.host_spec):
+                    raise ValueError("all OverlayCanvas widgets in an App must use the same TerminalHost")
+                self.widgets[key] = widget
+                widget._session = self
+        items = []
+        # Placement order is paint order. Hidden items follow, never hit-testable.
+        for key in dict.fromkeys((*placements, *self.widgets)):
+            if key not in self.widgets:
+                continue
+            widget = self.widgets[key]
+            placement = placements.get(key)
+            items.append({"id": key, "token": widget._event_token,
+                          "placement": (placement[1], placement[2]) if placement else None,
+                          "buffer": widget.buffer.info, "fit": widget.fit, "smooth": widget.smooth,
+                          "input_mode": widget.input_mode, "enabled": not widget.disabled,
+                          "focused": widget.focused, "ime": widget.ime, "fps": widget.fps})
+        state = {"grid": grid, "items": items,
+                 "retired": [{"id": key, "token": token} for token, (key, _) in self.retired.items()]}
         self._pending = state if state != self._last else None
         self._flush_state()
 
@@ -274,7 +336,27 @@ class _OverlaySession:
                 event = self._events.get_nowait()
             except queue.Empty:
                 break
-            self.widget._native_event(event)
+            token = event.data.get("canvas_token")
+            if event.kind == "detached" and token in self.retired:
+                _, retired = self.retired.pop(token)
+                retired._emit(event)
+                self.app.invalidate()
+                continue
+            key = event.data.get("canvas_id")
+            widget = self.widgets.get(key)
+            if widget and event.data.get("canvas_token", widget._event_token) != widget._event_token:
+                continue
+            if event.kind == "tui_mouse":
+                self.app.dispatch(Mouse(**event.data["event"]))
+            elif widget and not widget._closed and widget.app is self.app:
+                # Ignore late input for a page/row which has already disappeared.
+                if event.kind not in ("mouse_down", "mouse_up", "mouse_move", "key_down", "key_up", "focus_in") or key in self.app._overlay_placements:
+                    widget._native_event(event)
+            elif key is None:
+                for widget in tuple(self.widgets.values()):
+                    widget._emit(event)
+            if self._closed:
+                return
             if event.kind == "error" and event.data.get("fatal"):
                 self._failed = True
                 raise RuntimeError("OverlayCanvas: " + event.data["message"])
@@ -295,3 +377,6 @@ class _OverlaySession:
             self._process.join(timeout=2)
         self._events.close()
         self._events.join_thread()
+        for widget in (*self.widgets.values(), *(widget for _, widget in self.retired.values())):
+            widget._emit(CanvasEvent("detached", {"canvas_id": id(widget), "canvas_token": widget._event_token}))
+        self.retired.clear()

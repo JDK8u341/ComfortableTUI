@@ -51,6 +51,6 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e ".[dev,overlay]"
-      - run: python -m pytest tests/test_overlay.py tests/test_overlay_qt.py -q
+      - run: python -m pytest tests/test_overlay.py tests/test_overlay_qt.py tests/test_overlay_layer.py -q
         env:
           QT_QPA_PLATFORM: offscreen

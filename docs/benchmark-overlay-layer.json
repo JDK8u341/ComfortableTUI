@@ -1,0 +1,66 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.14",
+  "qt": "6.12.0",
+  "backend": "offscreen",
+  "layer_pixels": [
+    1280,
+    720
+  ],
+  "source_pixels": [
+    160,
+    90
+  ],
+  "frames": 120,
+  "scope": "CPU Qt update/processEvents; excludes producer, DWM and display",
+  "results": [
+    {
+      "canvases": 1,
+      "mode": "one_dirty",
+      "median_ms": 0.8373500313609838,
+      "p95_ms": 1.096599968150258,
+      "native_windows": 1,
+      "native_children": 0
+    },
+    {
+      "canvases": 1,
+      "mode": "all_dirty",
+      "median_ms": 0.8400999940931797,
+      "p95_ms": 1.0588999721221626,
+      "native_windows": 1,
+      "native_children": 0
+    },
+    {
+      "canvases": 4,
+      "mode": "one_dirty",
+      "median_ms": 0.38919999497011304,
+      "p95_ms": 0.6419999990612268,
+      "native_windows": 1,
+      "native_children": 0
+    },
+    {
+      "canvases": 4,
+      "mode": "all_dirty",
+      "median_ms": 1.756699988618493,
+      "p95_ms": 2.200899994932115,
+      "native_windows": 1,
+      "native_children": 0
+    },
+    {
+      "canvases": 16,
+      "mode": "one_dirty",
+      "median_ms": 0.19055002485401928,
+      "p95_ms": 0.2796999760903418,
+      "native_windows": 1,
+      "native_children": 0
+    },
+    {
+      "canvases": 16,
+      "mode": "all_dirty",
+      "median_ms": 2.825000003213063,
+      "p95_ms": 3.4950999543070793,
+      "native_windows": 1,
+      "native_children": 0
+    }
+  ]
+}

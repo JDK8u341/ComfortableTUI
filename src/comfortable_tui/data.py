@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .canvas import Rect, crop_text, graphemes, text_width
-from .controls import Button
+from .controls import Button, Label
 from .events import Key, Mouse
 from .widget import Widget
 
@@ -16,7 +16,7 @@ class ListView(Widget):
     focusable = True
     focus_indicator = False  # Selection already has its own animated geometry.
 
-    def __init__(self, items=(), *, on_select=None, on_change=None, item_height=1, **kwargs):
+    def __init__(self, items=(), *, on_select=None, on_change=None, item_height=1, item_widget=None, **kwargs):
         super().__init__(**kwargs)
         if item_height < 1:
             raise ValueError("item_height must be at least 1")
@@ -30,8 +30,68 @@ class ListView(Widget):
         self._prefix = []
         self._prefix_dirty = True
         self._armed = False
+        self.item_widget = item_widget
+        self._row_widgets = {}
+
+    def _clear_row_widgets(self):
+        for child in list(self._row_widgets.values()):
+            self.remove(child)
+        self._row_widgets.clear()
+
+    def _layout_row_widgets(self):
+        if self.item_widget is None:
+            return
+        r = self.rect
+        offset = self.scroll.current - self.edge.current
+        first = max(0, bisect.bisect_right(self._prefix, offset) - 1)
+        last = min(len(self.items), bisect.bisect_left(self._prefix, offset + r.height))
+        visible = set(range(first, last)) if r.width > 4 and r.height > 0 else set()
+        for index in list(self._row_widgets):
+            if index not in visible:
+                self.remove(self._row_widgets.pop(index))
+        for index in sorted(visible):
+            if index not in self._row_widgets:
+                child = self.item_widget(index, self.items[index])
+                if not isinstance(child, Widget):
+                    raise TypeError("item_widget must return a fresh Widget")
+                self.add(child)
+                self._row_widgets[index] = child
+            y = r.y + round(self._prefix[index] - offset)
+            h = max(0, round(self._prefix[index + 1] - offset) - round(self._prefix[index] - offset))
+            self._row_widgets[index].layout(Rect(r.x + 2, y, max(0, r.width - 4), h))
+
+    def draw(self, canvas):
+        if not self.visible or min(self.rect.width, self.rect.height) <= 0:
+            return
+        with canvas.clipped(self.rect):
+            self.paint(canvas)
+            with canvas.clipped(getattr(self, "_body_rect", self.rect)):
+                for child in self.children:
+                    child.draw(canvas)
+
+    def focusables(self):
+        if not self.visible or self.disabled:
+            return
+        if min(self.rect.width, self.rect.height) > 0:
+            yield self
+        body = getattr(self, "_body_rect", self.rect)
+        for child in self.children:
+            clip = child.rect.intersect(body)
+            if min(clip.width, clip.height) > 0:
+                yield from child.focusables()
+
+    def hit_test(self, x, y):
+        if not self.visible or self.disabled or not self.rect.contains(x, y):
+            return None
+        if getattr(self, "_body_rect", self.rect).contains(x, y):
+            for child in reversed(self.children):
+                hit = child.hit_test(x, y)
+                if hit:
+                    return hit
+        return self
 
     def set_items(self, items):
+        self._clear_row_widgets()
         self.items = [str(x) for x in items]
         self.selected = min(self.selected, max(0, len(self.items) - 1))
         for value, _ in self._effects.values():
@@ -46,6 +106,7 @@ class ListView(Widget):
             self.app.animator.remove(value)
 
     def insert_item(self, index: int, text: str, *, animate=True):
+        self._clear_row_widgets()
         index = max(0, min(index, len(self.items)))
         self.items.insert(index, str(text))
         self._effects = {i + int(i >= index): e for i, e in self._effects.items()}
@@ -72,6 +133,7 @@ class ListView(Widget):
         self.invalidate()
 
     def _delete(self, index):
+        self._clear_row_widgets()
         del self.items[index]
         effect = self._effects.pop(index, None)
         if effect:
@@ -91,6 +153,7 @@ class ListView(Widget):
         self._prefix_dirty = False
 
     def tick(self, dt):
+        super().tick(dt)
         if self._effects:
             for index in sorted(self._effects, reverse=True):
                 value, deleting = self._effects[index]
@@ -119,6 +182,7 @@ class ListView(Widget):
         self._rebuild()
         if not self.items:
             self.scroll.set(0)
+            self._layout_row_widgets()
             return
         y = self._prefix[self.selected]
         end = self._prefix[self.selected + 1]
@@ -129,6 +193,7 @@ class ListView(Widget):
             target = end - rect.height
         self.scroll.set(min(max(0, target), max(0, self._prefix[-1] - rect.height)))
         self.cursor.set(y)
+        self._layout_row_widgets()
 
     def item_text(self, index):
         return self.items[index]
@@ -154,7 +219,8 @@ class ListView(Widget):
             if not canvas.clip.y <= y < canvas.clip.y + canvas.clip.height:
                 continue
             style = canvas.style_at(max(r.x, canvas.clip.x), y, self.theme.background)
-            canvas.text(r.x + 2, y, self.item_text(i), self.style or style, max(0, r.width - 4))
+            if self.item_widget is None:
+                canvas.text(r.x + 2, y, self.item_text(i), self.style or style, max(0, r.width - 4))
         marker_y = math.floor(cy)
         if 0 <= marker_y < r.height:
             # Four vertical braille positions per row, independent of text rounding.
@@ -378,15 +444,54 @@ class DirectoryTree(Tree):
 
 
 class DataTable(ListView):
-    def __init__(self, columns, rows=(), *, column_widths=None, **kwargs):
+    def __init__(self, columns, rows=(), *, column_widths=None, cell_widget=None, **kwargs):
         self.columns = list(map(str, columns))
         if not self.columns:
             raise ValueError("columns cannot be empty")
         self.rows = [tuple(map(str, row)) for row in rows]
         self.column_widths = column_widths
         self.horizontal_offset = 0
+        self.cell_widget = cell_widget
+        if cell_widget is not None:
+            kwargs["item_widget"] = self._make_row_widget
         super().__init__(["" for _ in self.rows], **kwargs)
         self._body_rect = Rect()
+
+    def _make_row_widget(self, index, text):
+        table = self
+
+        class Row(Widget):
+            def focusables(self):
+                if self.visible and not self.disabled:
+                    for child in self.children:
+                        clip = child.rect.intersect(self.rect)
+                        if min(clip.width, clip.height) > 0:
+                            yield from child.focusables()
+
+            def layout(self, rect):
+                super().layout(rect)
+                widths = table.column_widths or [max(4, rect.width // len(table.columns) - 3)] * len(table.columns)
+                x = rect.x - table.horizontal_offset
+                for child, width in zip(self.children, widths):
+                    child.layout(Rect(x, rect.y, width, rect.height))
+                    x += width + 3
+
+            def paint(self, canvas):
+                x = self.rect.x - table.horizontal_offset
+                widths = table.column_widths or [max(4, self.rect.width // len(table.columns) - 3)] * len(table.columns)
+                for width in widths[:-1]:
+                    x += width
+                    canvas.text(x, self.rect.y, " │ ", self.content_style(canvas))
+                    x += 3
+
+        row = Row()
+        for column in range(len(self.columns)):
+            value = self.rows[index][column] if column < len(self.rows[index]) else ""
+            child = self.cell_widget(index, column, value)
+            if child is not None and not isinstance(child, Widget):
+                raise TypeError("cell_widget must return a fresh Widget or None")
+            row.add(child if child is not None else Label(value))
+        return row
 
     def _format(self, values):
         widths = self.column_widths or [max(4, (self.rect.width - 4) // len(self.columns) - 3)] * len(self.columns)
