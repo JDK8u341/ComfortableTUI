@@ -1,0 +1,63 @@
+{
+  "mode": "hybrid",
+  "canvas": "cpu",
+  "platform": "wayland",
+  "checks": [
+    "live_non_warmup_metrics",
+    "filter_and_pin_by_identity",
+    "pause_retains_snapshot",
+    "independent_browser_page_and_embedded_enter_escape",
+    "telemetry_message_published",
+    "settings_and_repeatable_help_modal",
+    "browser_telemetry_received_and_selection_roundtrip"
+  ],
+  "host": {
+    "cell_height": 26,
+    "cell_width": 11,
+    "columns": 100,
+    "dpi_scale": 1,
+    "event": "host_ready",
+    "external_terminal_overlay": false,
+    "frame_backend": "native_cpu_qt_raster",
+    "height": 780,
+    "mode": "window_host",
+    "platform": "wayland",
+    "protocol": 1,
+    "rows": 30,
+    "width": 1100
+  },
+  "samples": 15,
+  "processes": 33,
+  "sampler_errors": 0,
+  "native_frames": {
+    "selected": 206,
+    "cpu": 172,
+    "watch-0": 171
+  },
+  "native_errors": {},
+  "canvas_events": {
+    "selected": {
+      "transform": 1,
+      "buffer_attached": 1,
+      "show": 4,
+      "hide": 1,
+      "detached": 1
+    },
+    "cpu": {
+      "transform": 1,
+      "buffer_attached": 1,
+      "show": 2,
+      "hide": 1,
+      "detached": 1
+    },
+    "watch-0": {
+      "transform": 1,
+      "buffer_attached": 1,
+      "show": 2,
+      "hide": 1,
+      "detached": 1
+    }
+  },
+  "browser_pages": 2,
+  "result": "passed"
+}

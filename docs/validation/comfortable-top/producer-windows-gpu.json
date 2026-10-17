@@ -1,0 +1,10 @@
+{
+  "canvas": "gpu",
+  "checks": [
+    "native_producer_advances_while_python_holds_gil",
+    "settled_chart_does_not_republish_unchanged_pixels",
+    "invalid_sample_rejected"
+  ],
+  "gil_held_frames": 11,
+  "result": "passed"
+}

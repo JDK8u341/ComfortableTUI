@@ -1,0 +1,61 @@
+{
+  "mode": "hybrid",
+  "canvas": "cpu",
+  "platform": null,
+  "checks": [
+    "live_non_warmup_metrics",
+    "filter_and_pin_by_identity",
+    "pause_retains_snapshot",
+    "independent_browser_page_and_embedded_enter_escape",
+    "telemetry_message_published",
+    "settings_and_repeatable_help_modal",
+    "browser_telemetry_received_and_selection_roundtrip"
+  ],
+  "samples": 14,
+  "processes": 297,
+  "sampler_errors": 0,
+  "native_frames": {
+    "selected": 180,
+    "cpu": 217,
+    "watch-0": 138
+  },
+  "native_errors": {},
+  "canvas_events": {
+    "selected": {
+      "layer_status": 2,
+      "ready": 1,
+      "buffer_attached": 1,
+      "show": 2,
+      "transform": 17,
+      "move": 16,
+      "resize": 6,
+      "metrics": 12,
+      "hide": 1,
+      "detached": 1
+    },
+    "cpu": {
+      "ready": 1,
+      "show": 1,
+      "buffer_attached": 1,
+      "transform": 9,
+      "move": 9,
+      "resize": 8,
+      "metrics": 7,
+      "hide": 1,
+      "detached": 1
+    },
+    "watch-0": {
+      "ready": 1,
+      "show": 1,
+      "buffer_attached": 1,
+      "transform": 12,
+      "move": 12,
+      "resize": 2,
+      "metrics": 10,
+      "hide": 1,
+      "detached": 1
+    }
+  },
+  "browser_pages": 2,
+  "result": "passed"
+}

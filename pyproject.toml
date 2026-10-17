@@ -17,6 +17,7 @@ classifiers = ["Development Status :: 3 - Alpha", "Environment :: Console", "Pro
 dev = ["pytest>=8", "pyte>=0.8.2", "ruff>=0.9", "build>=1", "pybind11>=2.13",
        "setuptools>=69", "wheel>=0.43"]
 docs = ["mkdocs>=1.6"]
+monitor = ["psutil>=5.9"]
 overlay = ["PySide6-Essentials>=6.7,<7", "comtypes>=1.4; sys_platform == 'win32'"]
 
 [project.scripts]

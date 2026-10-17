@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Comfortable Top · local analytics</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+<link rel="stylesheet" href="analytics.css">
+<header><span class="eyebrow">COMFORTABLE / TELEMETRY</span><h1 id="title">Resource history</h1>
+<span id="badge">Waiting for first sample</span></header>
+<nav><button data-range="30">30 samples</button><button data-range="90">90 samples</button>
+<button data-range="180">180 samples</button><span>CPU <b class="mint">●</b> Memory <b class="pink">●</b></span></nav>
+<canvas id="chart" width="680" height="150" aria-label="CPU and memory history"></canvas>
+<p id="detail">Local data only. Select a process below to focus its TUI row.</p><div id="processes"></div>
+<script src="analytics.js"></script></html>

@@ -1,5 +1,8 @@
 # ComfortableTUI 文档
 
+综合应用示例：[Comfortable Top](comfortable-top.md)，真实进程监视器，组合终端控件、
+原生 CPU/GPU 画布与独立 WebView，源码位于 `examples/comfortable_top/`。
+
 ComfortableTUI 是基于 Python 的终端 UI 库。它把嵌入式 OLED 界面中的目标值、弹簧、
 局部刷新机制迁移到终端，同时提供表单、集合、布局和像素画布。
 

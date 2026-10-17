@@ -13,6 +13,7 @@
 | `python examples/gallery.py` | 全部控件族、表格、目录树、编辑器、图形 |
 | `python examples/animated_menu.py` | 惯性滚动、页面切换；Ctrl+N 插入、Ctrl+D 删除 |
 | `python examples/dashboard.py` | 定时器、曲线、进度条、后台任务 |
+| `python -m examples.comfortable_top` | 独立目录中的真实系统监视器，可选原生 CPU/GPU 画布与独立 WebView；[完整说明](comfortable_top/README.md) |
 | `python examples/pixel_oled.py` | OLED 风格的 128×64 像素动画；自动降级 braille |
 | `python examples/pixel_oled.py --backend braille` | 强制通用字符画布 |
 | `python examples/embedded_canvas.py` | 一个 HWND 中的列表行、表格单元格、Text 混排、标签切换与弹窗画布；安装 `.[overlay]` |

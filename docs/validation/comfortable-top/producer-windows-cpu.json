@@ -1,0 +1,11 @@
+{
+  "canvas": "cpu",
+  "checks": [
+    "native_producer_advances_while_python_holds_gil",
+    "settled_chart_does_not_republish_unchanged_pixels",
+    "cpp_cpu_frame_readable_via_public_sdk",
+    "invalid_sample_rejected"
+  ],
+  "gil_held_frames": 12,
+  "result": "passed"
+}
