@@ -9,6 +9,7 @@
     "independent_browser_page_and_embedded_enter_escape",
     "telemetry_message_published",
     "settings_and_repeatable_help_modal",
+    "browser_viewport_reflows_and_chart_fills_panel",
     "browser_telemetry_received_and_selection_roundtrip"
   ],
   "host": {
@@ -26,13 +27,31 @@
     "rows": 30,
     "width": 1100
   },
+  "browser_viewports": {
+    "overview": {
+      "chartHeight": 64,
+      "chartWidth": 505,
+      "documentWidth": 517,
+      "height": 156,
+      "titleSize": 18,
+      "width": 517
+    },
+    "(304, 1792246918.59)": {
+      "chartHeight": 90,
+      "chartWidth": 593,
+      "documentWidth": 605,
+      "height": 182,
+      "titleSize": 18,
+      "width": 605
+    }
+  },
   "samples": 15,
-  "processes": 33,
+  "processes": 37,
   "sampler_errors": 0,
   "native_frames": {
-    "selected": 206,
-    "cpu": 172,
-    "watch-0": 171
+    "selected": 281,
+    "cpu": 198,
+    "watch-0": 195
   },
   "native_errors": {},
   "canvas_events": {

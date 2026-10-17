@@ -5,10 +5,10 @@ Python 3.10.12、GCC 11.4、WSLg。psutil 7.2.2、pybind11 3.1.0；CEF 152.0.14�
 
 | 记录 | 实际验证范围 |
 | --- | --- |
-| [windows-cpu.json](windows-cpu.json) | 独立 Windows Terminal，C++ CPU 图表＋CEF，七项组合检查通过 |
-| [windows-gpu.json](windows-gpu.json) | 独立 Windows Terminal，D3D11 共享图表＋CEF CPU 帧，同七项通过 |
-| [linux-x11.json](linux-x11.json) | Qt 实际 platform=xcb，C++ CPU 图表＋CEF，七项通过 |
-| [linux-wayland.json](linux-wayland.json) | Qt 实际 platform=wayland，同七项单独通过 |
+| [windows-cpu.json](windows-cpu.json) | 初版独立 Windows Terminal，C++ CPU 图表＋CEF，七项组合检查通过 |
+| [windows-gpu.json](windows-gpu.json) | 尺寸修复后，独立 Windows Terminal，D3D11 图表＋CEF CPU 帧，八项通过 |
+| [linux-x11.json](linux-x11.json) | 尺寸修复后，Qt 实际 platform=xcb，C++ CPU 图表＋CEF，八项通过 |
+| [linux-wayland.json](linux-wayland.json) | 尺寸修复后，Qt 实际 platform=wayland，同八项单独通过 |
 | [producer-windows-cpu.json](producer-windows-cpu.json) | Python 持 GIL 期间继续发布、静止不重发、公共 CPU SDK 读帧、拒绝 NaN |
 | [producer-windows-gpu.json](producer-windows-gpu.json) | GIL 独立 GPU 发布、静止不重发、拒绝 NaN |
 | [producer-linux-cpu.json](producer-linux-cpu.json) | Linux 本例原生模块实际编译、CPU SDK 读帧和 GIL 独立性 |
@@ -16,6 +16,12 @@ Python 3.10.12、GCC 11.4、WSLg。psutil 7.2.2、pybind11 3.1.0；CEF 152.0.14�
 七项组合检查：有效真实采样、筛选／固定身份、暂停、独立页面及内嵌 Enter/Esc、
 发布指标、设置与重复帮助弹窗，以及所有分析页收样／网页选择回到 TUI 的往返。
 操作由本例自测直接发给自己的控件和消息桥，不注入全局键鼠，不访问外部网站。
+
+浏览器尺寸修复新增第八项：DOM 视口等于画布完整尺寸除以 DPI，不横向溢出，图表
+横向覆盖至少 80% 视口且高度有效，标题 CSS 字号至少 16px。资源页与内嵌表格页均
+经消息桥返回几何信息。Windows 实测资源视口 547×147、标题 18px；X11/Wayland
+资源视口 517×156、标题 18px，图表均占满扣除内边距后的宽度。报告不把这些尺寸
+当作任意窗口大小下的截图质量证明。自测使用临时根，不占用运行实例的 profile 锁。
 
 初版自测曾用 page.evaluate() 读取页面状态，被严格 CSP 拒绝。已改为正常的
 monitor.probe/proof 主题验证，没有开放 unsafe-eval 或修改 CEF 全局策略。这里保存的

@@ -60,6 +60,10 @@ WSL 中采样的是 Linux 子系统的进程和资源，不是 Windows 宿主的
 这些页属于本应用私有的临时 `local-analytics` profile。联动使用明确授权的
 `monitor.sample/select` 主题；`monitor.probe/proof` 用于消息桥验证。
 网页保留 CSP，验证不使用动态 eval。最多五页，取消固定后关闭对应页面。
+分析页按画布的完整逻辑像素尺寸重新布局（物理尺寸除以 DPI），不再把固定比例网页
+缩成小图；图表随剩余空间铺开，矮面板使用紧凑工具栏。拖动调整大小时等待 120ms
+稳定后更换网页缓冲区，每边最多 4096 像素；移动位置和局部裁剪不会重建网页。
+这是本例每页一个视图的自适应策略，普通 WebView 镜像仍使用原有固定源尺寸语义。
 非混合模式下，同一 PID 的两个小图可镜像同一图像源；不同固定项的源独立。
 
 ## 构建本例 C++ 提供者
@@ -147,6 +151,7 @@ python -m examples.comfortable_top.verify_windows --mode hybrid --canvas cpu --r
 ```
 
 Windows 验证创建专用 Terminal，自动操作本示例并退出；报告须为新路径。
+自测使用独立临时浏览器数据根，不与正在运行的监视器共用 profile 或数据锁。
 Linux 分别运行 `--mode hybrid --platform x11/wayland --native-module MODULE_DIR
 --self-test --smoke-seconds 14 --report PATH`。验证不操作其他应用。
 来源与实测记录见 [完整报告](../../docs/comfortable-top.md)。

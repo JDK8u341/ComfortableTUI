@@ -51,7 +51,7 @@ def main():
             web = None
             if args.mode == "hybrid":
                 from .web import WebPanels
-                web = WebPanels(args.platform)
+                web = WebPanels(args.platform, temporary=args.self_test)
                 stack.callback(web.close)
             collector = Collector(psutil)
             stack.callback(collector.close)
@@ -91,7 +91,7 @@ def main():
                 browser_pages=len(web.pages) if web else 0)
             if report["native_errors"] or monitor.failures:
                 raise RuntimeError("Sampler or native renderer reported an error")
-            if args.self_test and len(report["checks"]) < (7 if web else 6):
+            if args.self_test and len(report["checks"]) < (8 if web else 6):
                 raise RuntimeError("Self-test did not finish; allow at least 14 smoke seconds")
             report["result"] = "passed"
     except BaseException as error:

@@ -9,20 +9,39 @@
     "independent_browser_page_and_embedded_enter_escape",
     "telemetry_message_published",
     "settings_and_repeatable_help_modal",
+    "browser_viewport_reflows_and_chart_fills_panel",
     "browser_telemetry_received_and_selection_roundtrip"
   ],
+  "browser_viewports": {
+    "overview": {
+      "chartHeight": 55,
+      "chartWidth": 535,
+      "documentWidth": 547,
+      "height": 147,
+      "titleSize": 18,
+      "width": 547
+    },
+    "(12796, 1792216494.3955252)": {
+      "chartHeight": 37,
+      "chartWidth": 516,
+      "documentWidth": 528,
+      "height": 129,
+      "titleSize": 18,
+      "width": 528
+    }
+  },
   "samples": 14,
-  "processes": 300,
+  "processes": 280,
   "sampler_errors": 0,
   "native_frames": {
-    "selected": 173,
-    "cpu": 219,
-    "watch-0": 101
+    "selected": 242,
+    "cpu": 209,
+    "watch-0": 203
   },
   "native_errors": {},
   "canvas_events": {
     "selected": {
-      "layer_status": 5,
+      "layer_status": 2,
       "ready": 1,
       "buffer_attached": 1,
       "show": 2,
@@ -42,19 +61,17 @@
       "resize": 8,
       "metrics": 7,
       "hide": 1,
-      "layer_status": 3,
       "detached": 1
     },
     "watch-0": {
       "ready": 1,
       "show": 1,
       "buffer_attached": 1,
-      "transform": 12,
-      "move": 12,
+      "transform": 11,
+      "move": 11,
       "resize": 2,
       "metrics": 10,
       "hide": 1,
-      "layer_status": 3,
       "detached": 1
     }
   },

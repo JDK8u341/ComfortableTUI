@@ -8,10 +8,44 @@ from urllib.parse import urlencode
 from comfortable_tui import BrowserService, WebView
 
 
+class ResponsiveWebView(WebView):
+    """One page per view; reflow at the panel's logical pixel size."""
+    def __init__(self, page):
+        self._pending_size = None
+        self._resize_wait = 0.
+        super().__init__(page, fit="stretch")
+
+    def _canvas_event(self, event):
+        if event.kind == "transform":
+            transform = event.data["transform"]
+            width, height = transform.viewport_size
+            if width > 0 and height > 0:
+                size = tuple(min(4096, max(1, round(v / transform.dpi_scale))) for v in (width, height))
+                source = self.page.source.info
+                if size == (source.width, source.height):
+                    self._pending_size = None
+                elif size != self._pending_size:
+                    self._pending_size, self._resize_wait = size, .12
+            else:
+                self._pending_size = None
+        return super()._canvas_event(event)
+
+    def tick(self, dt):
+        super().tick(dt)
+        if self._closed or self.page._closed or self._pending_size is None:
+            return
+        if not self.app or id(self) not in self.app._overlay_placements:
+            return
+        self._resize_wait -= dt
+        if self._resize_wait <= 0:
+            size, self._pending_size = self._pending_size, None
+            self.page.resize(*size)
+
+
 class WebPanels:
     group = "comfortable-top-analytics"
 
-    def __init__(self, platform=None):
+    def __init__(self, platform=None, *, temporary=False):
         class Handler(SimpleHTTPRequestHandler):
             def log_message(self, *_):
                 pass
@@ -25,7 +59,8 @@ class WebPanels:
         self.probes = {}
         self.loaded = set()
         try:
-            self.service = BrowserService("org.comfortabletui.examples.comfortabletop", display_platform=platform)
+            self.service = BrowserService(None if temporary else "org.comfortabletui.examples.comfortabletop",
+                                          display_platform=platform)
             self.profile = self.service.profile("local-analytics", persistent=False)
             self.service.on_event(self._event)
         except BaseException:
@@ -41,7 +76,7 @@ class WebPanels:
                 profile=self.profile, width=720, height=400, fps=60, origins=[origin],
                 subscribe_topics=["monitor.sample", "monitor.probe"],
                 publish_topics=["monitor.select", "monitor.proof"], message_group=self.group)
-        return WebView(self.pages[key], fit="contain")
+        return ResponsiveWebView(self.pages[key])
 
     def _event(self, event):
         if event["event"] == "loaded":

@@ -67,6 +67,20 @@ def install_checks(monitor, report):
         if monitor.web:
             assert len(monitor.web.probes) == len(monitor.web.pages)
             assert all(p["token"] == "comfortable-top-self-test" and p["received"] for p in monitor.web.probes.values())
+            viewports = {}
+            for key, page in monitor.web.pages.items():
+                viewport = monitor.web.probes[page.id]["viewport"]
+                assert (viewport["width"], viewport["height"]) == (page.source.info.width, page.source.info.height)
+                view = next(w for w in page._widgets if not w._closed)
+                assert view.transform is not None
+                expected = tuple(round(v / view.transform.dpi_scale) for v in view.transform.viewport_size)
+                assert (viewport["width"], viewport["height"]) == expected
+                assert viewport["documentWidth"] <= viewport["width"] + 1
+                assert viewport["chartWidth"] >= viewport["width"] * .8 and viewport["chartHeight"] > 12
+                assert viewport["titleSize"] >= 16
+                viewports[str(key)] = viewport
+            report["browser_viewports"] = viewports
+            report["checks"].append("browser_viewport_reflows_and_chart_fills_panel")
             assert model.selected == tuple(report.pop("expected_selection"))
             report["checks"].append("browser_telemetry_received_and_selection_roundtrip")
 
