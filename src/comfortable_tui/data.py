@@ -237,6 +237,24 @@ class ListView(Widget):
         if self.items and self.on_select:
             self.on_select(self.selected, self.items[self.selected])
 
+    def _enter_selected_widget(self, event):
+        # Enter starts at the list/table itself, rather than at its embedded
+        # view. Delegate to the selected row only; ordinary row activation and
+        # mouse confirmation keep their existing behavior.
+        row = self._row_widgets.get(self.selected)
+        if not self.focused or row is None:
+            return False
+        body = getattr(self, "_body_rect", self.rect)
+        for child in row.focusables():
+            clip = child.rect.intersect(body)
+            if min(clip.width, clip.height) <= 0 or not callable(getattr(child, "enter_interaction", None)):
+                continue
+            if self.app.focus(child):
+                if child.on_event(event):
+                    return True
+                self.app.focus(self)
+        return False
+
     def on_event(self, event):
         if isinstance(event, Mouse):
             if event.phase == "scroll":
@@ -256,6 +274,8 @@ class ListView(Widget):
         if not isinstance(event, Key):
             return False
         if event.name == "enter":
+            if event.phase == "press" and self._enter_selected_widget(event):
+                return True
             if self.app and self.app.keyboard_release:
                 if event.phase == "press":
                     self._armed = True

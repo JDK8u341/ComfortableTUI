@@ -60,6 +60,26 @@ def test_button_release_and_disabled_focus():
         assert clicks == [1, 1]
 
 
+@pytest.mark.parametrize("container", ["list", "table"])
+@pytest.mark.parametrize("keyboard_release", [False, True])
+def test_embedded_plain_row_retains_enter_confirmation(container, keyboard_release):
+    from comfortable_tui import Label
+    selected = []
+    options = dict(on_select=lambda i, row: selected.append((i, row)))
+    if container == "list":
+        widget = ListView(["row"], item_widget=lambda i, text: Label(text), **options)
+    else:
+        widget = DataTable(["Name"], [("row",)], cell_widget=lambda r, c, value: Label(value), **options)
+    with App(widget) as app:
+        app.render(30, 6)
+        app.keyboard_release = keyboard_release
+        app.dispatch(Key("enter"))
+        assert bool(selected) is not keyboard_release
+        app.dispatch(Key("enter", phase="release"))
+        assert selected == [(0, "row" if container == "list" else ("row",))]
+        assert app.focused is widget
+
+
 def test_mouse_capture_cancels_outside_click():
     clicks = []
     a = Button("a", lambda: clicks.append("a"))

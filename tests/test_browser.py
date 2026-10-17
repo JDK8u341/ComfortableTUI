@@ -171,6 +171,67 @@ def test_webview_embedded_in_virtual_list_defers_arrows_until_interacting(browse
         assert app.focused is not view and not view.interacting
 
 
+@pytest.mark.parametrize("container", ["list", "table"])
+@pytest.mark.parametrize("keyboard_release", [False, True])
+def test_enter_from_selected_virtual_row_starts_webview_interaction(browser_service, container, keyboard_release):
+    from comfortable_tui import App, CanvasEvent, DataTable, HBox, Key, Label, ListView, WebView
+    page = browser_service.open("about:blank", width=8, height=8)
+    activated = []
+    options = dict(item_height=4, on_select=lambda *args: activated.append(args))
+    if container == "list":
+        parent = ListView(range(1000), item_widget=lambda i, text: HBox(Label(text, width=8), WebView(page)),
+                          **options)
+    else:
+        parent = DataTable(["Item", "Page"], [(str(i), "") for i in range(1000)], column_widths=[8, 20],
+                           cell_widget=lambda r, c, value: WebView(page) if c == 1 else None, **options)
+    with App(parent, reduced_motion=True) as app:
+        app.keyboard_release = keyboard_release
+        app.render(40, 14)
+        parent.select(400)
+        for _ in range(2):
+            app.render(40, 14, dt=1)
+        app.focus(parent)
+        view = next(w for w in parent._row_widgets[400].walk() if isinstance(w, WebView))
+        browser_service._rpc.messages.clear()
+        app.dispatch(Key("enter"))
+        assert app.focused is view and view.interacting and view.native_focus
+        app.dispatch(Key("enter", phase="release"))
+        assert activated == []
+        assert not any(op == "input" and data.get("kind") in ("key_down", "key_up")
+                       for op, data in browser_service._rpc.messages)
+        # Further Enter presses belong to the page, rather than reactivating
+        # the row. Escape restores its original navigation and selection.
+        app.dispatch(Key("enter"))
+        app.dispatch(Key("enter", phase="release"))
+        assert any(op == "input" and data.get("kind") == "key_down" and
+                   data["data"]["key_code"] == 13 for op, data in browser_service._rpc.messages)
+        view._native_event(CanvasEvent("key_down", {"name": "escape"}))
+        assert app.focused is parent and not view.interacting and parent.selected == 400
+        app.dispatch(Key("down"))
+        assert parent.selected == 401
+        app.render(40, 14, dt=1)
+        app.dispatch(Key("enter"))
+        next_view = next(w for w in parent._row_widgets[401].walk() if isinstance(w, WebView))
+        assert app.focused is next_view and next_view.interacting
+
+
+@pytest.mark.parametrize("container", ["list", "table"])
+def test_enter_skips_unavailable_embedded_webviews(browser_service, container):
+    from comfortable_tui import App, DataTable, HBox, Key, ListView, WebView
+    page = browser_service.open("about:blank", width=8, height=8)
+    unavailable, available = WebView(page, disabled=True), WebView(page)
+    if container == "list":
+        parent = ListView(["row"], item_height=4, item_widget=lambda i, text: HBox(unavailable, available))
+    else:
+        parent = DataTable(["Disabled", "Page"], [("", "")], item_height=4,
+                           cell_widget=lambda r, c, value: (unavailable, available)[c])
+    with App(parent) as app:
+        app.render(60, 12)
+        app.focus(parent)
+        app.dispatch(Key("enter"))
+        assert app.focused is available and available.interacting and not unavailable.interacting
+
+
 @pytest.mark.parametrize("container", ["table", "text"])
 def test_webview_in_table_or_text_can_navigate_to_neighbor(browser_service, container):
     from comfortable_tui import App, Button, CanvasEvent, DataTable, HBox, Text, WebView

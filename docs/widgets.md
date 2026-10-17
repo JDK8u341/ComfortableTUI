@@ -151,6 +151,9 @@ braille 用 2×4 采样点/格，单格前景色取点的平均值，不是完�
 控件，离屏即卸载；工厂需每次返回新控件。回收不会保存控件内部状态，请放入数据模型。
 `DataTable(..., cell_widget=lambda row, column, value: widget_or_none)` 为可见单元格
 创建控件，None 保留普通文字。两者继承父容器裁剪，表格水平滚动不会覆盖表头。
+焦点在列表/表格时，Enter 优先进入当前行中第一个可见且可用、支持
+`enter_interaction()` 的内嵌控件（如 WebView），并交给该控件处理进入按键。
+没有此类控件时仍执行原来的行确认行为；鼠标行确认行为保持原有约定。
 
 `Text(*runs)` 支持字符串和 Widget 混排。控件必须指定 width，height 默认 measure；
 控件是不可拆分的矩形，自动换行，行高适应最高控件。Text 是显示控件，不是编辑器。
