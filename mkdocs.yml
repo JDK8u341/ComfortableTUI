@@ -11,8 +11,7 @@ nav:
   - 共享附加层调研: shared-overlay-research.md
   - 架构: architecture.md
   - 控件: widgets.md
-  - Comfortable Top 混合示例: comfortable-top.md
-  - Comfortable Top 验证: validation/comfortable-top/README.md
+  - ComfortableTop 独立项目: comfortable-top.md
   - C++ GPU: native-gpu.md
   - GPU Research: native-gpu-research.md
   - C++ CPU 共享帧: native-cpu-frames.md
