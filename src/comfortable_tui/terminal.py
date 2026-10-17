@@ -21,6 +21,8 @@ class Terminal:
         self._special = False
         self._wide_decoder = codecs.getincrementaldecoder("utf-16-le")("replace")
         self._keyboard_pushed = False
+        self._input_active = False
+        self._input_stopped = False
 
     @property
     def size(self):
@@ -40,6 +42,8 @@ class Terminal:
                 state = termios.tcgetattr(fd)
                 self._restore.append(lambda: termios.tcsetattr(fd, termios.TCSADRAIN, state))
                 tty.setraw(fd)
+            self._input_active = True
+            self._input_stopped = False
             self.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[?2004h")
             if self.mouse:
                 self.write("\x1b[?1000h\x1b[?1002h\x1b[?1006h")
@@ -119,12 +123,68 @@ class Terminal:
         flush = not text and time.monotonic() - self._last_input > 0.035
         return self.parser.feed(text, flush=flush)
 
+    def stop_input(self):
+        """Stop terminal reports before potentially slow overlay teardown."""
+        if not self._input_stopped:
+            keyboard = "\x1b[<u" if self._keyboard_pushed else ""
+            self.write("\x1b[?2026l" + keyboard + "\x1b[?1000l\x1b[?1002l\x1b[?1003l"
+                       "\x1b[?1006l\x1b[?2004l")
+            self._keyboard_pushed = False
+            self._input_stopped = True
+
+    def _discard_input(self):
+        if os.name == "nt":
+            import msvcrt
+            consumed = False
+            # Read through the same CRT path as read(): a console-only flush
+            # would leave any characters already buffered by the CRT behind.
+            for _ in range(4096):
+                if not msvcrt.kbhit():
+                    break
+                msvcrt.getwch()
+                consumed = True
+            return consumed
+        import select
+        if select.select([self.input], [], [], 0)[0]:
+            return bool(os.read(self.input.fileno(), 65536))
+        return False
+
+    def _drain_input(self):
+        # Output flush does not mean the terminal/ConPTY has already processed
+        # mouse-disable sequences. Allow in-flight reports to arrive while we
+        # still own raw input; never dispatch them to widgets during shutdown.
+        deadline = time.monotonic() + .1
+        quiet_until = time.monotonic() + .05
+        try:
+            while True:
+                consumed = self._discard_input()
+                now = time.monotonic()
+                if consumed:
+                    quiet_until = now + .05
+                if now >= min(quiet_until, deadline):
+                    break
+                time.sleep(min(.002, quiet_until - now, deadline - now))
+        except (OSError, ValueError):
+            # A disconnected terminal must not prevent restoration of modes.
+            pass
+        finally:
+            self.parser = InputParser()
+            self._decoder.reset()
+            self._wide_decoder.reset()
+            self._special = False
+
     def __exit__(self, exc_type, exc, tb):
         try:
-            keyboard = "\x1b[<u" if self._keyboard_pushed else ""
-            self.write("\x1b[?2026l" + keyboard + "\x1b[?1000l\x1b[?1002l\x1b[?1006l\x1b[?2004l"
-                       "\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l")
+            try:
+                self.stop_input()
+            finally:
+                try:
+                    if self._input_active:
+                        self._drain_input()
+                finally:
+                    self.write("\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l")
         finally:
+            self._input_active = False
             for restore in reversed(self._restore):
                 restore()
             self._restore.clear()

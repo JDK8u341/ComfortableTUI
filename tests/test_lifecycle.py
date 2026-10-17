@@ -52,6 +52,73 @@ def test_noninteractive_terminal_is_rejected():
             pass
 
 
+def test_shutdown_consumes_delayed_mouse_reports_before_restoring_echo(monkeypatch):
+    import comfortable_tui.terminal as module
+    from collections import deque
+
+    clock = [0.]
+    monkeypatch.setattr(module, "time", SimpleNamespace(
+        monotonic=lambda: clock[0], sleep=lambda delay: clock.__setitem__(0, clock[0] + delay)))
+    terminal = Terminal(input=TTY(), output=TTY())
+    terminal._input_active = True
+    terminal.enable_keyboard()
+    terminal.parser.feed("\x1b[<35;87;")
+    terminal._special = True
+    reports = deque([(0., "\x1b[<35;87;1M"), (.02, "\x1b[<0;87;1m")])
+    consumed = []
+
+    def discard():
+        assert "\x1b[?1006l" in terminal.output.getvalue()
+        assert "\x1b[?1049l" not in terminal.output.getvalue()
+        if reports and reports[0][0] <= clock[0]:
+            consumed.append(reports.popleft()[1])
+            return True
+        return False
+
+    monkeypatch.setattr(terminal, "_discard_input", discard)
+    terminal._restore.append(lambda: consumed.append("restored"))
+    terminal.stop_input()
+    terminal.__exit__(None, None, None)
+    assert consumed == ["\x1b[<35;87;1M", "\x1b[<0;87;1m", "restored"]
+    assert terminal.output.getvalue().count("\x1b[<u") == 1
+    assert terminal.output.getvalue().count("\x1b[?1003l") == 1
+    assert not terminal.parser.buffer and not terminal._special
+    assert .07 <= clock[0] <= .1
+
+
+def test_shutdown_drain_is_bounded_and_handles_disconnected_input(monkeypatch):
+    import comfortable_tui.terminal as module
+    clock = [0.]
+    monkeypatch.setattr(module, "time", SimpleNamespace(
+        monotonic=lambda: clock[0], sleep=lambda delay: clock.__setitem__(0, clock[0] + delay)))
+    terminal = Terminal(input=TTY(), output=TTY())
+    monkeypatch.setattr(terminal, "_discard_input", lambda: True)
+    terminal._drain_input()
+    assert .1 <= clock[0] < .102
+
+    def disconnected():
+        raise OSError("input disconnected")
+
+    monkeypatch.setattr(terminal, "_discard_input", disconnected)
+    terminal._input_active = True
+    restored = []
+    terminal._restore.append(lambda: restored.append(True))
+    terminal.__exit__(None, None, None)
+    assert restored and "\x1b[?1049l" in terminal.output.getvalue()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows CRT input queue")
+def test_windows_shutdown_drains_crt_characters(monkeypatch):
+    import msvcrt
+    from collections import deque
+    pending = deque("\x1b[<35;87;1M")
+    monkeypatch.setattr(msvcrt, "kbhit", lambda: bool(pending))
+    monkeypatch.setattr(msvcrt, "getwch", pending.popleft)
+    terminal = Terminal(input=TTY(), output=TTY())
+    assert terminal._discard_input()
+    assert not pending and not terminal._discard_input()
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows extended key input")
 def test_windows_extended_f6_and_shift_tab_are_decoded(monkeypatch):
     import msvcrt
@@ -116,12 +183,15 @@ def test_run_ticks_once_and_cleans_up_if_paint_raises(monkeypatch):
         def read(self, timeout):
             return [Key("ctrl+q")]
 
+        def stop_input(self):
+            events.append("input_stopped")
+
     monkeypatch.setattr(module, "Terminal", FakeTerminal)
     with App(Failing("test")) as app:
         with pytest.raises(ValueError, match="paint error"):
             app.run()
         assert not app._running
-    assert events == ["tick", "restored"]
+    assert events == ["tick", "input_stopped", "restored"]
 
 
 def test_ownership_cycles_and_zero_delay_timer_deferral():

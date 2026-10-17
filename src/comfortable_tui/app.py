@@ -470,10 +470,13 @@ class App:
                             if not self._running or time.monotonic() >= deadline:
                                 break
                 finally:
-                    self._close_overlays()
-                    for encoder in self._images.values():
-                        terminal.write(encoder.delete())
-                    self._images.clear()
+                    try:
+                        terminal.stop_input()
+                    finally:
+                        self._close_overlays()
+                        for encoder in self._images.values():
+                            terminal.write(encoder.delete())
+                        self._images.clear()
         finally:
             self._running, self._terminal = False, None
             if self._executor:
