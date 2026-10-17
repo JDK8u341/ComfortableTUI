@@ -18,7 +18,7 @@ from .browser import BrowserService, BrowserProfile, BrowserPage
 from .webview import WebView
 from .window_host import WindowHost
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
     "Animator", "MotionProfile", "Spring", "Value", "App", "Timer", "Canvas", "Cell", "Rect", "crop_text", "text_width",
     "Collapsible", "Grid", "HBox", "PageStack", "Panel", "ScrollView", "Tabs", "VBox", "BarChart",

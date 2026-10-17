@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 — 2026-10-18
 
 - Fix Windows Python 3.12 pacing being quantized to 32/64 FPS by GetTickCount64; use perf_counter and continuous deadlines in terminal/input/window loops.
 - Cache bounded immutable text runs, inherited styles and ANSI styles; add optional real-loop FrameTiming diagnostics and ComfortableTop pacing probes.
