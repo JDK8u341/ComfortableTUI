@@ -63,7 +63,8 @@ python examples/benchmark.py --frames 300
 The default installation needs no compiler. An opt-in C++17 / pybind11 extension
 scans dirty spans; see the performance guide for build commands and measured limits.
 The core is an independent implementation. No osu-mc source or assets are bundled.
-MIT licensed.
+Licensed under the [Apache License, Version 2.0](LICENSE).
+Copyright 2026 ComfortableTUI contributors. See [NOTICE](NOTICE).
 
 Windows 画布现使用一个共享附加层显示多个逻辑画布，支持虚拟列表行、表格单元格与 Text 混排。运行 `python examples/embedded_canvas.py`，详见 [共享层调研](docs/shared-overlay-research.md) 和 [画布文档](docs/overlay-canvas.md)。
 

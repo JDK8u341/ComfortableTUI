@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A spring-driven Python TUI toolkit inspired by embedded OLED interfaces"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
+license = "Apache-2.0"
 authors = [{name = "ComfortableTUI contributors"}]
 dependencies = ["wcwidth>=0.2.13", "regex>=2024.5.15"]
 classifiers = ["Development Status :: 3 - Alpha", "Environment :: Console", "Programming Language :: Python :: 3"]
