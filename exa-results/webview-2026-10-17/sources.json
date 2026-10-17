@@ -1,0 +1,237 @@
+{
+  "date": "2026-10-17",
+  "searches": 8,
+  "requested_results": 40,
+  "returned_candidates": 40,
+  "unique_urls": 37,
+  "candidates": [
+    {
+      "angle": "CEF",
+      "title": "CEF Documentation | Chromium Embedded Framework documentation",
+      "url": "https://chromiumembedded.github.io/cef/general_usage.html"
+    },
+    {
+      "angle": "CEF",
+      "title": "include/cef_render_handler.h at master · chromiumembedded/cef",
+      "url": "https://github.com/chromiumembedded/cef/blob/master/include/cef_render_handler.h"
+    },
+    {
+      "angle": "CEF",
+      "title": "Chromium Embedded Framework (CEF): CefRenderHandler Class Reference",
+      "url": "https://cef-builds.spotifycdn.com/docs/150.0/classCefRenderHandler.html"
+    },
+    {
+      "angle": "CEF",
+      "title": "Chromium Embedded Framework (CEF): cef_accelerated_paint_info_t Struct Reference",
+      "url": "https://cef-builds.spotifycdn.com/docs/126.2/structcef__accelerated__paint__info__t.html"
+    },
+    {
+      "angle": "CEF",
+      "title": "713eebc Add support for shared texture and external BeginFrame in OSR mode (issue #1006)",
+      "url": "https://github.com/chromiumembedded/cef/commit/713eebcafcd7799d4e0eb58b8c2ab58d03ab9b65"
+    },
+    {
+      "angle": "Qt",
+      "title": "QQuickRenderControl RHI Example | Qt Quick | Qt 6.12.0",
+      "url": "https://doc.qt.io/qt-6/qtquick-rendercontrol-rendercontrol-rhi-example.html"
+    },
+    {
+      "angle": "Qt",
+      "title": "Qt WebEngine Features | Qt WebEngine | Qt 6.11.2",
+      "url": "https://doc.qt.io/qt-6.11/qtwebengine-features.html"
+    },
+    {
+      "angle": "Qt",
+      "title": "QQuickRenderControl Class | Qt Quick | Qt 6.12.0",
+      "url": "https://doc.qt.io/qt-6.12/qquickrendercontrol.html"
+    },
+    {
+      "angle": "Qt",
+      "title": "Scene Graph Adaptations | Qt Quick | Qt 6.12.0",
+      "url": "https://doc.qt.io/qt-6/qtquick-visualcanvas-adaptations.html"
+    },
+    {
+      "angle": "Qt",
+      "title": "QtWebEngine/Rendering - Qt Wiki",
+      "url": "https://wiki.qt.io/QtWebEngine/Rendering"
+    },
+    {
+      "angle": "Ultralight",
+      "title": "Using a Custom GPUDriver",
+      "url": "https://docs.ultralig.ht/docs/using-a-custom-gpudriver"
+    },
+    {
+      "angle": "Ultralight",
+      "title": "GPU Renderer Overview",
+      "url": "https://ultralig.ht/docs/2.0/gpu-renderer-overview"
+    },
+    {
+      "angle": "Ultralight",
+      "title": "Integrating into a Game Engine - Ultralight Docs",
+      "url": "https://ultralig.ht/docs/2.0/integrating-into-a-game-engine"
+    },
+    {
+      "angle": "Ultralight",
+      "title": "Supported Web Features · ultralight-ux/Ultralight Wiki · GitHub",
+      "url": "https://github.com/ultralight-ux/Ultralight/wiki/Supported-Web-Features"
+    },
+    {
+      "angle": "Ultralight",
+      "title": "Ultralight - Universal, Pure-GPU HTML Renderer",
+      "url": "https://ultralig.ht/"
+    },
+    {
+      "angle": "native",
+      "title": "wry - Rust",
+      "url": "https://docs.rs/wry/latest/wry/"
+    },
+    {
+      "angle": "native",
+      "title": "Graphics - WebKit Documentation",
+      "url": "https://docs.webkit.org/Ports/WebKitGTK%20and%20WPE%20WebKit/Graphics.html"
+    },
+    {
+      "angle": "native",
+      "title": "Offscreen rendering feature",
+      "url": "https://github.com/tauri-apps/wry/issues/391"
+    },
+    {
+      "angle": "native",
+      "title": "WPE Architecture",
+      "url": "https://wpewebkit.org/about/architecture.html"
+    },
+    {
+      "angle": "native",
+      "title": "[GTK] Use DMABuf and WebKit IPC for rendering instead of wpe/x11 · Pull Request #10726 · WebKit/WebKit",
+      "url": "https://github.com/WebKit/WebKit/pull/10726"
+    },
+    {
+      "angle": "qt-proof",
+      "title": "QQuickRenderControl Class | Qt Quick | Qt 6.12.0",
+      "url": "https://doc.qt.io/qt-6.12/qquickrendercontrol.html"
+    },
+    {
+      "angle": "qt-proof",
+      "title": "Offscreen rendering does not work with Qt 5.13 / 5.14 | Qt Forum",
+      "url": "https://forum.qt.io/topic/112200/offscreen-rendering-does-not-work-with-qt-5-13-5-14"
+    },
+    {
+      "angle": "qt-proof",
+      "title": "QQuickRenderControl Class | Qt Quick | Qt 6.11.2",
+      "url": "https://doc.qt.io/qt-6/qquickrendercontrol.html"
+    },
+    {
+      "angle": "qt-proof",
+      "title": "Is it possible to render QWebEnginePage/QWebEngineView offscreen?",
+      "url": "https://stackoverflow.com/questions/53524652/is-it-possible-to-render-qwebenginepage-qwebengineview-offscreen"
+    },
+    {
+      "angle": "qt-proof",
+      "title": "Render web content offscreen using QtWebEngine",
+      "url": "https://stackoverflow.com/questions/29547460/render-web-content-offscreen-using-qtwebengine"
+    },
+    {
+      "angle": "cef-gpu-proof",
+      "title": "Branch 8078 — cef — Bitbucket",
+      "url": "https://bitbucket.org/chromiumembedded/cef/branch/8078"
+    },
+    {
+      "angle": "cef-gpu-proof",
+      "title": "osr: linux: Add cefclient implementation for OnAcceleratedPaint",
+      "url": "https://github.com/chromiumembedded/cef/issues/3687"
+    },
+    {
+      "angle": "cef-gpu-proof",
+      "title": "713eebc Add support for shared texture and external BeginFrame in OSR mode (issue #1006)",
+      "url": "https://github.com/chromiumembedded/cef/commit/713eebcafcd7799d4e0eb58b8c2ab58d03ab9b65"
+    },
+    {
+      "angle": "cef-gpu-proof",
+      "title": "1e6b870 cefclient: Add support for shared texture and external BeginFrame in OSR mode (issue #1006)",
+      "url": "https://github.com/chromiumembedded/cef/commit/1e6b870af0117a675014cc559c1ad9141733226b"
+    },
+    {
+      "angle": "cef-gpu-proof",
+      "title": "Force use-angle=gl-egl and ozone-platform=X11 for Linux OSR shared texture mode",
+      "url": "https://github.com/chromiumembedded/cef/pull/3954"
+    },
+    {
+      "angle": "wayland",
+      "title": "XDG shell protocol | Wayland Explorer",
+      "url": "https://wayland.app/protocols/xdg-shell"
+    },
+    {
+      "angle": "wayland",
+      "title": "Commits · 684cd23a · wayland / wayland-protocols · GitLab",
+      "url": "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/commits/684cd23a/stable/xdg-shell/xdg-shell.xml"
+    },
+    {
+      "angle": "wayland",
+      "title": "Documentation for <wlr/types/wlr_xdg_shell.h> · wlroots",
+      "url": "https://wlroots.pages.freedesktop.org/wlroots/wlr/types/wlr_xdg_shell.h.html"
+    },
+    {
+      "angle": "wayland",
+      "title": "Window positioning under Wayland ¶",
+      "url": "https://canonical.com/mir/docs/latest/explanation/window-positions-under-wayland/"
+    },
+    {
+      "angle": "wayland",
+      "title": "Top-level window positioning decisions [LWN.net]",
+      "url": "https://lwn.net/Articles/1008609/"
+    },
+    {
+      "angle": "browser-runtime",
+      "title": "CEF Documentation | Chromium Embedded Framework documentation",
+      "url": "https://chromiumembedded.github.io/cef/general_usage.html"
+    },
+    {
+      "angle": "browser-runtime",
+      "title": "CEF Documentation | Chromium Embedded Framework documentation",
+      "url": "https://chromiumembedded.github.io/cef/sandbox_setup.html"
+    },
+    {
+      "angle": "browser-runtime",
+      "title": "CEF Documentation | Chromium Embedded Framework documentation",
+      "url": "https://chromiumembedded.github.io/cef/hands_on_tutorial.html"
+    },
+    {
+      "angle": "browser-runtime",
+      "title": "Chromium Embedded Framework (CEF): cef_settings_t Struct Reference",
+      "url": "https://cef-builds.spotifycdn.com/docs/147.0/structcef__settings__t.html"
+    },
+    {
+      "angle": "browser-runtime",
+      "title": "examples/shared/main_win.cc",
+      "url": "https://github.com/chromiumembedded/cef-project/blob/master/examples/shared/main_win.cc"
+    }
+  ],
+  "full_text_urls": [
+    "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/cef_render_handler.h",
+    "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/internal/cef_types_win.h",
+    "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/internal/cef_types_mac.h",
+    "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/internal/cef_types_linux.h",
+    "https://doc.qt.io/qt-6/qtwebengine-platform-notes.html",
+    "https://doc.qt.io/qt-6/qquickrendercontrol.html",
+    "https://ultralig.ht/docs/2.0/supported-web-features",
+    "https://ultralig.ht/pricing/",
+    "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/cef_browser.h",
+    "https://canonical.com/mir/docs/latest/explanation/window-positions-under-wayland/",
+    "https://ultralig.ht/docs/2.0/editions-and-feature-macros",
+    "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/internal/cef_types.h",
+    "https://cef-builds.spotifycdn.com/docs/150.0/classCefRenderHandler.html",
+    "https://chromiumembedded.github.io/cef/sandbox_setup.html",
+    "https://doc.qt.io/qt-6/qtwebengine-features.html",
+    "https://doc.qt.io/qt-6/qtwebengine-licensing.html",
+    "https://docs.rs/wry/latest/wry/",
+    "https://wpewebkit.org/about/architecture.html",
+    "https://ultralig.ht/docs/2.0/gpu-renderer-overview"
+  ],
+  "full_text_count": 19,
+  "excluded_notes": [
+    "Search results include duplicates, old commits and community discussions. Candidate count is not a count of validated independent sources.",
+    "Exa did not return full text for the three guessed cefclient renderer source paths; these were not used as implementation evidence.",
+    "CEF general usage OSR acceleration text and shared_texture_enabled comments lag behind the cross-platform CefRenderHandler contract. Pin a binary release and validate each backend.",
+    "Ultralight old wiki conflicts with 2.0 docs. Current 2.0 docs used for feature limitations."
+  ]
+}

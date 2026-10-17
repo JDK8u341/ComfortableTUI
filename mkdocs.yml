@@ -13,6 +13,7 @@ nav:
   - 控件: widgets.md
   - C++ GPU: native-gpu.md
   - GPU Research: native-gpu-research.md
+  - WebView 调研: webview-research.md
   - API: api.md
   - 终端协议: terminal-protocols.md
   - 性能: performance.md
