@@ -9,6 +9,7 @@ import tempfile
 import time
 
 from ._native_process import NativeProcess
+from ._pacing import FramePacer
 from ._display_environment import display_environment
 from .events import Key, Mouse, Paste
 from .gpu import GpuFrameSource
@@ -148,9 +149,19 @@ class WindowHost:
                 widget._emit(CanvasEvent("show" if item["visible"] else "hide"))
 
     def step(self, dt=1 / 60):
+        observer = self.app.on_frame
+        start = time.perf_counter() if observer else 0
         self.poll()
+        polled = time.perf_counter() if observer else 0
         frame = self.app.render(self.geometry["columns"], self.geometry["rows"], dt=dt)
+        rendered = time.perf_counter() if observer else 0
         self.sync(frame)
+        if observer:
+            from .renderer import FrameTiming
+            interval = start - getattr(self, "_observed_previous", start)
+            self._observed_previous = start
+            observer(FrameTiming(start, interval, self.app.fps, True, tick=polled - start,
+                render=rendered - polled, overlay=time.perf_counter() - rendered, host="window"))
         return frame
 
     def metrics(self):
@@ -158,13 +169,15 @@ class WindowHost:
 
     def run(self):
         self.app._running = True
-        previous = time.monotonic()
+        previous = time.perf_counter()
+        pacer = FramePacer(previous)
         try:
             while self.app._running:
-                start = time.monotonic()
+                start = time.perf_counter()
                 self.step(min(.25, start - previous))
                 previous = start
-                time.sleep(max(0, start + 1 / self.app.fps - time.monotonic()))
+                deadline = pacer.advance(time.perf_counter(), self.app.fps)
+                time.sleep(max(0, deadline - time.perf_counter()))
         finally:
             self.app._running = False
             self.close()

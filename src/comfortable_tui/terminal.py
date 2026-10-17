@@ -91,7 +91,7 @@ class Terminal:
         text = ""
         if os.name == "nt":
             import msvcrt
-            deadline = time.monotonic() + timeout
+            deadline = time.perf_counter() + timeout
             while True:
                 while msvcrt.kbhit():
                     char = msvcrt.getwch()
@@ -105,9 +105,9 @@ class Terminal:
                         self._special = True
                     else:
                         text += char
-                if text or time.monotonic() >= deadline:
+                if text or time.perf_counter() >= deadline:
                     break
-                time.sleep(min(0.002, max(0, deadline - time.monotonic())))
+                time.sleep(min(0.002, max(0, deadline - time.perf_counter())))
             # getwch can expose UTF-16 surrogate pairs for emoji.
             text = self._wide_decoder.decode(text.encode("utf-16-le", "surrogatepass"))
         else:
@@ -119,8 +119,8 @@ class Terminal:
                     return [Key("ctrl+c")]
                 text = self._decoder.decode(raw)
         if text:
-            self._last_input = time.monotonic()
-        flush = not text and time.monotonic() - self._last_input > 0.035
+            self._last_input = time.perf_counter()
+        flush = not text and time.perf_counter() - self._last_input > 0.035
         return self.parser.feed(text, flush=flush)
 
     def stop_input(self):
@@ -153,12 +153,12 @@ class Terminal:
         # Output flush does not mean the terminal/ConPTY has already processed
         # mouse-disable sequences. Allow in-flight reports to arrive while we
         # still own raw input; never dispatch them to widgets during shutdown.
-        deadline = time.monotonic() + .1
-        quiet_until = time.monotonic() + .05
+        deadline = time.perf_counter() + .1
+        quiet_until = time.perf_counter() + .05
         try:
             while True:
                 consumed = self._discard_input()
-                now = time.monotonic()
+                now = time.perf_counter()
                 if consumed:
                     quiet_until = now + .05
                 if now >= min(quiet_until, deadline):

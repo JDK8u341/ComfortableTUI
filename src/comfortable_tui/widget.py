@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterator
+from functools import lru_cache
 
 from .animation import Value
 from .canvas import Canvas, Rect
@@ -10,6 +11,11 @@ from .style import Style, Theme
 
 if TYPE_CHECKING:
     from .app import App
+
+
+@lru_cache(maxsize=512)
+def _on_surface(style, background):
+    return style if style.bg == background else style.with_(bg=background)
 
 
 class Widget:
@@ -134,7 +140,7 @@ class Widget:
             return self.style
         area = self.rect.intersect(canvas.clip)
         base = canvas.style_at(area.x, area.y, self.theme.background)
-        return (semantic or self.theme.background).with_(bg=base.bg)
+        return _on_surface(semantic or self.theme.background, base.bg)
 
     def focus_rect(self) -> Rect:
         return self.rect

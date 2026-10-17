@@ -1,5 +1,6 @@
 """Immutable terminal styles and semantic themes."""
 from dataclasses import dataclass, replace
+from functools import lru_cache
 
 Color = tuple[int, int, int] | None
 
@@ -25,6 +26,7 @@ class Style:
             return tuple(round(x + (y - x) * amount) for x, y in zip(a, b))
         return self.with_(fg=mix(self.fg, other.fg), bg=mix(self.bg, other.bg))
 
+    @lru_cache(maxsize=2048)
     def ansi(self, colors: str = "truecolor") -> str:
         codes = ["0"]
         for enabled, code in [(self.bold, "1"), (self.italic, "3"),

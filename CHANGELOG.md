@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix Windows Python 3.12 pacing being quantized to 32/64 FPS by GetTickCount64; use perf_counter and continuous deadlines in terminal/input/window loops.
+- Cache bounded immutable text runs, inherited styles and ANSI styles; add optional real-loop FrameTiming diagnostics and ComfortableTop pacing probes.
+
 - Add semantic Expressive/Subtle motion profiles, interruptible focus/selection springs and press feedback.
 - Animate checkbox colors, programmatic switches, slider tracks, bar charts, modal entry/exit and notification entry/exit.
 - Cache unchanged braille frame sampling and accelerate whole-cell compositing; preserve reduced-motion and empty settled diffs.

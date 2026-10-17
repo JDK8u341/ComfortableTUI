@@ -11,7 +11,7 @@ from .graphics import KittyEncoder, PixelCanvas, Surface
 from .gpu import GpuFrameInfo, GpuFrameSource, gpu_available
 from .overlay import (CanvasEvent, CanvasTransform, FrameBuffer, FrameBufferInfo, FrameLease,
                       OverlayCanvas, PixelRect, TerminalHost)
-from .renderer import FrameStats, Renderer
+from .renderer import FrameStats, FrameTiming, Renderer
 from .style import Style, Theme
 from .widget import Widget
 from .browser import BrowserService, BrowserProfile, BrowserPage
@@ -25,7 +25,7 @@ __all__ = [
     "Button", "Checkbox", "Input", "Label", "Log", "Paragraph", "ProgressBar", "Rule", "Slider",
     "Spacer", "Sparkline", "Spinner", "Switch", "Text", "TextArea", "DataTable", "DirectoryTree", "ListView",
     "RadioGroup", "Select", "SelectionList", "Tree", "TreeNode", "Capability", "InputParser", "Key",
-    "Mouse", "Paste", "KittyEncoder", "PixelCanvas", "Surface", "FrameStats", "Renderer", "Style",
+    "Mouse", "Paste", "KittyEncoder", "PixelCanvas", "Surface", "FrameStats", "FrameTiming", "Renderer", "Style",
     "Theme", "Widget",
     "CanvasEvent", "CanvasTransform", "FrameBuffer", "FrameBufferInfo", "FrameLease",
     "OverlayCanvas", "PixelRect", "TerminalHost",

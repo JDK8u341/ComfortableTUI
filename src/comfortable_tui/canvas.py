@@ -55,8 +55,32 @@ def clean_text(text: str) -> str:
                    for c in str(text))
 
 
-def text_width(text: str) -> int:
+@lru_cache(maxsize=2048)
+def _short_text_width(text: str) -> int:
     return max(0, wcswidth(clean_text(text)))
+
+
+def text_width(text: str) -> int:
+    text = str(text)
+    return _short_text_width(text) if len(text) <= 512 else max(0, wcswidth(clean_text(text)))
+
+
+def _build_text_run(text, style, limit):
+    cells = []
+    for glyph in graphemes(clean_text(text)):
+        width = max(0, wcswidth(glyph))
+        if glyph == "\n" or len(cells) + width > limit:
+            break
+        if width > 2:
+            return None  # Preserve the general text path for unusual clusters.
+        if width:
+            cells.append(_cell(glyph, style, width))
+            if width == 2:
+                cells.append(_cell("", style, 0))
+    return tuple(cells)
+
+
+_short_text_run = lru_cache(maxsize=2048)(_build_text_run)
 
 
 def crop_text(text: str, width: int) -> str:
@@ -241,6 +265,24 @@ class Canvas:
     def text(self, x: int, y: int, text: str, style: Style = Style(), width: int | None = None):
         start = x
         limit = self.width - x if width is None else max(0, width)
+        text = str(text)
+        # Reuse immutable cell runs for stable labels, table rows and borders.
+        # Clip/copy the whole run, retaining the slow path's logical return width.
+        build = _short_text_run if len(text) <= 512 and 0 <= limit <= 512 else _build_text_run
+        run = build(text, style, limit)
+        if run is not None:
+            left, right = max(x, self.clip.x), min(x + len(run), self.clip.x + self.clip.width)
+            if self.clip.y <= y < self.clip.y + self.clip.height and left < right:
+                if run[left - x].width == 0:
+                    left += 1
+                if right > left and run[right - x - 1].width == 2:
+                    right -= 1
+                if left < right:
+                    self._erase_owner(left, y)
+                    self._erase_owner(right - 1, y)
+                    offset = y * self.width + left
+                    self.cells[offset:offset + right - left] = run[left - x:right - x]
+            return len(run)
         for glyph in graphemes(clean_text(text)):
             n = max(0, wcswidth(glyph))
             if glyph == "\n" or x + n > start + limit:

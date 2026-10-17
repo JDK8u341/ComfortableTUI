@@ -58,7 +58,7 @@ def test_shutdown_consumes_delayed_mouse_reports_before_restoring_echo(monkeypat
 
     clock = [0.]
     monkeypatch.setattr(module, "time", SimpleNamespace(
-        monotonic=lambda: clock[0], sleep=lambda delay: clock.__setitem__(0, clock[0] + delay)))
+        perf_counter=lambda: clock[0], sleep=lambda delay: clock.__setitem__(0, clock[0] + delay)))
     terminal = Terminal(input=TTY(), output=TTY())
     terminal._input_active = True
     terminal.enable_keyboard()
@@ -90,7 +90,7 @@ def test_shutdown_drain_is_bounded_and_handles_disconnected_input(monkeypatch):
     import comfortable_tui.terminal as module
     clock = [0.]
     monkeypatch.setattr(module, "time", SimpleNamespace(
-        monotonic=lambda: clock[0], sleep=lambda delay: clock.__setitem__(0, clock[0] + delay)))
+        perf_counter=lambda: clock[0], sleep=lambda delay: clock.__setitem__(0, clock[0] + delay)))
     terminal = Terminal(input=TTY(), output=TTY())
     monkeypatch.setattr(terminal, "_discard_input", lambda: True)
     terminal._drain_input()

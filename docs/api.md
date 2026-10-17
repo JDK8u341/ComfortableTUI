@@ -10,6 +10,9 @@ invalidate。App.close 会清理所有事件源。WebView 使用该接口轮询�
 
 ## App
 
+`App.on_frame` 可设为轻量的 `callback(FrameTiming)`，采集真实循环各阶段耗时；
+传 None 停用。字段与单位见[帧调度诊断](frame-pacing.md)，不把离屏 dt 当真实帧率。
+
 ```python
 App(root, theme=None, fps=60, reduced_motion=None,
     colors=None, synchronized=None, mouse=True, motion=None)

@@ -65,3 +65,7 @@ COMFORTABLE_TUI_MOTION，未设置时为 expressive。Reduced motion 不驱动 s
 
 交互演示：`python examples/motion.py`。实际组合验证使用独立 ComfortableTop，
 见[调研与验证记录](expressive-motion-research.md)。
+
+实际感觉掉帧时，另见[帧调度与卡顿排查](frame-pacing.md)。Windows Python 3.12 的
+低分辨率 monotonic 时钟已更换为 QPC 性能时钟，实际运行节奏与固定 dt 的物理
+求解测试分开验证。

@@ -42,6 +42,21 @@ class FrameStats:
     spans: int = 0
 
 
+@dataclass(frozen=True)
+class FrameTiming:
+    """One actual loop sample; all durations are seconds, excluding presentation."""
+    started: float
+    interval: float
+    fps: int
+    rendered: bool
+    tick: float = 0
+    render: float = 0
+    encode: float = 0
+    write: float = 0
+    overlay: float = 0
+    host: str = "terminal"
+
+
 class Renderer:
     def __init__(self, *, synchronized: bool = False, colors: str = "truecolor", native: bool = True):
         if colors not in ("truecolor", "256", "none"):

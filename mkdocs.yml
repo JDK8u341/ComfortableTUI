@@ -8,6 +8,7 @@ nav:
   - 动画优化: motion-research.md
   - 弹性动效指南: motion.md
   - 弹性动效调研与验证: expressive-motion-research.md
+  - 帧调度与卡顿排查: frame-pacing.md
   - 原生缓冲区画布: overlay-canvas.md
   - 覆盖画布调研: overlay-research.md
   - 共享附加层调研: shared-overlay-research.md

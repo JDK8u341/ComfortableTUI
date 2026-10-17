@@ -11,10 +11,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from ._highlight import AnimatedHighlight
+from ._pacing import FramePacer
 from .animation import Animator, Value
 from .canvas import Canvas, Rect
 from .events import Capability, Key, Mouse
-from .renderer import Renderer
+from .renderer import FrameTiming, Renderer
 from .style import Theme
 from .terminal import Terminal
 from .widget import Widget
@@ -66,6 +67,7 @@ class App:
         self._event_pollers = []
         self._terminal = None
         self._toast, self._toast_timer = "", None
+        self.on_frame = None
         self._toast_motion = self.animator.add(Value(role="reveal"))
         self._toast_expiring = False
         self._modal_motion = self.animator.add(Value(role="reveal"))
@@ -494,29 +496,48 @@ class App:
     def run(self):
         self._running = True
         self.renderer.invalidate()
-        previous = time.monotonic()
+        previous = time.perf_counter()
+        observed_previous = time.perf_counter()
         try:
             with Terminal(mouse=self.mouse) as terminal:
                 self._terminal = terminal
+                pacer = FramePacer(time.perf_counter())
                 try:
                     while self._running:
-                        start = time.monotonic()
-                        dt, previous = min(0.25, start - previous), start
+                        observer = self.on_frame
+                        observed_start = time.perf_counter() if observer else 0
+                        start = time.perf_counter()
+                        interval = start - previous
+                        dt, previous = min(0.25, interval), start
                         width, height = terminal.size
                         if (width, height) != self._size:
                             self.renderer.invalidate()
                             self.invalidate()
                         # Tick once even when idle; settled frames do not allocate canvases.
                         self._advance(dt)
-                        if self._dirty or self.animator.active:
-                            terminal.write(self.encode(self._compose(width, height, dt)))
+                        ticked = time.perf_counter() if observer else 0
+                        rendered = self._dirty or self.animator.active
+                        composed = encoded = written = synced = ticked
+                        if rendered:
+                            frame = self._compose(width, height, dt)
+                            composed = time.perf_counter() if observer else 0
+                            output = self.encode(frame)
+                            encoded = time.perf_counter() if observer else 0
+                            terminal.write(output)
+                            written = time.perf_counter() if observer else 0
                             self._sync_overlays()
-                        deadline = start + 1 / self.fps
+                            synced = time.perf_counter() if observer else 0
+                        if observer:
+                            observer(FrameTiming(observed_start, observed_start - observed_previous, self.fps, bool(rendered),
+                                ticked - observed_start, composed - ticked, encoded - composed,
+                                written - encoded, synced - written))
+                            observed_previous = observed_start
+                        deadline = pacer.advance(time.perf_counter(), self.fps)
                         while True:
-                            wait = max(0, deadline - time.monotonic())
+                            wait = max(0, deadline - time.perf_counter())
                             for event in terminal.read(wait):
                                 self.dispatch(event)
-                            if not self._running or time.monotonic() >= deadline:
+                            if not self._running or time.perf_counter() >= deadline:
                                 break
                 finally:
                     try:
