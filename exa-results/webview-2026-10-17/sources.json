@@ -1,10 +1,10 @@
 {
   "date": "2026-10-17",
   "combined": {
-    "searches": 25,
-    "requested_results": 125,
-    "returned_candidates": 125,
-    "unique_search_urls": 121
+    "searches": 30,
+    "requested_results": 150,
+    "returned_candidates": 150,
+    "unique_search_urls": 141
   },
   "webview": {
     "date": "2026-10-17",
@@ -729,6 +729,157 @@
       "Freedesktop GitLab raw protocol pages returned bot challenges; no challenge was bypassed. Upstream protocol mirrors and wlr upstream XML were read instead.",
       "Old forum discussions were treated as leads, not primary evidence. Proposed host backends have not been run on macOS/Linux.",
       "Search counts include duplicates; combined URL deduplication is exact and does not merge HTML/JSON or mirrors of the same document."
+    ]
+  },
+  "sessions_and_messaging": {
+    "date": "2026-10-17",
+    "searches": 5,
+    "requested_results": 25,
+    "returned_candidates": 25,
+    "unique_urls": 21,
+    "candidates": [
+      {
+        "angle": "profiles",
+        "title": "CEF Documentation | Chromium Embedded Framework documentation",
+        "url": "https://chromiumembedded.github.io/cef/general_usage.html"
+      },
+      {
+        "angle": "profiles",
+        "title": "Chromium Embedded Framework (CEF): cef_settings_t Struct Reference",
+        "url": "https://cef-builds.spotifycdn.com/docs/132.3/structcef__settings__t.html"
+      },
+      {
+        "angle": "profiles",
+        "title": "Chromium Embedded Framework (CEF): CefRequestContext Class Reference",
+        "url": "https://cef-builds.spotifycdn.com/docs/139.0/classCefRequestContext.html"
+      },
+      {
+        "angle": "profiles",
+        "title": "libcef/browser/chrome/chrome_browser_context.cc",
+        "url": "https://github.com/chromiumembedded/cef/blob/45a17430/libcef/browser/chrome/chrome_browser_context.cc"
+      },
+      {
+        "angle": "profiles",
+        "title": "Chromium Embedded Framework (CEF): CefRequestContext Class Reference",
+        "url": "https://cef-builds.spotifycdn.com/docs/147.0/classCefRequestContext.html"
+      },
+      {
+        "angle": "runtime-profile",
+        "title": "Chromium Embedded Framework (CEF): cef_settings_t Struct Reference",
+        "url": "https://cef-builds.spotifycdn.com/docs/132.3/structcef__settings__t.html"
+      },
+      {
+        "angle": "runtime-profile",
+        "title": "Chromium Embedded Framework (CEF): cef_settings_t Struct Reference",
+        "url": "https://cef-builds.spotifycdn.com/docs/132.0/structcef__settings__t.html"
+      },
+      {
+        "angle": "runtime-profile",
+        "title": "CEF Documentation | Chromium Embedded Framework documentation",
+        "url": "https://chromiumembedded.github.io/cef/general_usage.html"
+      },
+      {
+        "angle": "runtime-profile",
+        "title": "RequestContextSettings Properties",
+        "url": "https://cefsharp.github.io/api/118.6.x/html/Properties_T_CefSharp_RequestContextSettings.htm"
+      },
+      {
+        "angle": "runtime-profile",
+        "title": "java/org/cef/CefSettings.java",
+        "url": "https://github.com/chromiumembedded/java-cef/blob/master/java/org/cef/CefSettings.java"
+      },
+      {
+        "angle": "messages",
+        "title": "include/wrapper/cef_message_router.h",
+        "url": "https://github.com/chromiumembedded/cef/blob/master/include/wrapper/cef_message_router.h"
+      },
+      {
+        "angle": "messages",
+        "title": "CEF Documentation | Chromium Embedded Framework documentation",
+        "url": "https://chromiumembedded.github.io/cef/general_usage.html"
+      },
+      {
+        "angle": "messages",
+        "title": "libcef_dll/wrapper/cef_message_router.cc at master · chromiumembedded/cef",
+        "url": "https://github.com/chromiumembedded/cef/blob/master/libcef_dll/wrapper/cef_message_router.cc"
+      },
+      {
+        "angle": "messages",
+        "title": "Chromium Embedded Framework (CEF): CefMessageRouterBrowserSide Class Reference",
+        "url": "https://cef-builds.spotifycdn.com/docs/152.0/classCefMessageRouterBrowserSide.html"
+      },
+      {
+        "angle": "messages",
+        "title": "java/org/cef/browser/CefMessageRouter.java",
+        "url": "https://github.com/chromiumembedded/java-cef/blob/master/java/org/cef/browser/CefMessageRouter.java"
+      },
+      {
+        "angle": "storage-tests",
+        "title": "tests/ceftests/request_context_unittest.cc at 45a17430 · chromiumembedded/cef",
+        "url": "https://github.com/chromiumembedded/cef/blob/45a17430/tests/ceftests/request_context_unittest.cc"
+      },
+      {
+        "angle": "storage-tests",
+        "title": "tests/ceftests/cookie_unittest.cc at 45a17430 · chromiumembedded/cef",
+        "url": "https://github.com/chromiumembedded/cef/blob/45a17430/tests/ceftests/cookie_unittest.cc"
+      },
+      {
+        "angle": "storage-tests",
+        "title": "Chromium Embedded Framework (CEF): CefRequestContext Class Reference",
+        "url": "https://cef-builds.spotifycdn.com/docs/147.0/classCefRequestContext.html"
+      },
+      {
+        "angle": "storage-tests",
+        "title": "Chromium Embedded Framework (CEF): CefRequestContext Class Reference",
+        "url": "https://cef-builds.spotifycdn.com/docs/120.1/classCefRequestContext.html"
+      },
+      {
+        "angle": "storage-tests",
+        "title": "chrome: Support client-created request contexts (see issue #2969) · 4482981 · chromiumembedded/cef",
+        "url": "https://github.com/chromiumembedded/cef/commit/44829818b0ccda155128c060f15a4b580e71820e"
+      },
+      {
+        "angle": "web-broadcast",
+        "title": "HTML Standard",
+        "url": "https://html.spec.whatwg.org/multipage/web-messaging.html"
+      },
+      {
+        "angle": "web-broadcast",
+        "title": "Replace origin with storage key for BroadcastChannel partitioning",
+        "url": "https://github.com/whatwg/html/pull/7567"
+      },
+      {
+        "angle": "web-broadcast",
+        "title": "HTML Standard, Edition for Web Developers",
+        "url": "https://html.spec.whatwg.org/dev/web-messaging.html"
+      },
+      {
+        "angle": "web-broadcast",
+        "title": "Broadcast Channel API - Web APIs | MDN",
+        "url": "https://developer.mozilla.org/en-US/docs/Web/API/Broadcast_Channel_API"
+      },
+      {
+        "angle": "web-broadcast",
+        "title": "HTML Standard",
+        "url": "http://www.whatwg.org/specs/web-apps/current-work/complete/web-messaging.html"
+      }
+    ],
+    "returned_fetch_urls": [
+      "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/cef_request_context.h",
+      "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/internal/cef_types.h",
+      "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/wrapper/cef_message_router.h",
+      "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/cef_frame.h",
+      "https://raw.githubusercontent.com/chromiumembedded/cef/master/include/cef_cookie.h",
+      "https://raw.githubusercontent.com/chromiumembedded/cef/master/tests/ceftests/request_context_unittest.cc",
+      "https://html.spec.whatwg.org/multipage/web-messaging.html",
+      "https://cef-builds.spotifycdn.com/docs/150.0/classCefRequestContext.html",
+      "https://raw.githubusercontent.com/chromiumembedded/cef/master/libcef/browser/chrome/chrome_browser_context.cc"
+    ],
+    "notes": [
+      "These are higher-level BrowserService/ProfileRegistry/AppMessageBus capabilities, independent of the frame transport SDK.",
+      "Read current upstream headers for exact request-context/root-cache/router semantics. Legacy CefSharp and Java wrappers were not used as final API evidence.",
+      "CEF upstream tests were read, not run; BasicCreateSharedOnDisk was guarded by #if 0 in the examined source. No successful persistent-profile test is claimed.",
+      "Browser-data isolation and authorized inter-view messages require host configuration/routing, not automatic CEF behavior. In-process embedding must not enable CEF single-process mode."
     ]
   }
 }

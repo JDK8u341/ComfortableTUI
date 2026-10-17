@@ -1,8 +1,8 @@
 # WebView 与跨平台附加层：完整调研与实施计划
 
-调研日期：2026-10-17。WebView 调研 8 组、附加层补充调研 17 组，共使用 Exa
-检索 125 条候选结果，按完整 URL 去重为 121 条。候选数包含旧资料及重复内容的
-不同 URL，不等于 121 个独立验证结论。浏览器部分取得 19 个官方页面正文；附加层
+调研日期：2026-10-17。WebView 调研 8 组、附加层补充调研 17 组、会话与消息调研
+5 组，共使用 Exa 检索 150 条候选结果，按完整 URL 去重为 141 条。候选数包含旧
+资料及重复内容的不同 URL，不等于 141 个独立验证结论。浏览器部分取得 19 个官方页面正文；附加层
 部分核对 Apple 文档及 DocC JSON、Qt 上游源码、X.Org、Wayland、Linux/Khronos
 规范、终端和桌面环境官方接口。论坛和未取得正文的示例文件未作为决定性依据。
 检索清单及抓取限制保存在仓库
@@ -24,6 +24,7 @@ Windows 延续现有 D3D11/DComp；X11 可设计原生附加层；macOS 采用 A
 | 共享附加层 | Windows，一个 App 一个辅助层窗口 | 同宿主一份场景，新增经过验证的宿主后端 |
 | 原生输入 | Windows 画布事件及 IME 数据已有 | 补浏览器输入适配，按模式报告完整或受限能力 |
 | WebView | 只有研究，无浏览器实现 | CEF provider、导航/JS 控制接口、可运行示例 |
+| 应用数据隔离与画布联动 | 尚无浏览器会话/主题总线 | 作为独立上层服务实现，不扩展图像传输协议 |
 | macOS / X11 / Wayland 画布 | 尚无可运行后端 | 逐项原型和真实桌面验收，不以编译成功代替支持 |
 
 ## 选型比较
@@ -43,7 +44,25 @@ Windows 延续现有 D3D11/DComp；X11 可设计原生附加层；macOS 采用 A
 [Wry API](https://docs.rs/wry/latest/wry/)、
 [WPE 架构](https://wpewebkit.org/about/architecture.html)。
 
-## CEF 怎样接入现有数据平面
+## 分层边界：图像显示与高级服务独立
+
+WebView 是基于画布显示能力制作的可选服务。Cookie、应用身份、账号 profile 和
+跨画布业务消息属于这个服务层，不能加入原有 FrameProvider/Consumer 的数据格式。
+底层既不知道画面来自浏览器，也不要求普通图像提供者链接 CEF 或消息总线。
+
+| 层次 | 负责 | 不应承担 |
+| --- | --- | --- |
+| 帧传输 SDK | 图像资源、格式、设备、帧同步、序号与租约 | Cookie、URL、账号、主题订阅、JS 权限 |
+| 画布/附加层 | 位置、缩放、裁剪、合成、命中和原生事件 | 浏览器持久化目录、登录会话、业务消息解释 |
+| WebView 服务 | CEF、ProfileRegistry、导航、JS 桥接、输入/IME 到浏览器的适配 | 改写底层通用图像协议来表达浏览器状态 |
+| 应用消息服务 | 授权的 WebView/控件/提供者之间的业务联动 | 传输逐帧图像、自动共享 Cookie、默认跨应用广播 |
+
+WebView 服务输出一个普通帧源供 OverlayCanvas 显示，并另外暴露服务控制端点。
+应用消息服务在图像通道旁独立存在，可以只用其中一项。部署时两者可在同一进程中，
+但模块、协议、生命周期与测试边界独立；共享一个进程不等于共享 Cookie 或业务权限。
+后文 SDK v2 的变化仅为跨平台资源与同步，不能因增加上层服务而把浏览器概念塞入 SDK。
+
+## CEF 服务怎样使用现有数据平面
 
 推荐逻辑链路：
 
@@ -61,7 +80,9 @@ C++ 合成器：采样、缩放、裁剪、合成 popup
 
 Python 不读取逐帧像素，不把每次 OnPaint 暴露成 Python 绘图回调。现有
 FrameProvider 可以承接 Windows 版本的帧发布；需要新增 BrowserProvider，而不是
-让 producer.cpp 执行网页截图。普通页面事件和 URL/标题变化可以按需通知 Python。
+让 producer.cpp 执行网页截图。BrowserProvider 是 WebView 服务到图像 SDK 的适配器，
+不是图像 SDK 自己承担浏览器功能。普通页面事件和 URL/标题变化可经独立服务通道
+按需通知 Python。
 
 CEF 的 OnPaint 给出整个图像的 BGRA 缓冲区与 dirtyRects。回调返回后应使用自己的
 存储。当前三槽 SDK 不保证下一次写到的槽包含上一帧，因此不能把 dirtyRects 直接
@@ -94,6 +115,148 @@ shared_texture_enabled 头文件注释仍写 Windows-only。但 RenderHandler �
 
 本轮读取的生成式 API 参考标记为 CEF 150.0.1；这是所检查文档的版本，不表示本项目
 已下载、编译或测试该版本，也不表示它就是所有平台应使用的最新稳定版。
+
+## WebView 上层服务：应用数据隔离与消息联动
+
+**CEF 提供机制，库需要实现默认策略。** 存储隔离采用 CefRequestContext；页面到
+C++ 的异步消息采用 CefMessageRouter/CefProcessMessage。在此之上由可选的
+BrowserService、ProfileRegistry 和 AppMessageBus 组织应用语义。它们不属于图像 SDK，
+本节描述的服务 API 也尚未实现。
+
+### 应用与 profile 是数据边界，画布不是
+
+| 标识 | 上层含义 |
+| --- | --- |
+| application_id | 逻辑应用身份和独立的数据根；不能从所有应用共同使用的 python.exe 推导 |
+| profile_id | 应用内的账号/存储分区，对应显式 CefRequestContext；可持久化或临时 |
+| webview_id | 一个真正的 browser 实例，拥有页面、导航、滚动和 JS 上下文 |
+| canvas_id | 图像的一个显示位置；一个 WebView 可以输出到多个画布，仍是同一个页面 |
+| document_token | 当前网页文档实例，刷新/导航后更换，用于丢弃旧消息和订阅 |
+
+计划默认按应用隔离，应用内使用命名 profile 显式选择共享或独立账号。同一 profile
+可以复用同一个 RequestContext；需要隔离时创建非共享 context。不同 app 即使打开
+相同 URL，也不能自动继承另一 app 的 Cookie。不能因两个画布相邻、使用同一附加层
+或由同一 Python 库创建就共享数据。
+
+CEF 的 CreateContext(settings, handler) 可以建立独立 context，
+CreateContext(other, handler) 则明确共享存储，IsSharingWith 用于判断共享关系。
+GetCookieManager 从相应 context 取得；不使用跨应用的 GetGlobalContext 或全局
+CookieManager 默认值。创建 Browser/URLRequest 时必须显式传 context，弹窗和
+新页面也不得意外回落到全局 context。
+[官方 RequestContext](https://raw.githubusercontent.com/chromiumembedded/cef/master/include/cef_request_context.h)。
+
+Cookie、localStorage、IndexedDB、站点缓存、Service Worker 和站点权限均应纳入
+profile 隔离验收，不能只测 document.cookie。具体存储仍遵守同源和 Chromium
+分区规则；同一 profile 不意味着不同 origin 能读彼此数据，也不意味着每个页面的
+sessionStorage 自动共享。profile 不是防范任意同用户恶意本机进程的 OS 安全边界。
+
+### 持久化目录与多实例
+
+BrowserService 显式配置每应用的 CefSettings.root_cache_path，避免 CEF 的公共
+默认目录。持久化 profile 使用该应用根下面的独立、规范化 cache_path，并验证
+实际 GetCachePath/IsSharingWith。根目录也会保存安装级数据，仅设置 context 的
+空 cache_path 不等于整个 CEF runtime 从不落盘。
+[CEF 当前设置定义](https://raw.githubusercontent.com/chromiumembedded/cef/master/include/internal/cef_types.h)。
+
+推荐形态（示意路径，与帧共享通道名称无关）：
+
+```text
+<用户数据目录>/<application-id 的稳定映射>/cef-root/   ← runtime root_cache_path
+    profile-main/                                    ← RequestContext.cache_path
+    profile-account2/                                ← 另一独立 context
+```
+
+profile 路径由宿主注册表产生，不接受网页给出的任意目录。当前头文件允许根/子目录，
+已检查的 Chromium context 实现对直接子 profile 有专门路径，因此首版使用扁平的
+直接子目录，并对固定 CEF 版本测试，不假设任意多层目录都等价。
+[上游 profile 创建实现](https://raw.githubusercontent.com/chromiumembedded/cef/master/libcef/browser/chrome/chrome_browser_context.cc)。
+
+临时模式创建独立内存 context；未提供稳定 application_id 时默认使用临时服务
+实例，不偷偷复用通用持久化目录。需要持久化时要求调用方提供稳定应用身份和明确
+选项。会话 Cookie 的跨重启恢复由 persist_session_cookies 单独决定，不把账号
+长期 Cookie 和会话 Cookie 的保留策略混成一个开关。
+
+CEF 120 起存在基于 root_cache_path 的进程单例保护；同一目录不能由多个原生
+browser runtime 并发写入。同应用多实例要么连接该应用已有 browser host，要么
+使用独立的临时实例/独立 profile 根并明确不共享；不能以文件锁失败后改用公共
+context 的方式“修复”。默认 host 可供同应用多个 WebView 使用，不是所有应用共享
+一个数据根的全局浏览器守护进程。正常关闭应等待浏览器/待处理存储操作结束，再
+释放 context；清 Cookie、清站点数据与删除整个 profile 是不同操作，不能对仍在用
+的目录直接删除。
+[root_cache_path/单例约定](https://raw.githubusercontent.com/chromiumembedded/cef/master/include/internal/cef_types.h)、
+[Cookie FlushStore](https://raw.githubusercontent.com/chromiumembedded/cef/master/include/cef_cookie.h)。
+
+root_cache_path 属于整个 CEF runtime，不能为同进程每个页面重新设置。因而进程内
+模式应限定一个 runtime/应用身份，多页面用其下的独立 context。若同一个 Python
+宿主需要承载多个逻辑应用，默认给各应用启动独立的原生 browser host，或拒绝在
+已有 runtime 上切换身份；不能反复 CefInitialize 来模拟多个独立根。这是上层服务
+部署约束，与进程内/进程间图像提供者的选择无关。
+
+当前 inprocess 提供者示例不等于 CEF 的 --single-process 模式。CEF 头文件说明
+single-process 模式会使浏览器使用首个 context、忽略其他 context，因此本服务
+不得用该模式实现所谓“进程内浏览器”；跨平台进程内嵌入仍保留正常的 CEF 多进程模型。
+[官方限制](https://raw.githubusercontent.com/chromiumembedded/cef/master/include/cef_request_context.h)。
+
+### 跨画布联动：独立的应用消息服务
+
+Cookie 共享与消息互通是两个独立开关。相同应用中使用两个隔离 profile 的页面，
+仍可由应用授权交换某个业务主题；这不应打开彼此 Cookie 访问。不同应用默认既不
+共享 profile，也不共享主题命名空间。普通 TUI 控件、非浏览器画布或其他 C++ 提供者
+可选择接入同一上层业务总线，底层图像模块无须认识它。
+
+```text
+页面 A 的 JS ↔ CEF renderer 消息 ↔ BrowserService / AppMessageBus
+                                      ↕ 授权路由
+页面 B 的 JS ↔ CEF renderer 消息 ↔ 对应页面订阅
+                                      ↕ 可选
+                                Python 业务 / 其他控件服务
+
+图像：CEF → BrowserProvider → 原有帧 SDK → 画布（另一条独立通路）
+```
+
+CEF MessageRouter 已提供异步请求/响应和 persistent query，官方也给出广播、订阅
+的使用模式。但 topic 注册、按应用授权、跨 browser 路由和生命周期由本服务实现。
+Router 的 per-context 指 JS 执行上下文，不是一个自动识别 application_id 或
+CefRequestContext 的权限系统。
+[官方 MessageRouter](https://raw.githubusercontent.com/chromiumembedded/cef/master/include/wrapper/cef_message_router.h)。
+
+计划使用发布/订阅、定向消息和请求/响应，典型主题例如 selection.changed：表格
+选中一个业务对象，侧边详情页收到其 ID 后更新。宿主从实际 browser/frame、已注册
+服务会话和 document_token 推导发送者身份；不信任 JS 自报的 app/profile/origin。
+默认只向授权 origin/文档暴露桥接，并对发布/订阅主题和跨 profile 联动分别授权。
+消息是可验证的业务数据，不把 payload 拼接为任意 JS 执行，也不自动转发登录凭据。
+
+共享同一图像源的多个画布本来就是同一页面的多处显示，不需要制造两份消息订阅。
+两个独立 WebView 才有各自文档和订阅；canvas_id 可以标识交互来自哪个显示位置，
+但不能替代 webview_id/document_token 作为消息接收端。
+
+网页自己的 BroadcastChannel 可用于满足相同存储分区/同源条件的页面；它不是跨
+profile、跨应用或跨任意 origin 的通用总线。window.postMessage 也需要目标窗口
+引用并按 targetOrigin 限制，不会自动连接两个独立的 CEF browser。
+因此使用标准 Web API 的条件满足时可直接用，不满足时走显式授权的宿主消息桥。
+[WHATWG 消息规范](https://html.spec.whatwg.org/multipage/web-messaging.html)。
+
+### 消息和存储的完成语义
+
+CEF 的 SendProcessMessage 不保证在关闭、导航或进程崩溃时必达。服务层需自有
+request_id、超时、取消、必要的 ACK 和幂等规则，不能承诺任意消息恰好一次。
+OnQueryCanceled、OnBeforeBrowse、OnContextReleased、OnBeforeClose 和 renderer
+崩溃路径要注销订阅，页面重载后以新的 document_token 重新订阅；不能把排队消息
+送给已复用的 browser/canvas ID。需要恢复状态时由应用提供快照，而非无限积压消息。
+[Frame 消息约定](https://raw.githubusercontent.com/chromiumembedded/cef/master/include/cef_frame.h)、
+[Router 生命周期](https://raw.githubusercontent.com/chromiumembedded/cef/master/include/wrapper/cef_message_router.h)。
+
+业务通道有独立的消息大小、队列上限、速率及背压策略。纯 C++ 转发不必等待 Python；
+用户选择 Python 业务处理器时，其处理时延不能阻塞原生帧消费/呈现。主题消息不装
+图像帧，不借用 FrameProvider 的序号表示业务 ACK，也不复用 SDK 的元数据区存储
+应用凭据。服务失效应有服务级错误，不能因注销一个消息订阅就销毁仍被画布使用的
+共享帧；关闭浏览器仍需遵守画布 detached/读租约释放的图像寿命约定。
+
+CEF 上游有 context 共享/非共享测试可供参考，但本轮只读取源码，没有执行 CEF
+测试。检查到的 BasicCreateSharedOnDisk 位于 #if 0 中，不能把该测试代码存在当
+本项目持久化已验证。实施阶段应对固定版本编写应用 A/B 同站点、多个 profile、
+临时与持久化重启、并发实例及消息授权的实际验收。
+[上游测试](https://raw.githubusercontent.com/chromiumembedded/cef/master/tests/ceftests/request_context_unittest.cc)。
 
 ## 必须补上的交互和控件逻辑
 
@@ -302,13 +465,13 @@ IME preedit、原生拖放或触控笔事件。中文输入通常只能消费终
 产品还要求任意终端程序运行，则另需 PTY 与终端仿真，不能把两项混为同一工作量。
 该模式明确命名 window_host，由应用选择，不在 native_overlay 不可用时静默打开。
 
-## 统一架构、资源协议与能力协商
+## 显示基础架构、资源协议与能力协商
 
 ```text
 Python Widget 树 / 拟议 WebView 控件
        │ 控制、布局、低频业务通知
        ▼
-BrowserRuntime / 普通 C++ 提供者
+WebView 服务的 BrowserProvider / 普通 C++ 提供者
        │ 自有帧资源、原生同步（不经 Python 逐帧回调）
        ▼
 FrameTransport ───► SceneCompositor（变换、裁剪、popup、可见性）
@@ -361,11 +524,14 @@ Qt Quick/QRhi 可以减少绘制抽象工作，但不解决外部窗口定位；
 
 ### 明确的能力契约（拟议，尚无对应 API）
 
-不提供单个 supports_webview 布尔值。会话至少报告：host_mode、frame_backend、
+显示会话至少报告：host_mode、frame_backend、
 gpu_shared、native_input_holes、input_delivery、ime_composition、pixel_pointer、
 viewport_tracking、pane_visibility、device_sync、requires_accessibility，以及
 unavailable_reason。使用方能要求 native_overlay/GPU/完整 IME，能力不满足时
 返回具体错误；只有调用方允许时才选兼容模式。
+
+这些是显示能力。应用身份、profile、Cookie 策略、JS origin 与主题权限由上层
+WebView/消息服务独立协商，不加入图像描述符或 Frame SDK 的 capability 字段。
 
 input_delivery 区分 native、app_forwarded、terminal_events。画布未消费事件只沿
 本 TUI 父链传递，不伪造另一应用的点击；不以全局键盘钩子弥补平台事件缺失。
@@ -439,9 +605,9 @@ GPU 路径也要计入复制、颜色转换、popup 合成、同步和最终绘�
 
 | 阶段 | 依赖与具体工作 | 可评审产物 / 完成条件 |
 | --- | --- | --- |
-| M0：风险原型 | 最先验证 macOS 跟随、窗口排序、透明命中、Space/全屏；X11 合成/input region；Wayland globals/终端协议探测；固定 CEF 版本 | 各模式能力 JSON、最小原型、硬件/系统记录。macOS 原生洞失败则明确限制模式；Wayland 不具备协作则不启动伪附加层 |
-| M1：公共协议 | 根据 M0 冻结 FrameSource/Transport、HostBinding、SceneCompositor 与 capability 契约；隔离 Win32 头文件，保留 v1 适配 | 平台无关头文件、控制 ABI/wire 说明、异常/超时/生命周期测试；旧 gpu_canvas/inprocess 示例仍通过 |
-| M2：CEF 首个完整闭环 | 依赖 M1；先在 Windows 接 BrowserRuntime、BGRA 路径、鼠标/键盘/IME、popup、导航，再接共享 GPU 适配 | 拟议 WebView 控件实际可用；HTML/远端 URL、列表/表格/Text/Tabs 示例；GPU 和显式 CPU 模式分别验收 |
+| M0：风险原型 | 最先验证 macOS 跟随、窗口排序、透明命中、Space/全屏；X11 合成/input region；Wayland globals/终端协议探测；固定 CEF 版本并验证 context/目录单例 | 各模式能力 JSON、最小原型、硬件/系统记录；应用 A/B 存储隔离原型。macOS 原生洞失败则明确限制模式；Wayland 不具备协作则不启动伪附加层 |
+| M1：分层协议 | 显示侧冻结 FrameSource/Transport、HostBinding、SceneCompositor 和能力契约；另行冻结 BrowserService/ProfileRegistry/AppMessageBus 的服务协议，互不添加对方字段 | 平台无关图像头文件与 v1 适配、独立服务控制协议；普通图像无需 CEF/总线，profile/消息测试无需加载图像 SDK |
+| M2：CEF 上层服务与显示闭环 | 服务侧实现每应用根、独立/共享/临时 profile、主题授权与消息生命周期；再通过 BrowserProvider 接现有 Windows BGRA/GPU 画布、输入/IME/popup/导航 | 独立服务测试通过；拟议 WebView 控件可用，HTML/URL/内嵌示例，应用隔离与双页联动示例；图像性能另行验收 |
 | M3：跨平台资源与合成 | 依赖 M1 和对应 M0 验证；新增 macOS IOSurface/Metal、Linux DMA-BUF/EGL 和 CPU 共享内存基线 | 本机双进程图案/alpha/同步/设备不匹配测试；帧生成和呈现独立于 GIL；分辨率换代无资源越界 |
 | M4：原生宿主集成 | 依赖 M2/M3；先 X11，再按 M0 结果接 macOS；补文本区校准、分屏/标签可见性和焦点 | 每个明确终端/WM 组合的真实拖动、缩放、遮挡、输入及退出验证。保留一个视觉层窗口，数量不随画布数增长 |
 | M5：终端协议兼容 | 依赖 M1/M2；C++ Kitty 输出器、placement/裁剪/回收、与 ANSI 写入协调、终端输入映射 | 支持的终端/复用器组合清单；报告 terminal_events 和 GPU 回读成本；不把完整 IME/拖放列为已支持 |
@@ -451,6 +617,8 @@ GPU 路径也要计入复制、颜色转换、popup 合成、同步和最终绘�
 
 M0 应在大规模改造前完成；M2 可先交付 Windows 浏览器闭环。M3/M4 不能仅靠
 Windows CI 判断完成；M5 提供终端内兼容范围，M6 提供自有窗口内完整事件范围。
+WebView 的存储/消息可先在不加载图像 SDK 的独立 CEF 测试宿主内验收，显示后端
+可用无浏览器图案源独立验收；只有组合验收才同时需要两者。
 M7 是桌面环境专用扩展，不阻塞其他已验证后端交付；它也不会被列为通用 Wayland
 原生附加层。要求“任意现有终端、不改终端、完整原生事件、始终贴合、三平台相同”
 的组合目前没有本轮资料证明可行，不把该组合作为可保证的验收承诺。
@@ -461,18 +629,35 @@ M7 是桌面环境专用扩展，不阻塞其他已验证后端交付；它也�
 | --- | --- |
 | native/canvas/include/comfortable/* | 平台无关帧/能力门面，平台资源 API 分头文件，Windows v1 适配 |
 | native/canvas/platform/{win32,cocoa,x11,wayland} | 呈现/输入/宿主适配；Wayland 下区分自有窗口和专用协作 |
-| native/browser/* | CEF 生命周期、OSR、输入/IME/popup、控制 IPC、资源转换 |
-| src/comfortable_tui/webview.py | URL/会话/业务事件/状态，保持 Python 不逐帧处理图像 |
+| native/browser/* | 上层 BrowserService/ProfileRegistry、CEF 生命周期、独立服务 IPC、OSR 到普通帧源的适配 |
+| native/services/*（可选） | AppMessageBus/通用控件业务消息；不放入 native/canvas 公共 SDK |
+| src/comfortable_tui/webview.py | 上层 URL/profile/业务事件/状态，保持 Python 不逐帧处理图像 |
 | src/comfortable_tui/*host* | 宿主身份、能力选择、viewport 与错误状态；慢查询和帧时钟分离 |
-| examples/webview*.py | 导航、中文输入、内嵌列表/表格/Text、切页、独立/受约束进程内示例 |
+| examples/webview*.py | 导航、中文输入、内嵌、应用 A/B 隔离、同应用双页消息、分 profile 联动及进程内/独立宿主示例 |
 | examples/verify_*、tests/* | 协议/生命周期自动化和真实桌面原型测试，失败时输出能力原因 |
 | docs/*、CI | 同一报告持续更新，补用户指南、构建/打包、模式差异和测试证据 |
 
 不把 CEF/Qt 运行时强塞进基础字符 TUI 依赖；保持可选安装和本机能力检查。
 默认原生 browser host 可复用多个 browser/session，不能每一行都启动一套宿主。
+这里的复用以同一应用的数据边界为前提，不能默认混用不同应用的根目录和消息空间。
 进程内例子额外记录平台主线程、初始化/关闭与 GIL 约束，CEF 的辅助进程仍可存在。
 
 ### 统一验收矩阵
+
+先独立验收上层服务：
+
+| 用例 | 必须观察到的行为 |
+| --- | --- |
+| 应用 A/B 打开同一个 origin | Cookie（含服务器侧验证的 HttpOnly）、localStorage、IndexedDB、站点缓存/权限按应用隔离；不能只靠不同 URL 规避检查 |
+| 同应用两个 profile | 不共享账号/站点存储；相同 profile 的多个页面按 Chromium 规则共享，不假设 sessionStorage 自动共享 |
+| 临时/持久化与重启 | 临时 profile 不恢复登录；持久化只恢复对应应用/profile 的数据；会话 Cookie 遵循独立选项 |
+| 同应用多实例 | 复用该应用服务或明确隔离，不并发写同一个 CEF root，不因锁冲突退回公共目录 |
+| 消息独立于存储 | 隔离 profile 可通过授权主题联动；不同应用同名主题不互通；不同 origin/子 frame 不自动获得桥接权限 |
+| 刷新/导航/销毁/崩溃 | 旧 document_token 的订阅与回调失效，待处理请求结束或超时，ID 复用不误投递 |
+| 业务消息压力 | 有界队列、背压/取消及 ACK 语义，不占图像元数据或阻塞 GPU 呈现 |
+| 模块独立性 | 普通图像示例不依赖 CEF/profile/bus；CEF 存储与业务消息测试不依赖帧传输 SDK |
+
+组合显示验收：
 
 | 验收项 | Windows 原生 / X11 原生 | macOS 原生 | 终端协议 | 自有窗口 |
 | --- | --- | --- | --- | --- |
@@ -505,6 +690,8 @@ input-to-photon，也不把 rAF 次数称为屏幕 FPS。
 | Wayland 无宿主协作 | 无相应 globals/插件、无法获得 pane 位置与可见性 | terminal_graphics 或 window_host；不创建全局置顶伪附加层 |
 | 浏览器打包/主线程冲突 | 固定版本下进程内启动或关闭不能可靠完成 | 原生独立 browser host；Python 仍不接触像素 |
 | CEF 资源回调寿命与异步复制冲突 | 不能证明复制/同步在资源回池前安全 | 改为可靠同步/自有中转资源；不能用缓存外部句柄换性能 |
+| profile 根冲突或隔离测试失败 | 存储泄漏、同根多 runtime、共享 context 错配 | 服务创建失败或显式临时模式；不回落公共 profile，图像 SDK 不承担修复 |
+| 消息跨应用或过期文档误投递 | 权限/生命周期测试失败 | 撤销该桥接能力，保留图像显示；不靠共享 Cookie 实现联动 |
 | 终端协议吞吐不足 | 同页面分辨率下 p95 或 CPU/传输量无法满足目标 | 明确调低频率/分辨率或选择原生/自有窗口，不伪报 GPU 模式 |
 
 后续实现以此文档为同一基线更新：能力、完成阶段、验证环境和数据同时变更。
