@@ -63,6 +63,7 @@ class App:
         self._images = {}
         self._overlay_sessions = {}
         self._overlay_placements = {}
+        self._event_pollers = []
         self._terminal = None
         self._toast, self._toast_timer = "", None
         self.bindings = {"ctrl+c": self.exit, "ctrl+q": self.exit}
@@ -72,6 +73,23 @@ class App:
 
     def invalidate(self):
         self._dirty = True
+
+    def watch_events(self, callback):
+        """Poll a nonblocking event source each tick, including hidden pages.
+
+        The callback invalidates widgets only when actual state changes. Returns
+        an idempotent unsubscribe function; no browser/frame dependency is added.
+        """
+        self._event_pollers.append(callback)
+        active = True
+        def stop():
+            nonlocal active
+            if not active:
+                return
+            active = False
+            if callback in self._event_pollers:
+                self._event_pollers.remove(callback)
+        return stop
 
     def focus(self, widget):
         scope = self.modal or self.root
@@ -286,6 +304,8 @@ class App:
             self.focus_direction(event.name)
 
     def _advance(self, dt):
+        for callback in tuple(self._event_pollers):
+            callback()
         for session in list(self._overlay_sessions.values()):
             session.poll()
         self._clock += dt
@@ -453,6 +473,7 @@ class App:
         self._close_overlays()
         self.close_modal()
         self.root.unmount()
+        self._event_pollers.clear()
         for edge in self._focus_highlight.edges:
             self.animator.remove(edge)
         if self._executor:

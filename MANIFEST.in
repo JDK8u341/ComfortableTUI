@@ -4,5 +4,8 @@ include mkdocs.yml
 include native/diff.cpp
 include CMakeLists.txt
 recursive-include native/canvas *.cpp *.hpp *.cmake *.in *.md
+recursive-include native/browser *.cpp CMakeLists.txt
+recursive-include native/host *.cpp CMakeLists.txt
+recursive-include tools *.py
 recursive-include docs *.md *.json *.gif *.png
-recursive-include examples *.py *.md *.cpp CMakeLists.txt
+recursive-include examples *.py *.md *.cpp *.html CMakeLists.txt

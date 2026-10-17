@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><title>Comfortable WebView</title>
+<style>
+body{background:#111522;color:#d6ddec;font:18px system-ui;margin:24px}
+h1{color:#ff79bc;font-size:26px}button,input,select{font:inherit;padding:8px;margin:5px;background:#263247;color:#eef;border:1px solid #7c90a8}
+#box{position:relative;width:64px;height:64px;background:#77e0c2;animation:move 2s ease-in-out infinite alternate}
+@keyframes move{to{transform:translateX(280px)}}pre{white-space:pre-wrap;color:#77e0c2}
+</style>
+<h1>Native C++ browser service</h1><p>Pixels travel through the image SDK. Profiles and messages use a separate service.</p>
+<input id="editor" placeholder="中文输入 / type here"><select id="choice"><option>First</option><option>Second</option><option>Third</option></select>
+<button id="send">Publish selection</button><div id="box"></div><pre id="status">Waiting for messages…</pre>
+<script>
+window.received=[];
+window.addEventListener('DOMContentLoaded',()=>{
+ comfortable.subscribe('selection.changed',e=>{received.push(e.payload);statusText(JSON.stringify(e));});
+ document.querySelector('#send').onclick=()=>comfortable.publish('selection.changed',{item_id:42,text:document.querySelector('#editor').value});
+});
+function statusText(s){document.querySelector('#status').textContent=s}
+</script>

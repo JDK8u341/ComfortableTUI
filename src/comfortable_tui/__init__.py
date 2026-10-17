@@ -14,6 +14,9 @@ from .overlay import (CanvasEvent, CanvasTransform, FrameBuffer, FrameBufferInfo
 from .renderer import FrameStats, Renderer
 from .style import Style, Theme
 from .widget import Widget
+from .browser import BrowserService, BrowserProfile, BrowserPage
+from .webview import WebView
+from .window_host import WindowHost
 
 __version__ = "0.1.0"
 __all__ = [
@@ -27,4 +30,6 @@ __all__ = [
     "CanvasEvent", "CanvasTransform", "FrameBuffer", "FrameBufferInfo", "FrameLease",
     "OverlayCanvas", "PixelRect", "TerminalHost",
     "GpuFrameInfo", "GpuFrameSource", "gpu_available",
+    "BrowserService", "BrowserProfile", "BrowserPage", "WebView",
+    "WindowHost",
 ]

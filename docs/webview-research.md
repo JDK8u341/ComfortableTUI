@@ -9,13 +9,52 @@
 `exa-results/webview-2026-10-17/sources.json`。
 
 **结论：采用 CEF 离屏渲染、平台化帧 SDK、共享场景和可替换宿主后端。**
-Windows 延续现有 D3D11/DComp；X11 可设计原生附加层；macOS 采用 AppKit/Metal
-并先验证跨应用跟随和透明命中。Wayland 不能承诺任意终端原生附加层，需提供终端
+Windows 延续现有 D3D11/DComp；X11 可设计原生附加层；macOS 的 AppKit/Metal
+研究保留作背景，但按用户后续要求本轮不支持。Wayland 不能承诺任意终端原生附加层，需提供终端
 图像协议、自有窗口或明确限定桌面环境的协作后端。浏览器跨平台、图像传输跨平台、
 外部终端嵌入跨平台是三个不同交付项。本报告合并选型、架构、能力矩阵、风险与
-同一套实施计划；新后端和 WebView 均尚未实现，没有新增跨平台性能实测。
+同一套实施计划。后续实施已经提供 CEF 服务和 Linux 自有窗口 CPU 基线，实际状态
+与局限见下节、[使用指南](webview.md)及 docs/validation/webview/ 的原始验证记录。
 
 ## 范围与现状
+
+### 实施更新与首次启动弹窗（2026-10-17）
+
+按用户后续要求，本轮实施范围调整为 Windows 和 Linux；macOS 暂不实现、不列为
+已支持。Linux 的 X11 与原生 Wayland 分别验证，Xwayland 的结果不能替代 Wayland。
+下文选型与里程碑保留研究背景；实施状态以本节及后续验证记录为准。
+
+CEF 152 原生服务、应用私有根目录、独立/共享 profile、授权主题消息以及原生 CPU
+共享帧基线已进入实现。Windows 和 WSL2/WSLg X11 的服务隔离与消息测试已跑通；
+这不等于 Linux 附加层或 GPU 共享纹理已经验证。
+
+用户反馈测试启动时反复出现“Google 附加条款”窗口，现已将处理优先于后续桌面
+自动化。Exa 补充检索 2 组、11 条候选，读取固定 Chromium 版本源码核对：
+
+- Chromium M151 的上游变更默认启用 Linux 首次启动条款窗口；当前固定版本
+  152.0.7977.167 的 `MasterPrefs.eula_required` 仍默认为 true。
+- Chromium 按用户数据目录中的 `First Run` sentinel 判断是否首次运行。测试每次
+  创建全新的隔离根目录，因此上次点击不会覆盖下个测试实例；匿名服务同样使用
+  临时根。这是与本次反复弹窗吻合的触发路径，不需要合并应用目录来解决。
+- 原生宿主现在在浏览器进程初始化命令行中设置 `no-first-run` 与
+  `no-default-browser-check`，移除冲突的 `force-first-run`。Python 启动参数也设置
+  前两项，覆盖初始化早期和直接运行原生宿主这两种入口。
+- `no-first-run` 是 Chromium 自身提供的跳过首次启动任务开关；不模拟点击、
+  不写入虚假的条款接受记录，也不屏蔽网页自己的登录、权限或服务条款。
+- 验收新增：持久化根重启、两个不同全新应用根、连续两个匿名临时根均须无人值守
+  完成握手与首帧。能力握手报告实际 `startup_ui_suppressed` 状态；仍保留应用/profile
+  隔离测试。新窗口宿主的 X11/Wayland 验证在此问题通过后继续。
+
+修复后实测：Windows、Linux/Xvfb X11、WSLg 原生 Wayland 三种启动配置分别通过
+10 项服务集成检查，均无需人工点击；其中每种配置均包含连续两个全新匿名根目录。
+验证期间沙箱保持默认开启。服务测试不等于原生附加层/桌面输入验收；后续宿主验证
+仍需单独记录实际窗口后端。自动化脚本为 `examples/verify_webview.py`。
+
+依据：[M151 上游变更](https://chromium.googlesource.com/chromium/src/+/ae9b17ac975d4b10af762e9344083d858f1347ce)、
+[152 首次启动声明](https://chromium.googlesource.com/chromium/src/+/152.0.7977.167/chrome/browser/first_run/first_run.h)、
+[sentinel 与开关判定](https://chromium.googlesource.com/chromium/src/+/152.0.7977.167/chrome/browser/first_run/first_run.cc)、
+[启动开关注释](https://chromium.googlesource.com/chromium/src/+/152.0.7977.167/chrome/common/chrome_switches.cc)。
+检索与抓取清单见 `exa-results/webview-2026-10-17/first-run.json`。
 
 | 能力 | 仓库现状 | 本计划目标 |
 | --- | --- | --- |
@@ -121,7 +160,7 @@ shared_texture_enabled 头文件注释仍写 Windows-only。但 RenderHandler �
 **CEF 提供机制，库需要实现默认策略。** 存储隔离采用 CefRequestContext；页面到
 C++ 的异步消息采用 CefMessageRouter/CefProcessMessage。在此之上由可选的
 BrowserService、ProfileRegistry 和 AppMessageBus 组织应用语义。它们不属于图像 SDK，
-本节描述的服务 API 也尚未实现。
+本节描述设计基线；当前已实现的 API 和范围以 [WebView 指南](webview.md) 为准。
 
 ### 应用与 profile 是数据边界，画布不是
 
@@ -597,11 +636,18 @@ GPU 路径也要计入复制、颜色转换、popup 合成、同步和最终绘�
 
 ## 合并实施计划
 
-本节是唯一实施计划，覆盖浏览器、帧传输和附加层。各阶段均尚未执行；已有 Windows
-基础只作为复用条件。报告本身不承诺新的后端已支持，也不在未知硬件验证成本时
+本节是统一实施计划，覆盖浏览器、帧传输和附加层。阶段不等于本轮全部承诺完成；
+已有 Windows 基础作为复用条件。报告不在未知硬件验证成本时
 给出固定工期。不同宿主有明确能力范围，不将终端协议或自有窗口包装成同一种附加层。
 
 ### 里程碑与完成条件
+
+2026-10-17 当前进度：M1/M2 已有独立 CEF 服务、portable CPU 图像接口、WebView
+输入适配和隔离/消息测试；M6 的 Linux window_host 在 WSLg X11/Wayland 分别跑通。
+Windows 组合测试观察到共享层 CEF 绘制，但新增完整桌面用例未通过前台/层级/恢复
+检查，保留 incomplete，不把它列为通过。M0/M3/M4 的 X11 外部终端附加层、
+Linux GPU 导入和 M5/M7 均未完成；原生 OS 输入法候选窗与更广泛桌面验证仍待完成。
+下表 macOS 行仅保留历史方案，本轮全部排除，不作为待交付支持。
 
 | 阶段 | 依赖与具体工作 | 可评审产物 / 完成条件 |
 | --- | --- | --- |
@@ -695,4 +741,5 @@ input-to-photon，也不把 rAF 次数称为屏幕 FPS。
 | 终端协议吞吐不足 | 同页面分辨率下 p95 或 CPU/传输量无法满足目标 | 明确调低频率/分辨率或选择原生/自有窗口，不伪报 GPU 模式 |
 
 后续实现以此文档为同一基线更新：能力、完成阶段、验证环境和数据同时变更。
-现阶段只有调研和计划已完成，macOS/X11/Wayland 新后端及 WebView 都仍待实施。
+当前已交付原生 CPU 基线与可复现实测；剩余后端不能因本基线通过而宣称支持。
+macOS 按用户要求排除。未来实现应继续在同一能力矩阵标明后端、完成状态和实测证据。

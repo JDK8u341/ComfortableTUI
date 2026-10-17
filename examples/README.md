@@ -1,5 +1,10 @@
 # Examples
 
+浏览器上层服务示例：`python examples/webview.py`（Windows 终端附加层），Linux 使用
+`--platform x11` 或 `--platform wayland` 启动自有 C++ 窗口。需要先构建可选 CEF/原生
+宿主，详见 [WebView 指南](../docs/webview.md)。服务验证用 `verify_webview.py`；Linux
+组合显示验证用 `verify_window_host.py`。Cookie/profile 与图像 SDK 相互独立。
+
 先在仓库根目录执行 `python -m pip install -e .`。随后：
 
 | 命令 | 内容 |

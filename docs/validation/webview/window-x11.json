@@ -1,0 +1,45 @@
+{
+  "requested_platform": "x11",
+  "checks": [
+    "native_window_paint_and_source_deduplication",
+    "native_ime_commit_to_browser",
+    "native_pointer_to_browser",
+    "native_frames_continue_during_python_gil_pause",
+    "tabs_hide_both_views",
+    "tabs_restore_both_views",
+    "native_buffer_replacement",
+    "window_resize_and_transform",
+    "consumer_detach_before_frame_owner_close"
+  ],
+  "capabilities": {
+    "cell_height": 26,
+    "cell_width": 11,
+    "columns": 100,
+    "dpi_scale": 1,
+    "event": "host_ready",
+    "external_terminal_overlay": false,
+    "frame_backend": "native_cpu_qt_raster",
+    "height": 780,
+    "mode": "window_host",
+    "platform": "xcb",
+    "protocol": 1,
+    "rows": 30,
+    "width": 1100
+  },
+  "gil_pause_paints": 50,
+  "metrics": {
+    "cell_height": 26,
+    "cell_width": 11,
+    "columns": 81,
+    "dpi_scale": 1,
+    "height": 600,
+    "paint_calls": 80,
+    "platform": "xcb",
+    "rows": 23,
+    "source_paints": 137,
+    "sources": 1,
+    "views": 2,
+    "visible": true,
+    "width": 900
+  }
+}

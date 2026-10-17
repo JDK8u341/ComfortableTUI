@@ -1,0 +1,48 @@
+{
+  "mode": "controlled_dcomp_layer",
+  "checks": [
+    "cef_cpu_frames_to_native_dcomp_mirrors",
+    "actual_dwm_browser_test_pixel",
+    "native_ime_event_to_cef",
+    "native_mouse_to_cef",
+    "gil_independent_native_browser_frames",
+    "native_hide_pause_and_resume",
+    "native_source_replacement",
+    "native_consumer_detach"
+  ],
+  "sampled_test_pixel": [
+    255,
+    0,
+    0
+  ],
+  "metrics": {
+    "presents": 77,
+    "submit_ms": 0.1285,
+    "views": [
+      {
+        "id": 2245505394704,
+        "sequence": 82,
+        "frames": 76,
+        "skipped_frames": 5,
+        "frame_age_ms": 4.843299999265582,
+        "ready_age_ms": null,
+        "acquire_ms": 0.1119,
+        "closed": false,
+        "gpu_shared": false
+      },
+      {
+        "id": 2245505395136,
+        "sequence": 82,
+        "frames": 76,
+        "skipped_frames": 5,
+        "frame_age_ms": 4.843400000027032,
+        "ready_age_ms": null,
+        "acquire_ms": 0.1119,
+        "closed": false,
+        "gpu_shared": false
+      }
+    ],
+    "error": ""
+  },
+  "result": "passed"
+}

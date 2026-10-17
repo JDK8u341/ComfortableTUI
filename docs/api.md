@@ -1,5 +1,10 @@
 # 公共 API 参考
 
+`App.watch_events(nonblocking_callback)` 每次应用 tick 调用一个非阻塞事件源，返回
+可重复调用的取消函数。即使控件页面隐藏也继续轮询；回调仅在实际状态改变时调用
+invalidate。App.close 会清理所有事件源。WebView 使用该接口轮询上层浏览器服务，
+图像元数据和渲染通道不包含浏览器字段。
+
 导入路径统一为 `comfortable_tui`。控件构造参数见[控件手册](widgets.md)。以下补充所有
 基础设施与生命周期 API；下划线成员为内部实现，不承诺兼容。
 
