@@ -13,6 +13,8 @@ nav:
   - 覆盖画布调研: overlay-research.md
   - 共享附加层调研: shared-overlay-research.md
   - 架构: architecture.md
+  - 安全模型与设计: security-model.md
+  - 安全验证与性能对照: validation/security/README.md
   - 控件: widgets.md
   - ComfortableTop 独立项目: comfortable-top.md
   - C++ GPU: native-gpu.md

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import math
 from multiprocessing import shared_memory
 import os
+import re
+import stat
 import struct
 import tempfile
 import threading
@@ -17,6 +19,8 @@ class _NamedLock:
     """Attachable interprocess lock; descriptors work outside multiprocessing.spawn."""
 
     def __init__(self, name):
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,159}", name):
+            raise ValueError("Invalid frame lock identifier")
         self._local = threading.Lock()
         if os.name == "nt":
             import ctypes
@@ -33,7 +37,12 @@ class _NamedLock:
                 raise ctypes.WinError(ctypes.get_last_error())
         else:
             self.path = os.path.join(tempfile.gettempdir(), name + ".lock")
-            self.handle = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+            flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+            self.handle = os.open(self.path, flags, 0o600)
+            info = os.fstat(self.handle)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_nlink != 1:
+                os.close(self.handle)
+                raise PermissionError("Frame lock must be an owner-private regular file")
 
     def __enter__(self):
         self._local.acquire()
@@ -109,16 +118,16 @@ class FrameBuffer:
 
     def __init__(self, width: int, height: int, *, pixel_format="rgba8", stride=None,
                  max_bytes=512 * 1024 * 1024):
-        if pixel_format not in _FORMATS:
+        if not isinstance(pixel_format, str) or pixel_format not in _FORMATS:
             raise ValueError(f"pixel_format must be one of {tuple(_FORMATS)}")
-        if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
-            raise ValueError("frame dimensions must be positive integers")
+        if any(type(v) is not int or not 1 <= v <= 16384 for v in (width, height)):
+            raise ValueError("frame dimensions must be integers in 1..16384")
         row = width * _FORMATS[pixel_format]
         stride = ((row + 3) // 4) * 4 if stride is None else stride
         if not isinstance(stride, int) or stride < row or stride % 4:
             raise ValueError("stride must cover a row and be a multiple of four bytes")
         size = _OFFSET + stride * height * 3
-        if size > max_bytes:
+        if type(max_bytes) is not int or not 1 <= max_bytes <= 512 * 1024 * 1024 or size > max_bytes:
             raise ValueError("frame allocation exceeds max_bytes (includes all three slots)")
         # Darwin limits POSIX shared-memory names (including '/') to 31 bytes.
         shm = shared_memory.SharedMemory(name="ctui_" + uuid.uuid4().hex[:20], create=True, size=size)
@@ -131,13 +140,29 @@ class FrameBuffer:
         self._closed = False
         self._lifetime = threading.Lock()
         self._leases = 0
-        self._meta = _NamedLock(info.name + "_meta")
-        self._writer = _NamedLock(info.name + "_writer")
-        self._reader = _NamedLock(info.name + "_reader")
+        opened = []
+        try:
+            for name in ("_meta", "_writer", "_reader"):
+                lock = _NamedLock(info.name + name)
+                opened.append(lock)
+                setattr(self, name, lock)
+        except BaseException:
+            for lock in opened:
+                lock.close(unlink=owner)
+            shm.close()
+            if owner:
+                shm.unlink()
+            self._closed = True
+            raise
 
     @classmethod
     def attach(cls, info: FrameBufferInfo):
-        if info.pixel_format not in _FORMATS or min(info.width, info.height, info.stride) <= 0:
+        if (not isinstance(info, FrameBufferInfo) or not isinstance(info.name, str) or
+                not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,127}", info.name) or
+                any(type(v) is not int or v <= 0 for v in (info.width, info.height, info.stride)) or
+                info.width > 16384 or info.height > 16384 or 64 + info.frame_bytes * 3 > 512 * 1024 * 1024):
+            raise ValueError("Invalid or oversized frame descriptor")
+        if not isinstance(info.pixel_format, str) or info.pixel_format not in _FORMATS:
             raise ValueError("invalid frame descriptor")
         if info.stride < info.width * _FORMATS[info.pixel_format] or info.stride % 4:
             raise ValueError("invalid frame descriptor stride")
@@ -152,7 +177,14 @@ class FrameBuffer:
     @property
     def sequence(self):
         with self._lease(), self._meta:
-            return _HEADER.unpack_from(self._shm.buf)[3]
+            return self._header()[3]
+
+    def _header(self):
+        header = _HEADER.unpack_from(self._shm.buf)
+        if (header[0] != _MAGIC or header[1] not in (-1, 0, 1, 2) or
+                header[2] not in (-1, 0, 1, 2) or not math.isfinite(header[4])):
+            raise ValueError("Invalid shared frame header")
+        return header
 
     def _check_open(self):
         if self._closed:
@@ -177,7 +209,7 @@ class FrameBuffer:
             raise ValueError("timestamp must be finite")
         with self._lease(), self._writer:
             with self._meta:
-                _, published, reading, _, _ = _HEADER.unpack_from(self._shm.buf)
+                _, published, reading, _, _ = self._header()
                 slot = next(i for i in range(3) if i not in (published, reading))
             start = _OFFSET + slot * self.info.frame_bytes
             pixels = self._shm.buf[start:start + self.info.frame_bytes]
@@ -187,7 +219,7 @@ class FrameBuffer:
                 raise  # A failed producer never publishes a partial frame.
             else:
                 with self._meta:
-                    _, _, reading, seq, _ = _HEADER.unpack_from(self._shm.buf)
+                    _, _, reading, seq, _ = self._header()
                     _HEADER.pack_into(self._shm.buf, 0, _MAGIC, slot, reading, seq + 1, timestamp)
             finally:
                 pixels.release()
@@ -212,7 +244,7 @@ class FrameBuffer:
         self._check_open()
         with self._lease(), self._reader:
             with self._meta:
-                _, slot, _, seq, timestamp = _HEADER.unpack_from(self._shm.buf)
+                _, slot, _, seq, timestamp = self._header()
                 _HEADER.pack_into(self._shm.buf, 0, _MAGIC, slot, slot, seq, timestamp)
             pixels = None
             try:
@@ -226,7 +258,7 @@ class FrameBuffer:
                 if pixels is not None:
                     pixels.release()
                 with self._meta:
-                    _, published, _, seq, timestamp = _HEADER.unpack_from(self._shm.buf)
+                    _, published, _, seq, timestamp = self._header()
                     _HEADER.pack_into(self._shm.buf, 0, _MAGIC, published, -1, seq, timestamp)
 
     def close(self):

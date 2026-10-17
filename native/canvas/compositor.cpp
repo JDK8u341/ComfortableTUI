@@ -94,15 +94,17 @@ struct Source {
                 Lock lock(meta.value, 0);
                 if (!lock)
                     return false;
-                auto *h = static_cast<CpuHeader *>(memory.address);
-                if (h->sequence == sequence || h->published < 0)
-                    return false;
-                if (h->published > 2 || !std::isfinite(h->timestamp))
+                CpuHeader h;
+                std::memcpy(&h, memory.address, sizeof(h));
+                if (std::memcmp(h.magic, "CTUIFR01", 8) || h.published < -1 || h.published > 2 ||
+                    h.reading < -1 || h.reading > 2 || !std::isfinite(h.timestamp))
                     throw std::runtime_error("corrupt CPU frame metadata");
-                next = h->sequence;
-                timestamp = h->timestamp;
-                slot = h->published;
-                h->reading = slot;
+                if (h.sequence == sequence || h.published < 0)
+                    return false;
+                next = h.sequence;
+                timestamp = h.timestamp;
+                slot = h.published;
+                static_cast<CpuHeader *>(memory.address)->reading = slot;
             }
             // WRITE_DISCARD lets the driver rename in-flight upload storage.
             // Copy directly from the pinned shared slot, without an intermediate

@@ -5,13 +5,24 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
+#include "include/cef_command_handler.h"
+#include "include/cef_dialog_handler.h"
+#include "include/cef_download_handler.h"
+#include "include/cef_jsdialog_handler.h"
+#include "include/cef_id_mappers.h"
+#include "include/cef_print_handler.h"
+#include "include/cef_permission_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_request_context.h"
+#include "include/cef_request_context_handler.h"
+#include "include/cef_resource_request_handler.h"
 #include "include/cef_version.h"
 #include "include/wrapper/cef_helpers.h"
 #include "include/wrapper/cef_message_router.h"
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <functional>
 #include <iostream>
@@ -27,6 +38,8 @@
 #endif
 
 namespace {
+constexpr std::size_t control_limit = 1024 * 1024;
+constexpr std::size_t frame_limit = 512ull * 1024 * 1024;
 using Dict = CefRefPtr<CefDictionaryValue>;
 Dict dict() { return CefDictionaryValue::Create(); }
 CefRange invalid_range() {
@@ -50,7 +63,20 @@ Dict parse(const std::string &s) {
   return v->GetDictionary();
 }
 void emit(Dict d) {
-  const auto s = json(d);
+  auto s = json(d);
+  if (s.size() > control_limit) {
+    auto bounded = dict();
+    if (d->HasKey("id")) {
+      bounded->SetInt("id", d->GetInt("id"));
+      bounded->SetBool("ok", false);
+      bounded->SetString("error", "Native response exceeds 1 MiB");
+    } else {
+      bounded->SetString("event", "security_denied");
+      bounded->SetString("view", d->GetString("view"));
+      bounded->SetString("reason", "event_size");
+    }
+    s = json(bounded);
+  }
   std::lock_guard<std::mutex> lock(output_mutex);
   std::cout << s << std::endl;
 }
@@ -95,10 +121,67 @@ bool identifier(const std::string &s) {
          s.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVW"
                              "XYZ0123456789_-.") == std::string::npos;
 }
+bool network_url(const std::string &url) {
+  CefURLParts parts;
+  if (url.size() > 8192 || url.find('\\') != std::string::npos ||
+      std::any_of(url.begin(), url.end(), [](unsigned char c) { return c <= 32 || c == 127; }) ||
+      !CefParseURL(url, parts)) return false;
+  const auto scheme = CefString(&parts.scheme).ToString();
+  return (scheme == "https" || scheme == "http") && CefString(&parts.username).empty() && CefString(&parts.password).empty();
+}
+std::set<std::string> origin_grants(Dict d, const char *key, bool insecure) {
+  auto result = strings(d, key);
+  if (result.size() > 64)
+    throw std::invalid_argument("Too many origin grants");
+  for (const auto &value : result) {
+    if (!network_url(value) || origin(value) != value)
+      throw std::invalid_argument("Origin grants must be exact HTTP(S) origins");
+    CefURLParts parts;
+    CefParseURL(value, parts);
+    const auto host = CefString(&parts.host).ToString();
+    unsigned a, b, c, e; char trailing;
+    const bool loopback = host == "localhost" || host == "::1" || host == "[::1]" ||
+        (std::sscanf(host.c_str(), "%u.%u.%u.%u%c", &a, &b, &c, &e, &trailing) == 4 &&
+         a == 127 && b <= 255 && c <= 255 && e <= 255);
+    if (CefString(&parts.scheme) == "http" && !insecure && !loopback)
+      throw std::invalid_argument("Cleartext HTTP requires explicit policy");
+  }
+  return result;
+}
+bool bounded_line(std::istream &input, std::string &line, bool &overflow) {
+  line.clear();
+  overflow = false;
+  for (;;) {
+    const auto c = input.rdbuf()->sbumpc();
+    if (c == std::char_traits<char>::eof())
+      return !line.empty() || overflow;
+    if (c == '\n')
+      return true;
+    if (line.size() < control_limit)
+      line.push_back(static_cast<char>(c));
+    else
+      overflow = true;
+  }
+}
 comfortable::CpuFrameInfo frame_info(Dict d) {
+  if (!d)
+    throw std::invalid_argument("Missing frame descriptor");
   return {text(d, "name"), static_cast<unsigned>(d->GetInt("width")),
           static_cast<unsigned>(d->GetInt("height")),
           static_cast<unsigned>(d->GetInt("stride")), text(d, "pixel_format")};
+}
+bool bounded_payload(CefRefPtr<CefValue> value, unsigned depth, unsigned &nodes) {
+  if (!value || depth > 32 || ++nodes > 4096) return false;
+  if (value->GetType() == VTYPE_DICTIONARY) {
+    CefDictionaryValue::KeyList keys;
+    auto d = value->GetDictionary(); d->GetKeys(keys);
+    for (const auto &key : keys) if (!bounded_payload(d->GetValue(key), depth + 1, nodes)) return false;
+  } else if (value->GetType() == VTYPE_LIST) {
+    auto list = value->GetList();
+    for (std::size_t i = 0; i < list->GetSize(); ++i)
+      if (!bounded_payload(list->GetValue(i), depth + 1, nodes)) return false;
+  }
+  return true;
 }
 class FunctionTask : public CefTask {
 public:
@@ -114,6 +197,19 @@ void post(std::function<void()> f) {
 }
 
 class Service;
+// Background requests have no page identity. Never borrow a page's grants for
+// service workers or arbitrary CefURLRequest traffic.
+class BackgroundRequests : public CefRequestContextHandler,
+                           public CefResourceRequestHandler {
+public:
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(
+      CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest>, bool,
+      bool, const CefString &, bool &) override { return this; }
+  ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+      CefRefPtr<CefRequest>, CefRefPtr<CefCallback>) override { return RV_CANCEL; }
+private:
+  IMPLEMENT_REFCOUNTING(BackgroundRequests);
+};
 class View : public CefClient,
              public CefLifeSpanHandler,
              public CefRenderHandler,
@@ -121,6 +217,13 @@ class View : public CefClient,
              public CefDisplayHandler,
              public CefRequestHandler,
              public CefContextMenuHandler,
+             public CefPermissionHandler,
+             public CefDialogHandler,
+             public CefDownloadHandler,
+             public CefJSDialogHandler,
+             public CefCommandHandler,
+             public CefPrintHandler,
+             public CefResourceRequestHandler,
              public CefMessageRouterBrowserSide::Handler {
 public:
   View(Service *owner, Dict config, CefRefPtr<CefRequestContext> context,
@@ -132,6 +235,70 @@ public:
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override {
     return this;
+  }
+  CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
+  CefRefPtr<CefDialogHandler> GetDialogHandler() override { return this; }
+  CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
+  CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
+  CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
+  CefRefPtr<CefPrintHandler> GetPrintHandler() override { return this; }
+  bool OnChromeCommand(CefRefPtr<CefBrowser>, int command, cef_window_open_disposition_t) override {
+    static const std::set<int> editing = {cef_id_for_command_id_name("IDC_COPY"),
+        cef_id_for_command_id_name("IDC_CUT"), cef_id_for_command_id_name("IDC_PASTE"),
+        cef_id_for_command_id_name("IDC_SELECT_ALL"), cef_id_for_command_id_name("IDC_UNDO"),
+        cef_id_for_command_id_name("IDC_REDO")};
+    return !editing.count(command); // Chrome UI/devtools/print/save/open are not app capabilities.
+  }
+  void OnPrintStart(CefRefPtr<CefBrowser>) override {}
+  void OnPrintSettings(CefRefPtr<CefBrowser>, CefRefPtr<CefPrintSettings>, bool) override {}
+  bool OnPrintDialog(CefRefPtr<CefBrowser>, bool, CefRefPtr<CefPrintDialogCallback>) override { return false; }
+  bool OnPrintJob(CefRefPtr<CefBrowser>, const CefString &, const CefString &,
+                  CefRefPtr<CefPrintJobCallback>) override { return false; }
+  void OnPrintReset(CefRefPtr<CefBrowser>) override {}
+  bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+      const CefString &, uint32_t, CefRefPtr<CefMediaAccessCallback> cb) override {
+    ++denied_permissions_;
+    cb->Cancel(); return true;
+  }
+  bool OnShowPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t, const CefString &,
+      uint32_t, CefRefPtr<CefPermissionPromptCallback> cb) override {
+    ++denied_permissions_;
+    cb->Continue(CEF_PERMISSION_RESULT_DENY); return true;
+  }
+  bool OnFileDialog(CefRefPtr<CefBrowser>, FileDialogMode, const CefString &,
+      const CefString &, const std::vector<CefString> &, const std::vector<CefString> &,
+      const std::vector<CefString> &, CefRefPtr<CefFileDialogCallback> cb) override {
+    ++denied_dialogs_;
+    cb->Cancel(); return true;
+  }
+  bool CanDownload(CefRefPtr<CefBrowser>, const CefString &, const CefString &) override {
+    ++denied_downloads_; return false;
+  }
+  bool OnBeforeDownload(CefRefPtr<CefBrowser>, CefRefPtr<CefDownloadItem>, const CefString &,
+      CefRefPtr<CefBeforeDownloadCallback>) override { return true; }
+  bool OnJSDialog(CefRefPtr<CefBrowser>, const CefString &, JSDialogType,
+      const CefString &, const CefString &, CefRefPtr<CefJSDialogCallback>, bool &suppress) override {
+    ++denied_dialogs_;
+    suppress = true; return false;
+  }
+  bool OnBeforeUnloadDialog(CefRefPtr<CefBrowser>, const CefString &, bool,
+      CefRefPtr<CefJSDialogCallback> cb) override { cb->Continue(true, ""); return true; }
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>,
+      CefRefPtr<CefFrame>, CefRefPtr<CefRequest>, bool, bool, const CefString &, bool &) override { return this; }
+  ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+      CefRefPtr<CefRequest> request, CefRefPtr<CefCallback>) override {
+    if (frame && allowed(request->GetURL(), resources_)) return RV_CONTINUE;
+    ++denied_resources_; return RV_CANCEL;
+  }
+  void OnResourceRedirect(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest>,
+      CefRefPtr<CefResponse>, CefString &url) override {
+    if (!allowed(url, resources_)) url = "about:blank";
+  }
+  void OnProtocolExecution(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest>,
+      bool &allow_os_execution) override { allow_os_execution = false; }
+  bool OnSelectClientCertificate(CefRefPtr<CefBrowser>, bool, const CefString &, int,
+      const X509CertificateList &, CefRefPtr<CefSelectClientCertificateCallback> cb) override {
+    cb->Select(nullptr); return true;
   }
   void GetViewRect(CefRefPtr<CefBrowser>, CefRect &r) override {
     r = CefRect(0, 0, width_, height_);
@@ -194,6 +361,8 @@ public:
                  int code) override {
     if (!frame->IsMain())
       return;
+    if (bootstrapping_ && frame->GetURL() == "about:blank" && text(config_, "url") != "about:blank") return;
+    bootstrapping_ = false;
     auto d = dict();
     d->SetInt("status", code);
     d->SetString("url", frame->GetURL());
@@ -216,10 +385,17 @@ public:
     event("title", id_, d);
   }
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> b, CefRefPtr<CefFrame> f,
-                      CefRefPtr<CefRequest>, bool, bool) override {
+                      CefRefPtr<CefRequest> request, bool, bool) override {
+    if (!allowed(request->GetURL(), navigation_)) {
+      ++denied_navigations_;
+      auto d = dict(); d->SetString("reason", "navigation_origin");
+      event("security_denied", id_, d);
+      return true;
+    }
     router_->OnBeforeBrowse(b, f);
     if (f->IsMain()) {
       cancel_evaluations("Document navigated");
+      subscriptions_.clear();
       ++document_;
       auto d = dict();
       d->SetInt("document", document_);
@@ -260,9 +436,23 @@ public:
   const std::string &scope() const { return scope_; }
   const std::string &id() const { return id_; }
   CefRefPtr<CefBrowser> browser() const { return browser_; }
+  std::size_t allocation() const { return allocation_; }
   int close_request{};
 
 private:
+  bool allowed(const std::string &url, const std::set<std::string> &grants) const {
+    return url == "about:blank" || (network_url(url) && grants.count(origin(url)));
+  }
+  bool bridge_authorized(CefRefPtr<CefFrame> frame) const {
+    return frame && frame->IsMain() && network_url(frame->GetURL()) && origins_.count(origin(frame->GetURL()));
+  }
+  bool admit_query() {
+    const auto now = std::chrono::steady_clock::now();
+    tokens_ = std::min(240., tokens_ + std::chrono::duration<double>(now - token_time_).count() * 120.);
+    token_time_ = now;
+    if (tokens_ < 1) return false;
+    --tokens_; return true;
+  }
   void publish();
   void cancel_evaluations(const char *reason) {
     for (const int request : evaluations_)
@@ -273,6 +463,15 @@ private:
   Dict config_;
   std::string id_, scope_;
   std::set<std::string> origins_, publish_topics_, subscribe_topics_;
+  std::set<std::string> navigation_, resources_;
+  bool allow_evaluate_{};
+  bool bootstrapping_{true};
+  std::atomic<unsigned> denied_resources_{0};
+  unsigned denied_navigations_{}, denied_permissions_{}, denied_downloads_{}, denied_dialogs_{};
+  std::size_t allocation_{};
+  std::size_t check_frame(const comfortable::CpuFrameInfo &info);
+  double tokens_{240};
+  std::chrono::steady_clock::time_point token_time_{std::chrono::steady_clock::now()};
   CefRefPtr<CefBrowser> browser_;
   CefRefPtr<CefRequestContext> context_;
   CefRefPtr<CefMessageRouterBrowserSide> router_;
@@ -322,6 +521,9 @@ public:
     auto d = dict();
     d->SetString("event", "service_ready");
     d->SetInt("protocol", 1);
+    d->SetInt("security_protocol", 1);
+    d->SetBool("sandbox_requested", true);
+    d->SetBool("permissions_default_deny", true);
     d->SetString("cef_version", CEF_VERSION);
     d->SetString("frame_backend", "native_cpu");
     d->SetBool(
@@ -330,8 +532,9 @@ public:
     emit(d);
     reader_ = std::thread([this] {
       std::string line;
-      while (std::getline(std::cin, line)) {
-        if (line.size() > 1024 * 1024) {
+      bool overflow = false;
+      while (bounded_line(std::cin, line, overflow)) {
+        if (overflow) {
           post([] { reply(0, nullptr, "Control message exceeds 1 MiB"); });
           continue;
         }
@@ -398,6 +601,16 @@ public:
         delivered += view->deliver(topic, payload, sender);
     return delivered;
   }
+  void admit_frame(const std::string &id, std::size_t bytes, Dict limits) {
+    if (!limits) throw std::invalid_argument("Missing browser limits");
+    const int pages = limits->GetInt("max_pages"), total = limits->GetInt("max_total_frame_bytes");
+    if (pages < 1 || pages > 64 || total < 1 || total > 1024 * 1024 * 1024)
+      throw std::invalid_argument("Invalid browser limits");
+    if (!views_.count(id) && views_.size() >= static_cast<std::size_t>(pages))
+      throw std::runtime_error("Browser page budget exceeded");
+    for (const auto &[key, view] : views_) if (key != id) bytes += view->allocation();
+    if (bytes > static_cast<std::size_t>(total)) throw std::runtime_error("Browser frame budget exceeded");
+  }
   void closed(const std::string &id) {
     views_.erase(id);
     if (closing_ && views_.empty()) {
@@ -430,6 +643,9 @@ private:
     if (closing_)
       throw std::runtime_error("Service is closing");
     if (op == "open") {
+      const auto security = d->GetDictionary("security");
+      if (!security || security->GetInt("protocol") != 1)
+        throw std::invalid_argument("Security protocol 1 policy is required");
       if (views_.size() >= 64)
         throw std::runtime_error("At most 64 active pages are supported");
       if (!identifier(id) || views_.count(id))
@@ -441,13 +657,14 @@ private:
       auto it = profiles_.find(key);
       CefRefPtr<CefRequestContext> context;
       if (it == profiles_.end()) {
+        if (profiles_.size() >= 64) throw std::runtime_error("Browser profile budget exceeded");
         CefRequestContextSettings settings;
         if (persistent)
           CefString(&settings.cache_path) =
               utf8_path(root_ / ("profile-" + key));
         settings.persist_session_cookies =
             d->GetBool("persist_session_cookies");
-        context = CefRequestContext::CreateContext(settings, nullptr);
+        context = CefRequestContext::CreateContext(settings, new BackgroundRequests());
         if (!context)
           throw std::runtime_error("Cannot create profile");
         profiles_[key] = {context, persistent,
@@ -508,9 +725,25 @@ View::View(Service *owner, Dict c, CefRefPtr<CefRequestContext> context,
       publish_topics_(strings(c, "publish_topics")),
       subscribe_topics_(strings(c, "subscribe_topics")), context_(context),
       request_(request) {
+  auto security = c->GetDictionary("security");
+  const bool insecure = security->GetBool("allow_insecure_http");
+  navigation_ = origin_grants(security, "navigation_origins", insecure);
+  if (navigation_.size() > 8) throw std::invalid_argument("At most 8 navigation origins per page");
+  resources_ = origin_grants(security, "resource_origins", insecure);
+  origins_ = origin_grants(c, "origins", insecure);
+  for (const auto &value : origins_)
+    if (!navigation_.count(value)) throw std::invalid_argument("Bridge origin is outside navigation policy");
+  allow_evaluate_ = security->GetBool("allow_evaluate");
+  if (!allowed(text(c, "url"), navigation_))
+    throw std::invalid_argument("Initial navigation denied");
+  if (publish_topics_.size() > 64 || subscribe_topics_.size() > 64)
+    throw std::invalid_argument("Too many topic grants");
+  for (const auto &topic : publish_topics_) if (!identifier(topic)) throw std::invalid_argument("Invalid topic");
+  for (const auto &topic : subscribe_topics_) if (!identifier(topic)) throw std::invalid_argument("Invalid topic");
   const auto info = frame_info(c->GetDictionary("source"));
   if (info.pixel_format != "bgra8_premultiplied")
     throw std::invalid_argument("Browser output requires premultiplied BGRA");
+  allocation_ = check_frame(info);
   frames_ = std::make_unique<comfortable::CpuFrameChannel>(info);
   width_ = info.width;
   height_ = info.height;
@@ -521,17 +754,75 @@ View::View(Service *owner, Dict c, CefRefPtr<CefRequestContext> context,
   CefBrowserSettings settings;
   settings.windowless_frame_rate = std::clamp(c->GetInt("fps"), 1, 240);
   settings.background_color = CefColorSetARGB(255, 17, 21, 34);
-  if (!CefBrowserHost::CreateBrowser(window, this, text(c, "url"), settings,
+  settings.javascript_access_clipboard = STATE_DISABLED;
+  settings.javascript_dom_paste = STATE_DISABLED;
+  if (!CefBrowserHost::CreateBrowser(window, this, "about:blank", settings,
                                      nullptr, context_))
     throw std::runtime_error("CEF browser creation failed");
 }
 void View::OnAfterCreated(CefRefPtr<CefBrowser> b) {
   browser_ = b;
+  auto disabled = CefValue::Create(); disabled->SetBool(false);
+  for (const auto *preference : {"printing.enabled", "credentials_enable_service", "credentials_enable_autosignin"}) {
+    CefString error;
+    if (!context_->SetPreference(preference, disabled, error)) {
+      reply(request_, nullptr, std::string("Required browser preference unavailable: ") + preference);
+      close(); return;
+    }
+    auto actual = context_->GetPreference(preference);
+    if (!actual || actual->GetType() != VTYPE_BOOL || actual->GetBool()) {
+      reply(request_, nullptr, "Required browser preference was not disabled");
+      close(); return;
+    }
+  }
+  browser_->GetHost()->SetAudioMuted(true);
+  // Prompt denial alone does not revoke grants saved by an older runtime.
+  // Apply exact native content settings before the first real document loads.
+  const cef_content_setting_types_t blocked[] = {
+      CEF_CONTENT_SETTING_TYPE_GEOLOCATION, CEF_CONTENT_SETTING_TYPE_NOTIFICATIONS,
+      CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA,
+      CEF_CONTENT_SETTING_TYPE_USB_GUARD, CEF_CONTENT_SETTING_TYPE_HID_GUARD,
+      CEF_CONTENT_SETTING_TYPE_SERIAL_GUARD, CEF_CONTENT_SETTING_TYPE_BLUETOOTH_GUARD,
+      CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_READ_GUARD, CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_WRITE_GUARD,
+      CEF_CONTENT_SETTING_TYPE_CLIPBOARD_READ_WRITE,
+      CEF_CONTENT_SETTING_TYPE_LOCAL_FONTS, CEF_CONTENT_SETTING_TYPE_MIDI_SYSEX,
+      CEF_CONTENT_SETTING_TYPE_KEYBOARD_LOCK, CEF_CONTENT_SETTING_TYPE_POINTER_LOCK,
+      CEF_CONTENT_SETTING_TYPE_WINDOW_MANAGEMENT, CEF_CONTENT_SETTING_TYPE_SENSORS};
+  const cef_content_setting_types_t saved_devices[] = {
+      CEF_CONTENT_SETTING_TYPE_USB_CHOOSER_DATA, CEF_CONTENT_SETTING_TYPE_HID_CHOOSER_DATA,
+      CEF_CONTENT_SETTING_TYPE_SERIAL_CHOOSER_DATA, CEF_CONTENT_SETTING_TYPE_BLUETOOTH_CHOOSER_DATA,
+      CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_ACCESS_CHOOSER_DATA};
+  for (const auto &requesting : navigation_) {
+    for (const auto type : saved_devices) context_->SetWebsiteSetting(requesting, "", type, nullptr);
+    for (const auto &top : navigation_) {
+      for (const auto type : saved_devices) context_->SetWebsiteSetting(requesting, top, type, nullptr);
+      for (const auto type : blocked) {
+        context_->SetContentSetting(requesting, top, type, CEF_CONTENT_SETTING_VALUE_BLOCK);
+        if (context_->GetContentSetting(requesting, top, type) != CEF_CONTENT_SETTING_VALUE_BLOCK) {
+          reply(request_, nullptr, "Required native content permission was not blocked");
+          close(); return;
+        }
+      }
+    }
+  }
   auto d = dict();
   d->SetString("view", id_);
   d->SetString("frame_backend", "native_cpu");
   d->SetString("cache_path", context_->GetCachePath());
   reply(request_, d);
+  if (text(config_, "url") != "about:blank") browser_->GetMainFrame()->LoadURL(text(config_, "url"));
+}
+std::size_t View::check_frame(const comfortable::CpuFrameInfo &info) {
+  auto limits = config_->GetDictionary("limits");
+  if (!limits) throw std::invalid_argument("Missing browser limits");
+  const int maximum = limits->GetInt("max_frame_bytes");
+  const auto bytes = 64ull + std::uint64_t(info.stride) * info.height * 3;
+  if (!info.width || !info.height || info.width > 4096 || info.height > 4096 ||
+      info.pixel_format != "bgra8_premultiplied" || maximum < 1 ||
+      static_cast<std::size_t>(maximum) > frame_limit || bytes > static_cast<std::size_t>(maximum))
+    throw std::invalid_argument("Browser frame exceeds limits");
+  owner_->admit_frame(id_, bytes, limits);
+  return bytes;
 }
 void View::OnBeforeClose(CefRefPtr<CefBrowser> b) {
   cancel_evaluations("Browser closed");
@@ -596,6 +887,7 @@ void View::publish() {
 }
 int View::deliver(const std::string &topic, CefRefPtr<CefValue> payload,
                   const std::string &sender) {
+  if (!browser_ || !bridge_authorized(browser_->GetMainFrame())) return 0;
   int count = 0;
   auto d = dict();
   d->SetString("topic", topic);
@@ -614,12 +906,17 @@ bool View::OnQuery(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
                    int64_t query, const CefString &raw, bool persistent,
                    CefRefPtr<Callback> cb) {
   try {
-    if (!frame->IsMain() || !origins_.count(origin(frame->GetURL())))
+    if (!bridge_authorized(frame))
       throw std::runtime_error("Bridge origin/frame is not authorized");
+    if (!admit_query()) throw std::runtime_error("Bridge rate limit exceeded");
+    if (raw.length() > 65536) throw std::runtime_error("Business message exceeds 64 KiB");
     const auto request = raw.ToString();
     if (request.size() > 65536)
       throw std::runtime_error("Business message exceeds 64 KiB");
     auto d = parse(request);
+    auto value = CefValue::Create(); value->SetDictionary(d);
+    unsigned nodes = 0;
+    if (!bounded_payload(value, 0, nodes)) throw std::runtime_error("Bridge payload nesting/node budget exceeded");
     const auto op = text(d, "op"), topic = text(d, "topic");
     if (op == "eval_result") {
       if (!evaluations_.erase(d->GetInt("request")))
@@ -635,7 +932,7 @@ bool View::OnQuery(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
     if (op == "subscribe") {
       if (!persistent || !subscribe_topics_.count(topic))
         throw std::runtime_error("Subscription is not authorized");
-      if (subscriptions_.size() >= 256)
+      if (subscriptions_.size() >= 64)
         throw std::runtime_error("Too many subscriptions");
       subscriptions_[query] = {topic, cb};
       return true;
@@ -666,8 +963,24 @@ void View::command(Dict d) {
   if (!browser_)
     throw std::runtime_error("Browser is not ready");
   auto host = browser_->GetHost();
-  if (op == "navigate")
+  if (op == "security_state") {
+    auto result = dict();
+    result->SetInt("denied_resources", denied_resources_.load());
+    result->SetInt("denied_navigations", denied_navigations_);
+    result->SetInt("denied_permissions", denied_permissions_);
+    result->SetInt("denied_downloads", denied_downloads_);
+    result->SetInt("denied_dialogs", denied_dialogs_);
+    result->SetInt("subscriptions", static_cast<int>(subscriptions_.size()));
+    result->SetInt("document", document_);
+    result->SetBool("printing_disabled", !context_->GetPreference("printing.enabled")->GetBool());
+    result->SetBool("password_manager_disabled", !context_->GetPreference("credentials_enable_service")->GetBool());
+    result->SetBool("content_permissions_blocked", true); // Verified before loading the first document.
+    reply(request, result); return;
+  } else if (op == "navigate") {
+    if (!allowed(text(d, "url"), navigation_)) throw std::runtime_error("Navigation origin denied");
+    bootstrapping_ = false;
     browser_->GetMainFrame()->LoadURL(text(d, "url"));
+  }
   else if (op == "back")
     browser_->GoBack();
   else if (op == "forward")
@@ -678,8 +991,10 @@ void View::command(Dict d) {
     host->WasHidden(!d->GetBool("visible"));
   else if (op == "resize") {
     auto info = frame_info(d->GetDictionary("source"));
+    const auto bytes = check_frame(info);
     auto replacement = std::make_unique<comfortable::CpuFrameChannel>(info);
     frames_ = std::move(replacement);
+    allocation_ = bytes;
     width_ = info.width;
     height_ = info.height;
     base_.clear();
@@ -688,7 +1003,7 @@ void View::command(Dict d) {
   } else if (op == "cancel_eval") {
     evaluations_.erase(d->GetInt("request"));
   } else if (op == "eval") {
-    if (!origins_.count(origin(browser_->GetMainFrame()->GetURL())))
+    if (!allow_evaluate_ || !bridge_authorized(browser_->GetMainFrame()))
       throw std::runtime_error("Evaluation requires an authorized origin");
     if (evaluations_.size() >= 256)
       throw std::runtime_error("Too many pending evaluations");
@@ -794,34 +1109,50 @@ void View::command(Dict d) {
 }
 
 int run(int argc, char **argv, void *sandbox) {
+  // CEF child processes use CEF IPC, never the broker's JSON control endpoints.
+  bool subprocess = false;
+  for (int i = 1; i < argc; ++i)
+    if (std::string(argv[i]).rfind("--type=", 0) == 0 && std::string(argv[i]).size() > 7) subprocess = true;
+  if (subprocess) {
+#ifdef _WIN32
+    if (!std::freopen("NUL", "r", stdin) || !std::freopen("NUL", "w", stdout)) return 1;
+#else
+    if (!std::freopen("/dev/null", "r", stdin) || !std::freopen("/dev/null", "w", stdout)) return 1;
+#endif
+  }
 #ifdef _WIN32
   CefMainArgs main_args(GetModuleHandle(nullptr));
 #else
   CefMainArgs main_args(argc, argv);
 #endif
   std::filesystem::path root;
-  bool no_sandbox = false;
+  bool invalid_switch = false;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg.rfind("--ctui-root=", 0) == 0)
       root = std::filesystem::u8path(arg.substr(12));
-    if (arg == "--ctui-allow-no-sandbox")
-      no_sandbox = true;
+    const auto key = arg.substr(0, arg.find('='));
+    if (key != "--ctui-root" && key != "--no-first-run" && key != "--no-default-browser-check" &&
+        key != "--ozone-platform") invalid_switch = true;
+    if (key == "--ozone-platform" && arg != "--ozone-platform=x11" && arg != "--ozone-platform=wayland")
+      invalid_switch = true;
   }
   CefRefPtr<Service> app = new Service(root);
   const int child = CefExecuteProcess(main_args, app, sandbox);
   if (child >= 0)
     return child;
+  if (invalid_switch)
+    throw std::invalid_argument("Unsupported or unsafe browser launch switch");
   if (root.empty() || !root.is_absolute())
     throw std::invalid_argument(
         "--ctui-root must be an absolute application-private path");
   std::filesystem::create_directories(root);
   CefSettings settings;
   settings.windowless_rendering_enabled = true;
-  settings.no_sandbox = no_sandbox;
+  settings.no_sandbox = false;
   CefString(&settings.root_cache_path) = utf8_path(root);
   CefString(&settings.log_file) = utf8_path(root / "cef.log");
-  settings.log_severity = LOGSEVERITY_WARNING;
+  settings.log_severity = LOGSEVERITY_DISABLE;
   if (!CefInitialize(main_args, settings, app, sandbox))
     return CefGetExitCode();
   CefRunMessageLoop();

@@ -17,6 +17,7 @@ from .widget import Widget
 from .browser import BrowserService, BrowserProfile, BrowserPage
 from .webview import WebView
 from .window_host import WindowHost
+from .security import BrowserLimits, BrowserPolicy
 
 __version__ = "0.1.1"
 __all__ = [
@@ -30,6 +31,6 @@ __all__ = [
     "CanvasEvent", "CanvasTransform", "FrameBuffer", "FrameBufferInfo", "FrameLease",
     "OverlayCanvas", "PixelRect", "TerminalHost",
     "GpuFrameInfo", "GpuFrameSource", "gpu_available",
-    "BrowserService", "BrowserProfile", "BrowserPage", "WebView",
+    "BrowserService", "BrowserProfile", "BrowserPage", "BrowserPolicy", "BrowserLimits", "WebView",
     "WindowHost",
 ]

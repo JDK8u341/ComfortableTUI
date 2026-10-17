@@ -57,8 +57,9 @@ XDG_RUNTIME_DIR、用户 shell 或 systemd，不替换用户指定的其他 comp
 同一套源码支持 Python 3.10；部分较早的 3.10 发行版需更新到带 tarfile 安全过滤器的
 维护版本，或用较新的 Python 执行 SDK 下载脚本。
 
-沙箱默认启用。`BrowserService(allow_no_sandbox=True)` 仅用于明确的诊断情形，
-不会自动检测失败后关闭沙箱。图像和浏览器是各自的独立进程，Python 不持有
+沙箱要求保持启用。安全分支中 `BrowserService(allow_no_sandbox=True)` 会拒绝启动，
+主 helper 仅接受固定启动参数，旧 helper 缺少安全协议时也拒绝使用。
+权限与原生校验边界详见[安全模型](security-model.md)。图像和浏览器是各自的独立进程，Python 不持有
 逐帧像素租约；Linux Qt 宿主也在 C++ 中读取、缩放与绘制共享缓冲区。
 
 ## 最小使用
@@ -97,7 +98,7 @@ Ctrl+Q/Ctrl+C 退出，应用注册的全局快捷键仍优先。
 ## BrowserService
 
 `BrowserService(application_id=None, *, executable=None, data_root=None,
-display_platform=None, allow_no_sandbox=False, timeout=30)`：
+display_platform=None, allow_no_sandbox=False, timeout=30, policy=None, limits=None)`：
 
 | 参数 | 行为 |
 | --- | --- |
@@ -106,6 +107,8 @@ display_platform=None, allow_no_sandbox=False, timeout=30)`：
 | executable | CEF 原生宿主完整路径；其次读取 COMFORTABLE_TUI_BROWSER_EXECUTABLE，最后尝试仓库默认构建目录 |
 | display_platform | Linux 的 x11 / wayland，传给 Chromium Ozone；Windows 省略 |
 | timeout | 进程首次握手超时，单位秒 |
+| policy | 不可变 BrowserPolicy；默认固定初始导航/资源 origin，JS 求值关闭 |
+| limits | BrowserLimits；页面、单缓冲及总缓冲预算，均在创建/调整尺寸时检查 |
 
 默认根位于 `%LOCALAPPDATA%/ComfortableTUI/browser/<app-hash>` 或
 `$XDG_DATA_HOME/ComfortableTUI/browser/<app-hash>`（未设置时为 ~/.local/share）。
@@ -119,10 +122,12 @@ application_id；会话 Cookie 只有显式开启 persist_session_cookies 才可
 遵守 Chromium 页面/标签语义，不保证在不同页面之间共享。
 
 `open(url, *, profile=None, width=960, height=540, fps=60, origins=(),
-publish_topics=(), subscribe_topics=(), message_group=None)` 返回 BrowserPage。
+publish_topics=(), subscribe_topics=(), message_group=None, policy=None)` 返回 BrowserPage。
 源尺寸是浏览器布局像素，与画布显示尺寸分开；fps 为 1..240 的目标上限。
 默认无网页桥接权限；origins 必须是精确 origin（scheme/host/port，不能带路径）。
-每个服务最多 64 个活动页面。`poll()` 在调用线程处理事件，App 中的 WebView 会调用它；
+默认最多 16 个页面（含未脱离的退场页面），可在硬上限 64 内设置；profile 最多 64 个。
+文件、设备、下载和外部协议没有允许路径；额外资源 origin 需要显式授权。
+`poll()` 在调用线程处理事件，App 中的 WebView 会调用它；
 同一 App 内去重注册一个事件源，标签页隐藏后仍轮询业务事件；空轮询不会强制重绘。
 无控件时应自行定期调用。`on_event(callback)` 返回取消监听函数。
 `capabilities` 返回固定版本、实际帧后端和启动策略；`close()` 幂等关闭进程和源。
@@ -133,7 +138,7 @@ publish_topics=(), subscribe_topics=(), message_group=None)` 返回 BrowserPage�
 | --- | --- |
 | source | 普通 FrameBuffer；Python 创建映射和描述符，CEF C++ 写入像素 |
 | navigate(url), reload() | 导航/刷新；旧文档订阅和未完成评估失效 |
-| evaluate(code, timeout=15) | 在授权主 frame 求值 JS 表达式，可返回 Promise；超时报 TimeoutError |
+| evaluate(code, timeout=15) | 需服务/页面显式允许 allow_evaluate 且主 frame origin 已授权；遵守 CSP，可返回 Promise；超时报 TimeoutError |
 | evaluate_async(code) | 返回 Future，结果字典含 value/error；调用者应管理自己的等待期限 |
 | resize(width, height) | 显式更换源分辨率；原生写端确认后替换控件 buffer，消费者附加确认后回收旧缓冲区 |
 | set_visible(bool) | 通知 Chromium 节流；WebView/宿主也根据可见布局协调 |

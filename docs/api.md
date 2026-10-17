@@ -1,5 +1,8 @@
 # 公共 API 参考
 
+浏览器默认拒绝范围、`BrowserPolicy` / `BrowserLimits` 启动描述及原生校验边界见
+[安全模型](security-model.md)。权限判断不进入 GPU 传输或 Python 逐帧绘制路径。
+
 `App.watch_events(nonblocking_callback)` 每次应用 tick 调用一个非阻塞事件源，返回
 可重复调用的取消函数。即使控件页面隐藏也继续轮询；回调仅在实际状态改变时调用
 invalidate。App.close 会清理所有事件源。WebView 使用该接口轮询上层浏览器服务，

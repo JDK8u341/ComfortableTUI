@@ -5,6 +5,11 @@
 宿主，详见 [WebView 指南](../docs/webview.md)。服务验证用 `verify_webview.py`；Linux
 组合显示验证用 `verify_window_host.py`。Cookie/profile 与图像 SDK 相互独立。
 
+原生安全负面测试用 `verify_browser_security.py --browser PATH --report NEW.json`，
+覆盖绕过 Python 的原始 RPC、跨域/重定向、文件选择/下载拒绝、消息洪泛和 CSP。
+Linux 分别使用 `--platform x11` 与 `--platform wayland`。需要安全分支的 CEF helper，
+旧 helper 会拒绝握手；诊断求值需显式授权，不能通过关闭沙箱解决兼容问题。
+
 先在仓库根目录执行 `python -m pip install -e .`。随后：
 
 | 命令 | 内容 |

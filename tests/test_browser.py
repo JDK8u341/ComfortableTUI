@@ -12,7 +12,7 @@ class FakeProcess:
 
     def __init__(self, command, **kwargs):
         self.command = command
-        self.capabilities = {"startup_ui_suppressed": True}
+        self.capabilities = {"startup_ui_suppressed": True, "security_protocol": 1}
         self.messages = []
         self.calls.append(self)
 

@@ -1,6 +1,7 @@
 #include "comfortable/cpu_frame.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <limits>
@@ -36,9 +37,15 @@ class NamedMutex {
             throw std::runtime_error("Cannot open frame mutex");
 #else
         const auto path = std::filesystem::temp_directory_path() / (name + ".lock");
-        handle_ = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+        handle_ = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
         if (handle_ < 0)
             throw std::runtime_error("Cannot open frame lock file");
+        struct stat info{};
+        if (fstat(handle_, &info) || !S_ISREG(info.st_mode) || info.st_uid != getuid() ||
+            (info.st_mode & 0077) || info.st_nlink != 1) {
+            close(handle_);
+            throw std::runtime_error("Frame lock file is not owner-private");
+        }
 #endif
     }
     ~NamedMutex() {
@@ -157,12 +164,17 @@ struct CpuFrameChannel::Impl {
         close(handle);
 #endif
     }
-    Header *header() const {
-        auto *h = static_cast<Header *>(mapping);
-        if (std::memcmp(h->magic, "CTUIFR01", 8) || h->published < -1 || h->published > 2 ||
-            h->reading < -1 || h->reading > 2)
+    Header snapshot() const {
+        Header h;
+        std::memcpy(&h, mapping, sizeof(h));
+        if (std::memcmp(h.magic, "CTUIFR01", 8) || h.published < -1 || h.published > 2 ||
+            h.reading < -1 || h.reading > 2 || !std::isfinite(h.timestamp))
             throw std::runtime_error("Invalid frame header");
         return h;
+    }
+    Header *header() const {
+        snapshot();
+        return static_cast<Header *>(mapping);
     }
     std::uint8_t *pixels(int slot) {
         return static_cast<std::uint8_t *>(mapping) + offset + frame_bytes * slot;
@@ -196,31 +208,31 @@ CpuFrameChannel::~CpuFrameChannel() = default;
 const CpuFrameInfo &CpuFrameChannel::info() const { return impl_->descriptor; }
 std::uint64_t CpuFrameChannel::sequence() const {
     std::lock_guard<NamedMutex> lock(impl_->meta);
-    return impl_->header()->sequence;
+    return impl_->snapshot().sequence;
 }
 CpuReadFrame CpuFrameChannel::read() {
     CpuReadFrame result;
     auto lease = std::make_unique<CpuReadFrame::Impl>(impl_);
     std::lock_guard<NamedMutex> lock(impl_->meta);
-    auto *h = impl_->header();
-    lease->slot = h->published;
-    lease->sequence = h->sequence;
-    lease->timestamp = h->timestamp;
+    const auto h = impl_->snapshot();
+    lease->slot = h.published;
+    lease->sequence = h.sequence;
+    lease->timestamp = h.timestamp;
     if (lease->slot >= 0)
-        h->reading = lease->slot;
+        static_cast<Header *>(impl_->mapping)->reading = lease->slot;
     result.impl_ = std::move(lease);
     return result;
 }
 void CpuFrameChannel::submit(const void *pixels, std::size_t stride, double timestamp) {
     const auto &d = info();
-    if (!pixels || stride < d.stride)
+    if (!pixels || stride < d.stride || !std::isfinite(timestamp))
         throw std::invalid_argument("Invalid frame source stride");
     std::lock_guard<NamedMutex> write(impl_->writer);
     int slot = 0;
     {
         std::lock_guard<NamedMutex> lock(impl_->meta);
-        const auto *h = impl_->header();
-        while (slot == h->published || slot == h->reading)
+        const auto h = impl_->snapshot();
+        while (slot == h.published || slot == h.reading)
             ++slot;
     }
     for (unsigned y = 0; y < d.height; ++y)

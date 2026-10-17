@@ -15,6 +15,7 @@ import threading
 import time
 
 from comfortable_tui.browser import BrowserService
+from comfortable_tui import BrowserPolicy
 
 
 def wait(service, condition, seconds=20):
@@ -31,7 +32,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser", type=Path)
     parser.add_argument("--platform", choices=("x11", "wayland"))
-    parser.add_argument("--allow-no-sandbox", action="store_true")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--data-root", type=Path, help="Keep test profiles and logs for diagnosis")
     args = parser.parse_args()
@@ -54,7 +54,8 @@ def main():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_port}"
-    options = dict(executable=args.browser, display_platform=args.platform, allow_no_sandbox=args.allow_no_sandbox)
+    options = dict(executable=args.browser, display_platform=args.platform,
+                   policy=BrowserPolicy(allow_evaluate=True))
     result = {"platform": args.platform or "windows", "checks": [], "capabilities": {}}
     try:
         with (nullcontext(args.data_root) if args.data_root else
@@ -117,9 +118,10 @@ def main():
                     assert isolated.evaluate("received.length") == 0
                     result["checks"].append("application_storage_and_message_isolation")
                 before = first.source.sequence
+                first.input("focus_in").result(timeout=5)
                 first.evaluate("document.querySelector('#editor').focus()")
                 first.input("text", commit="中文验证").result(timeout=5)
-                assert first.evaluate("document.querySelector('#editor').value") == "中文验证"
+                wait(a, lambda: first.evaluate("document.querySelector('#editor').value") == "中文验证")
                 result["checks"].append("unicode_commit")
                 time.sleep(.15)
                 assert first.source.sequence > before

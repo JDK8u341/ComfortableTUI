@@ -1,0 +1,55 @@
+{
+  "result": "passed",
+  "target_fps": 120,
+  "mode": "hybrid",
+  "size": [
+    120,
+    33
+  ],
+  "samples": 12,
+  "measured_frames": 1068,
+  "rendered_fps": 118.52,
+  "interval_ms": {
+    "p50": 8.343,
+    "p95": 8.785,
+    "p99": 9.512,
+    "max": 23.983
+  },
+  "intervals_over_1_5_budget": 10,
+  "intervals_over_50ms": 0,
+  "phases_ms": {
+    "tick": {
+      "p50": 0.217,
+      "p95": 0.531,
+      "p99": 0.82,
+      "max": 4.019
+    },
+    "render": {
+      "p50": 2.64,
+      "p95": 3.768,
+      "p99": 4.181,
+      "max": 19.61
+    },
+    "encode": {
+      "p50": 0.055,
+      "p95": 0.949,
+      "p99": 2.448,
+      "max": 6.183
+    },
+    "write": {
+      "p50": 0.062,
+      "p95": 0.132,
+      "p99": 0.246,
+      "max": 15.829
+    },
+    "overlay": {
+      "p50": 0.043,
+      "p95": 0.062,
+      "p99": 0.077,
+      "max": 0.415
+    }
+  },
+  "synchronized": true,
+  "renderer": "cpp",
+  "note": "Actual producer loop cadence and blocking phases, excluding first 3s; not screen FPS or input-to-photon latency"
+}

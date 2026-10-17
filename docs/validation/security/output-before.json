@@ -1,0 +1,9 @@
+{
+  "result": "passed",
+  "frames": 420,
+  "total_bytes": 233729,
+  "ansi_sha256": "de9b4925fb874970941284eba9946c3320ba3b79bb7ef1580bf34892b59c67d4",
+  "settled_last_90_bytes": 0,
+  "cpu_p50_ms": 2.263,
+  "cpu_p95_ms": 3.879
+}

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add a native-enforced browser security profile: exact navigation/resource origins, default-denied device/file/download/dialog/protocol access, bounded bridge queries and document-scoped subscriptions.
+- Require a matching security helper handshake; remove no-sandbox escape and require explicit host JS-evaluation permission without bypassing CSP.
+- Bound control reads and stderr storage; validate shared-frame descriptors/headers and reject unsafe POSIX lock files.
+- Document trusted-host/native-provider limits, unsupported OS plugin sandboxing and adversarial/performance validation.
+
 ## 0.1.1 — 2026-10-18
 
 - Fix Windows Python 3.12 pacing being quantized to 32/64 FPS by GetTickCount64; use perf_counter and continuous deadlines in terminal/input/window loops.

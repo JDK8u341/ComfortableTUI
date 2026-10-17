@@ -13,6 +13,7 @@ import weakref
 from ._native_process import NativeProcess
 from ._display_environment import display_environment
 from ._shared_frame import FrameBuffer
+from .security import BrowserLimits, BrowserPolicy, SECURITY_PROTOCOL, topic_names, web_origin
 
 
 def _key(value):
@@ -58,7 +59,13 @@ class BrowserService:
     display consumers must detach before the service frees its frame mappings.
     """
     def __init__(self, application_id=None, *, executable=None, data_root=None,
-                 display_platform=None, allow_no_sandbox=False, timeout=30):
+                 display_platform=None, allow_no_sandbox=False, timeout=30, policy=None, limits=None):
+        if allow_no_sandbox:
+            raise PermissionError("Disabling the browser sandbox is no longer supported")
+        self.policy = policy if policy is not None else BrowserPolicy()
+        self.limits = limits if limits is not None else BrowserLimits()
+        if not isinstance(self.policy, BrowserPolicy) or not isinstance(self.limits, BrowserLimits):
+            raise TypeError("Expected BrowserPolicy and BrowserLimits")
         if application_id is not None and (not isinstance(application_id, str) or not application_id.strip()):
             raise ValueError("application_id must be a nonempty stable string")
         if data_root is not None and application_id is None:
@@ -97,10 +104,12 @@ class BrowserService:
                 if display_platform not in ("x11", "wayland") or os.name == "nt":
                     raise ValueError("display_platform must be x11/wayland on Linux")
                 command.append(f"--ozone-platform={display_platform}")
-            if allow_no_sandbox:
-                command.extend(("--ctui-allow-no-sandbox", "--no-sandbox"))
             self._rpc = NativeProcess(command, ready_event="service_ready", log_path=self.root / "service-stderr.log",
                                       timeout=timeout, env=display_environment(display_platform))
+            version = self._rpc.capabilities.get("security_protocol")
+            if type(version) is not int or version != SECURITY_PROTOCOL:
+                self._rpc.close()
+                raise RuntimeError("Browser helper lacks security protocol 1; rebuild its CEF runtime")
             self.capabilities = dict(self._rpc.capabilities, application_isolated=True,
                                      storage_backend="cef_request_context", messaging="cef_router")
         except BaseException:
@@ -116,6 +125,8 @@ class BrowserService:
             raise ValueError("Persistent profiles require a stable application_id")
         if persist_session_cookies and not persistent:
             raise ValueError("Session-cookie persistence requires a persistent profile")
+        if name not in self._profiles and len(self._profiles) >= 64:
+            raise PermissionError("At most 64 browser profiles per service")
         result = BrowserProfile(name, bool(persistent), bool(persist_session_cookies), self._token)
         existing = self._profiles.setdefault(name, result)
         if existing != result:
@@ -129,21 +140,38 @@ class BrowserService:
         return profile
 
     def open(self, url, *, profile=None, width=960, height=540, fps=60, origins=(),
-             publish_topics=(), subscribe_topics=(), message_group=None):
+             publish_topics=(), subscribe_topics=(), message_group=None, policy=None):
         if self._closed:
             raise RuntimeError("BrowserService is closed")
-        if sum(not page._closed for page in self._pages.values()) >= 64:
-            raise RuntimeError("BrowserService supports at most 64 active pages")
-        if not isinstance(fps, int) or not 1 <= fps <= 240:
+        if len(self._pages) >= self.limits.max_pages:
+            raise PermissionError("Browser page budget exhausted (includes pinned retired pages)")
+        policy = self.policy if policy is None else policy
+        if not isinstance(policy, BrowserPolicy):
+            raise TypeError("Expected BrowserPolicy")
+        url = str(url)
+        wire, origins = policy.bind(url, origins)
+        if policy is not self.policy:
+            if (policy.allow_evaluate and not self.policy.allow_evaluate or
+                    policy.allow_insecure_http and not self.policy.allow_insecure_http):
+                raise PermissionError("A page cannot widen the service's boolean grants")
+            parent, _ = self.policy.bind(url)
+            for key in ("navigation_origins", "resource_origins"):
+                if not set(wire[key]).issubset(parent[key]):
+                    raise PermissionError("A page cannot widen the service's origin grants")
+        publish_topics, subscribe_topics = topic_names(publish_topics), topic_names(subscribe_topics)
+        self._check_frame_budget(width, height)
+        if type(fps) is not int or not 1 <= fps <= 240:
             raise ValueError("fps must be 1..240")
         profile = self._profile(profile)
         source = FrameBuffer(width, height, pixel_format="bgra8_premultiplied")
         page = BrowserPage(self, profile, source, message_group)
+        page.policy, page._security = policy, wire
         try:
             page.info = self._rpc.request("open", view=page.id, profile=_key(profile.name),
                 persistent=profile.persistent, persist_session_cookies=profile.persist_session_cookies,
                 scope=page.scope, source=asdict(source.info), fps=fps, url=str(url), origins=list(origins),
-                publish_topics=list(publish_topics), subscribe_topics=list(subscribe_topics))
+                publish_topics=list(publish_topics), subscribe_topics=list(subscribe_topics), security=wire,
+                limits=asdict(self.limits))
             self._pages[page.id] = page
             return page
         except BaseException:
@@ -151,9 +179,17 @@ class BrowserService:
             raise
 
     def publish(self, topic, payload, *, profile=None, message_group=None, target=""):
+        topic_names((topic,))
         profile = self._profile(profile)
         scope = self._scope(profile, message_group)
         return self._rpc.request("publish", scope=scope, topic=str(topic), payload=payload, target=target)
+
+    def _check_frame_budget(self, width, height):
+        requested = self.limits.frame_bytes(width, height)
+        current = sum(64 + b.info.frame_bytes * 3 for p in self._pages.values()
+                      for b in p._buffers if not b._closed)
+        if current + requested > self.limits.max_total_frame_bytes:
+            raise PermissionError("Browser total buffer budget exhausted (includes retired frames)")
 
     def _scope(self, profile, group):
         # Groups are explicitly assigned by the app, never accepted from webpage payloads.
@@ -248,13 +284,18 @@ class BrowserPage:
         return self.service._rpc.request(op, view=self.id, **fields)
 
     def navigate(self, url):
+        url = str(url)
+        if url != "about:blank" and web_origin(url, allow_insecure_http=self.policy.allow_insecure_http) not in self._security["navigation_origins"]:
+            raise PermissionError("Navigation is outside this page's origin policy")
         self.loaded = False
-        return self._request("navigate", url=str(url))
+        return self._request("navigate", url=url)
 
     def reload(self):
         return self._request("reload")
 
     def evaluate_async(self, code):
+        if not self.policy.allow_evaluate:
+            raise PermissionError("JavaScript evaluation requires explicit BrowserPolicy(allow_evaluate=True)")
         if self._closed:
             raise RuntimeError("BrowserPage is closed")
         return self.service._rpc.send("eval", view=self.id, code=str(code))
@@ -275,6 +316,9 @@ class BrowserPage:
         return self._request("visible", visible=bool(visible))
 
     def resize(self, width, height):
+        if self._closed:
+            raise RuntimeError("BrowserPage is closed")
+        self.service._check_frame_budget(width, height)
         source = FrameBuffer(width, height, pixel_format="bgra8_premultiplied")
         try:
             self._request("resize", source=asdict(source.info))
