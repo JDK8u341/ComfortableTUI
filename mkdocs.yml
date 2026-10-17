@@ -6,6 +6,8 @@ nav:
   - 入门: getting-started.md
   - 调研: research.md
   - 动画优化: motion-research.md
+  - 弹性动效指南: motion.md
+  - 弹性动效调研与验证: expressive-motion-research.md
   - 原生缓冲区画布: overlay-canvas.md
   - 覆盖画布调研: overlay-research.md
   - 共享附加层调研: shared-overlay-research.md

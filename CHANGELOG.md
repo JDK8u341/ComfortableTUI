@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add semantic Expressive/Subtle motion profiles, interruptible focus/selection springs and press feedback.
+- Animate checkbox colors, programmatic switches, slider tracks, bar charts, modal entry/exit and notification entry/exit.
+- Cache unchanged braille frame sampling and accelerate whole-cell compositing; preserve reduced-motion and empty settled diffs.
+- Validate through the independently installed ComfortableTop app, including native/browser composition.
+
 - Add a separately built pybind11 in-process GPU provider example with a native rendering thread and GIL independence check.
 
 - Add a standalone C++17 frame-provider SDK with shared D3D11 NT textures, bounded latest-frame slots and keyed synchronization.

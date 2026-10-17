@@ -6,7 +6,7 @@ import itertools
 import math
 import zlib
 
-from .canvas import Rect
+from .canvas import Canvas, Rect
 from .style import Style
 from .widget import Widget
 
@@ -94,6 +94,7 @@ class PixelCanvas(Widget):
         self.painter, self.animate, self.backend = painter, animate, backend
         self.elapsed = 0.0
         self.encoder = KittyEncoder()
+        self._braille_cache = None
 
     def tick(self, dt):
         if self.animate:
@@ -113,6 +114,14 @@ class PixelCanvas(Widget):
 
     def _braille(self, canvas):
         r, surface = self.rect, self.surface
+        # Moving UI chrome must not resample an unchanged framebuffer at 60Hz.
+        # Snapshot bytes also catches producers writing directly to pixels.
+        pixels = bytes(surface.pixels)
+        key = r.width, r.height, surface.background, pixels
+        if self._braille_cache is not None and self._braille_cache[0] == key:
+            canvas.blit(self._braille_cache[1], x=r.x, y=r.y)
+            return
+        sampled = Canvas(r.width, r.height)
         dots = ((0, 0, 0), (0, 1, 1), (0, 2, 2), (1, 0, 3),
                 (1, 1, 4), (1, 2, 5), (0, 3, 6), (1, 3, 7))
         for y in range(r.height):
@@ -122,9 +131,11 @@ class PixelCanvas(Widget):
                     sx = min(surface.width - 1, int((x * 2 + dx) * surface.width / max(1, r.width * 2)))
                     sy = min(surface.height - 1, int((y * 4 + dy) * surface.height / max(1, r.height * 4)))
                     i = (sy * surface.width + sx) * 3
-                    color = tuple(surface.pixels[i:i + 3])
+                    color = tuple(pixels[i:i + 3])
                     if color != surface.background:
                         mask |= 1 << bit
                         colors.append(color)
                 fg = tuple(sum(c[i] for c in colors) // len(colors) for i in range(3)) if colors else (133, 148, 173)
-                canvas.put(r.x + x, r.y + y, chr(0x2800 + mask) if mask else " ", Style(fg, surface.background))
+                sampled.put(x, y, chr(0x2800 + mask) if mask else " ", Style(fg, surface.background))
+        self._braille_cache = key, sampled
+        canvas.blit(sampled, x=r.x, y=r.y)

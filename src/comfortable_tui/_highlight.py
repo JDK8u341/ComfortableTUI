@@ -2,8 +2,8 @@
 
 
 class AnimatedHighlight:
-    def __init__(self, make_value, *, lead=28.0, trail=16.0):
-        self.edges = [make_value(0, speed=lead, damping=0) for _ in range(4)]
+    def __init__(self, make_value, *, lead=1.2, trail=.85):
+        self.edges = [make_value(0, role="focus") for _ in range(4)]
         self.lead, self.trail, self.initialized = lead, trail, False
 
     def move_to(self, x, y, width, height):
@@ -20,7 +20,7 @@ class AnimatedHighlight:
             leading = direction < 0 if index in (0, 1) else direction > 0
             # Repeated layouts must not switch the speed of a moving edge.
             if edge.target != goal:
-                edge.speed = self.lead if leading else self.trail
+                edge.scale_speed(self.lead if leading else self.trail)
             edge.set(goal)
 
     def hide(self):
@@ -33,7 +33,10 @@ class AnimatedHighlight:
         left, top, right, bottom = (edge.current for edge in self.edges)
         return left, top, max(0, right - left), max(0, bottom - top)
 
-    def paint(self, canvas, style, *, dx=0, dy=0):
+    def paint(self, canvas, style, *, dx=0, dy=0, press=0):
         if self.initialized:
             x, y, width, height = self.bounds
+            squeeze = min(.4, max(-.1, press * .45))
+            pad_x, pad_y = min(3, width * .1) * squeeze, min(.5, height * .25) * squeeze
+            x, y, width, height = x + pad_x, y + pad_y, width - 2 * pad_x, height - 2 * pad_y
             canvas.tint(x + dx, y + dy, width, height, style)

@@ -5,6 +5,51 @@ import math
 from dataclasses import dataclass
 
 
+@dataclass(frozen=True)
+class Spring:
+    """A spring's natural period in seconds and damping ratio (1 = no bounce)."""
+    response: float = .3
+    damping: float = .65
+
+    def __post_init__(self):
+        if not math.isfinite(self.response) or self.response <= 0:
+            raise ValueError("spring response must be positive and finite")
+        if not math.isfinite(self.damping) or self.damping <= 0:
+            raise ValueError("spring damping must be positive and finite")
+
+    @property
+    def speed(self):
+        return 2 * math.pi / self.response
+
+
+@dataclass(frozen=True)
+class MotionProfile:
+    """Semantic motion tokens; spatial movement can bounce, effects stay bounded."""
+    focus: Spring = Spring(.34, .64)
+    selection: Spring = Spring(.28, .66)
+    control: Spring = Spring(.25, .6)
+    scroll: Spring = Spring(.25, 1)
+    page: Spring = Spring(.36, .82)
+    reveal: Spring = Spring(.3, .76)
+    data: Spring = Spring(.28, 1)
+    effects: Spring = Spring(.18, 1)
+
+    @classmethod
+    def subtle(cls):
+        return cls(focus=Spring(.26, 1), selection=Spring(.24, 1), control=Spring(.22, .95),
+                   page=Spring(.3, 1), reveal=Spring(.26, 1))
+
+    @classmethod
+    def resolve(cls, profile):
+        if profile is None or profile == "expressive":
+            return cls()
+        if profile == "subtle":
+            return cls.subtle()
+        if isinstance(profile, cls):
+            return profile
+        raise ValueError("motion must be 'expressive', 'subtle', or a MotionProfile")
+
+
 @dataclass(eq=False)
 class Value:
     current: float = 0.0
@@ -12,10 +57,14 @@ class Value:
     damping: float = 1.0
     target: float | None = None
     velocity: float = 0.0
+    role: str | None = None
+    speed_scale: float = 1.0
 
     def __post_init__(self):
         if not all(math.isfinite(v) for v in (self.current, self.speed, self.damping, self.velocity)):
             raise ValueError("animation parameters must be finite")
+        if not math.isfinite(self.speed_scale) or self.speed_scale <= 0:
+            raise ValueError("speed_scale must be positive and finite")
         if self.speed <= 0 or self.damping < 0:
             raise ValueError("speed must be positive and damping nonnegative")
         if self.target is None:
@@ -42,6 +91,12 @@ class Value:
     def kick(self, distance: float):
         if self.damping:
             self.velocity += distance * self.speed * math.e
+
+    def scale_speed(self, scale):
+        if not math.isfinite(scale) or scale <= 0:
+            raise ValueError("speed scale must be positive and finite")
+        self.speed *= scale / self.speed_scale
+        self.speed_scale = scale
 
     def step(self, dt: float) -> bool:
         """Solve the damped oscillator analytically, including over-damping.
@@ -82,12 +137,26 @@ class Value:
 
 class Animator:
     """Explicit ownership: discarded widgets do not remain in a global registry."""
-    def __init__(self, reduced_motion: bool = False):
+    def __init__(self, reduced_motion: bool = False, *, motion=None):
         self.values: list[Value] = []
         self.reduced_motion = reduced_motion
+        self.motion = MotionProfile.resolve(motion)
+
+    def configure(self, value):
+        if value.role is not None:
+            spec = getattr(self.motion, value.role, None)
+            if not isinstance(spec, Spring):
+                raise ValueError(f"unknown motion role: {value.role}")
+            value.speed, value.damping = spec.speed * value.speed_scale, spec.damping
+
+    def set_motion(self, profile):
+        self.motion = MotionProfile.resolve(profile)
+        for value in self.values:
+            self.configure(value)
 
     def add(self, value: Value) -> Value:
         if value not in self.values:
+            self.configure(value)
             self.values.append(value)
         return value
 

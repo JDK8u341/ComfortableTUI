@@ -35,12 +35,17 @@ class Widget:
     def focused(self) -> bool:
         return self.app is not None and self.app.focused is self
 
-    def value(self, initial=0.0, *, speed=18.0, damping=1.0) -> Value:
-        v = Value(initial, speed, damping)
+    def value(self, initial=0.0, *, speed=18.0, damping=1.0, role=None) -> Value:
+        v = Value(initial, speed, damping, role=role)
         self._values.append(v)
         if self.app:
             self.app.animator.add(v)
         return v
+
+    def release_value(self, value):
+        self._values.remove(value)
+        if self.app:
+            self.app.animator.remove(value)
 
     def mount(self, app: App):
         if self.app is app:
@@ -117,6 +122,10 @@ class Widget:
                 child.tick(dt)
 
     def paint(self, canvas: Canvas):
+        pass
+
+    def paint_focus(self, canvas: Canvas):
+        """Optional feedback painted above the shared focus highlight."""
         pass
 
     def content_style(self, canvas: Canvas, semantic: Style | None = None) -> Style:

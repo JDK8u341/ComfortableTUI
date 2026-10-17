@@ -11,6 +11,7 @@
 | --- | --- |
 | `python examples/hello.py` | 最小表单、中文输入、按钮回调 |
 | `python examples/gallery.py` | 全部控件族、表格、目录树、编辑器、图形 |
+| `python examples/motion.py` | Expressive/Subtle 动效切换、按压回弹、弹窗、通知和演示数据插值 |
 | `python examples/animated_menu.py` | 惯性滚动、页面切换；Ctrl+N 插入、Ctrl+D 删除 |
 | `python examples/dashboard.py` | 定时器、曲线、进度条、后台任务 |
 | `python examples/pixel_oled.py` | OLED 风格的 128×64 像素动画；自动降级 braille |

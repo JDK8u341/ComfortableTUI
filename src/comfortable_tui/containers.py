@@ -82,7 +82,7 @@ class Panel(Widget):
     def __init__(self, child: Widget, title="", *, padding=0, **kwargs):
         super().__init__(**kwargs)
         self.title, self.padding = title, max(0, padding)
-        self._focus = self.value(0, speed=28, damping=0)
+        self._focus = self.value(0, role="effects")
         self.add(child)
 
     def measure(self, width):
@@ -107,7 +107,7 @@ class ScrollView(Widget):
 
     def __init__(self, child: Widget, **kwargs):
         super().__init__(**kwargs)
-        self.scroll = self.value(speed=22, damping=0.85)
+        self.scroll = self.value(role="scroll")
         self.content_height = 0
         self.add(child)
 
@@ -167,8 +167,8 @@ class Tabs(Widget):
         self._content_focus = {}
         self.add(*tabs.values())
         self._highlight = AnimatedHighlight(self.value)
-        self._bar_scroll = self.value(0, speed=24, damping=0)
-        self._offsets = {child: self.value(0, speed=20, damping=0.9) for child in self.children}
+        self._bar_scroll = self.value(0, role="scroll")
+        self._offsets = {child: self.value(0, role="page") for child in self.children}
         self._tab_bounds = []
         x = 0
         for title in self.titles:
@@ -300,7 +300,7 @@ class Collapsible(Widget):
     def __init__(self, title: str, child: Widget, *, expanded=True, **kwargs):
         super().__init__(**kwargs)
         self.title, self.expanded = title, expanded
-        self.reveal = self.value(1.0 if expanded else 0.0)
+        self.reveal = self.value(1.0 if expanded else 0.0, role="reveal")
         self.add(child)
         child.visible = expanded
 
@@ -314,7 +314,7 @@ class Collapsible(Widget):
 
     def measure(self, width):
         return self.height if self.height is not None else 1 + round(
-            self.children[0].measure(width) * self.reveal.current)
+            self.children[0].measure(width) * min(1, max(0, self.reveal.current)))
 
     def layout(self, rect):
         super().layout(rect)
@@ -322,7 +322,7 @@ class Collapsible(Widget):
             self.children[0].visible = False
         self.children[0].layout(Rect(rect.x, rect.y + 1, rect.width,
                                      min(max(0, rect.height - 1), round(
-                                         self.children[0].measure(rect.width) * self.reveal.current))))
+                                         self.children[0].measure(rect.width) * min(1, max(0, self.reveal.current))))))
 
     def paint(self, canvas):
         canvas.text(self.rect.x, self.rect.y, ("▾ " if self.expanded else "▸ ") + self.title,
@@ -348,7 +348,7 @@ class PageStack(Widget):
         self.offsets = {}
         self.leaving: list[Widget] = []
         self.add(root)
-        self.offsets[root] = self.value(speed=16, damping=0.85)
+        self.offsets[root] = self.value(role="page")
         self.saved_focus = {}
 
     @property
@@ -360,7 +360,7 @@ class PageStack(Widget):
         self.saved_focus[old] = self.app.focused if self.app else None
         self.offsets[old].set(-max(1, self.rect.width))
         self.add(page)
-        self.offsets[page] = self.value(max(1, self.rect.width), speed=16, damping=0.85)
+        self.offsets[page] = self.value(max(1, self.rect.width), role="page")
         self.offsets[page].set(0)
         if self.app:
             self.app.focused = None

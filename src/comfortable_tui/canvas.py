@@ -93,12 +93,89 @@ class Canvas:
             return self.cells[y * self.width + x].style
         return default
 
+    def blit(self, source: Canvas, rect: Rect | None = None, *, x=0, y=0, opacity=1.0):
+        """Copy cells only; native image placements and input ownership are never copied."""
+        if opacity <= 0:
+            return
+        if source is self:
+            snapshot = Canvas(0, 0)
+            snapshot.width, snapshot.height, snapshot.cells = self.width, self.height, self.cells.copy()
+            source = snapshot
+        area = rect or Rect(0, 0, source.width, source.height)
+        clipped = area.intersect(Rect(0, 0, source.width, source.height))
+        left = max(clipped.x, area.x + self.clip.x - x)
+        right = min(clipped.x + clipped.width, area.x + self.clip.x + self.clip.width - x)
+        top = max(clipped.y, area.y + self.clip.y - y)
+        bottom = min(clipped.y + clipped.height, area.y + self.clip.y + self.clip.height - y)
+        styles, cells = {}, {}
+        for yy in range(top, bottom):
+            start, end = yy * source.width + left, yy * source.width + right
+            if end <= start:
+                continue
+            if source.cells[start].width == 0:
+                start += 1
+            if end > start and source.cells[end - 1].width == 2:
+                end -= 1
+            if end <= start:
+                continue
+            dx, dy = x + start - yy * source.width - area.x, y + yy - area.y
+            self._erase_owner(dx, dy)
+            self._erase_owner(dx + end - start - 1, dy)
+            target = dy * self.width + dx
+            row = source.cells[start:end]
+            if opacity < 1:
+                updated = []
+                for index, cell in enumerate(row):
+                    base = self.cells[target + index].style
+                    key = id(cell), id(base)
+                    cached = cells.get(key)
+                    if cached is None:
+                        style_key = cell.style, base
+                        style = styles.get(style_key)
+                        if style is None:
+                            mixed = base.blend(cell.style, opacity)
+                            style = cell.style.with_(fg=mixed.fg, bg=mixed.bg)
+                            styles[style_key] = style
+                        result = _cell(cell.text, style, cell.width)
+                        cells[key] = cell, base, result
+                    else:
+                        result = cached[2]
+                    updated.append(result)
+                row = updated
+            self.cells[target:target + end - start] = row
+
     def tint(self, x: float, y: float, width: float, height: float, style: Style, opacity=1.0):
         """Composite a fractional-cell highlight without replacing text or wide-cell owners."""
         if width <= 0 or height <= 0 or opacity <= 0:
             return
         left, right = max(self.clip.x, math.floor(x)), min(self.clip.x + self.clip.width, math.ceil(x + width))
         top, bottom = max(self.clip.y, math.floor(y)), min(self.clip.y + self.clip.height, math.ceil(y + height))
+        # Backdrops and whole-cell feedback need one blend per distinct style,
+        # not fractional geometry arithmetic for every cell in the viewport.
+        if all(v == int(v) for v in (x, y, width, height)) and left < right:
+            aligned = all(self.cells[yy * self.width + left].width != 0 and
+                          self.cells[yy * self.width + right - 1].width != 2 for yy in range(top, bottom))
+            if aligned:
+                styles, cells = {}, {}
+                for yy in range(top, bottom):
+                    start = yy * self.width + left
+                    updated = []
+                    for cell in self.cells[start:start + right - left]:
+                        cached = cells.get(id(cell))
+                        if cached is None:
+                            color = styles.get(cell.style)
+                            if color is None:
+                                color = cell.style.blend(style, opacity)
+                                if style.reverse and opacity >= .5:
+                                    color = color.with_(reverse=not cell.style.reverse)
+                                styles[cell.style] = color
+                            result = _cell(cell.text, color, cell.width)
+                            cells[id(cell)] = cell, result
+                        else:
+                            result = cached[1]
+                        updated.append(result)
+                    self.cells[start:start + right - left] = updated
+                return
         colors = {}
         cells = {}
         for yy in range(top, bottom):

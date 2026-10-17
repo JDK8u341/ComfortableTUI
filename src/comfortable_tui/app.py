@@ -35,13 +35,13 @@ class Timer:
 class App:
     def __init__(self, root: Widget, *, theme: Theme | None = None, fps=60,
                  reduced_motion: bool | None = None, colors: str | None = None,
-                 synchronized: bool | None = None, mouse=True):
+                 synchronized: bool | None = None, mouse=True, motion=None):
         if not 1 <= fps <= 240:
             raise ValueError("fps must be between 1 and 240")
         self.root, self.theme, self.fps, self.mouse = root, theme or Theme(), fps, mouse
         if reduced_motion is None:
             reduced_motion = os.environ.get("COMFORTABLE_TUI_REDUCED_MOTION") == "1"
-        self.animator = Animator(reduced_motion)
+        self.animator = Animator(reduced_motion, motion=motion or os.environ.get("COMFORTABLE_TUI_MOTION"))
         self._focus_highlight = AnimatedHighlight(
             lambda initial, **kwargs: self.animator.add(Value(initial, **kwargs)))
         self._focus_clip = Rect()
@@ -66,6 +66,10 @@ class App:
         self._event_pollers = []
         self._terminal = None
         self._toast, self._toast_timer = "", None
+        self._toast_motion = self.animator.add(Value(role="reveal"))
+        self._toast_expiring = False
+        self._modal_motion = self.animator.add(Value(role="reveal"))
+        self._modal_picture = None
         self.bindings = {"ctrl+c": self.exit, "ctrl+q": self.exit}
         if root.parent is not None or root.app is not None:
             raise ValueError("application root must be unowned")
@@ -73,6 +77,11 @@ class App:
 
     def invalidate(self):
         self._dirty = True
+
+    def set_motion(self, profile):
+        """Change the motion scheme without resetting positions or velocities."""
+        self.animator.set_motion(profile)
+        self.invalidate()
 
     def watch_events(self, callback):
         """Poll a nonblocking event source each tick, including hidden pages.
@@ -218,6 +227,9 @@ class App:
             self.close_modal()
         self._modal_focus = self.focused
         self.modal = widget
+        self._modal_picture = None
+        self._modal_motion.jump(0)
+        self._modal_motion.set(1)
         widget.mount(self)
         self._assign_focus(None)
         self.invalidate()
@@ -226,16 +238,20 @@ class App:
         if self.modal:
             self.modal.unmount()
             self.modal = None
+            self._modal_motion.set(0)
             self._assign_focus(self._modal_focus)
             self._capture = None
             self.invalidate()
 
     def notify(self, text: str, duration=3.0):
         self._toast = text
+        self._toast_expiring = False
+        self._toast_motion.set(1)
         if self._toast_timer:
             self._toast_timer.cancel()
         def clear():
-            self._toast = ""
+            self._toast_expiring = True
+            self._toast_motion.set(0)
             self.invalidate()
         self._toast_timer = self.call_later(duration, clear)
         self.invalidate()
@@ -351,7 +367,7 @@ class App:
         self.root.layout(Rect(0, 0, width, height))
         if self.modal:
             w, h = min(width, self.modal.width or 56), min(height, self.modal.height or 12)
-            self.modal.layout(Rect((width - w) // 2, (height - h) // 2, w, h))
+            self.modal.layout(self._modal_rect(width, height, w, h))
         scope = self.modal or self.root
         focusable = list(scope.focusables())
         if self.focused not in focusable:
@@ -363,28 +379,53 @@ class App:
         self.root.layout(Rect(0, 0, width, height))
         if self.modal:
             w, h = min(width, self.modal.width or 56), min(height, self.modal.height or 12)
-            self.modal.layout(Rect((width - w) // 2, (height - h) // 2, w, h))
+            self.modal.layout(self._modal_rect(width, height, w, h))
         self._prepare_focus(width, height)
         frame = Canvas(width, height, self.theme.background)
         self.root.draw(frame)
-        if self.modal:
+        if self.modal or self._modal_picture and self._modal_motion.active:
             # Background image placements must not cover a cell modal.
             frame.graphics.clear()
             frame.overlays.clear()
-            self.modal.draw(frame)
+            amount = min(1, max(0, self._modal_motion.current))
+            frame.tint(0, 0, width, height, self.theme.muted.with_(bg=self.theme.background.bg), .28 * amount)
+            if self.modal:
+                self.modal.draw(frame)
+                r = self.modal.rect
+                self._modal_picture = Canvas(r.width, r.height)
+                self._modal_picture.blit(frame, r)
+            else:
+                picture = self._modal_picture
+                r = self._modal_rect(width, height, picture.width, picture.height)
+                frame.blit(picture, x=r.x, y=r.y, opacity=amount)
+        elif not self.modal:
+            self._modal_picture = None
         with frame.clipped(self._focus_clip):
             highlight = self.theme.selection.with_(reverse=self.renderer.colors == "none")
-            self._focus_highlight.paint(frame, highlight)
+            press = getattr(self.focused, "pressed", None)
+            self._focus_highlight.paint(frame, highlight, press=press.current if isinstance(press, Value) else 0)
+            if self.focused:
+                self.focused.paint_focus(frame)
+        if self._toast_expiring and not self._toast_motion.active:
+            self._toast = ""
         if self._toast and height:
             frame.graphics = {key: value for key, value in frame.graphics.items()
                               if value[2].y + value[2].height < height}
             frame.overlays = {key: (widget, rect, clip.intersect(Rect(0, 0, width, height - 1)))
                               for key, (widget, rect, clip) in frame.overlays.items()}
-            frame.fill(Rect(0, height - 1, width, 1), self.theme.selection)
-            frame.text(1, height - 1, self._toast, self.theme.selection, max(0, width - 2))
+            amount = min(1, max(0, self._toast_motion.current))
+            inset = (1 - self._toast_motion.current) * min(8, width / 8)
+            frame.tint(max(0, inset), height - 1, max(0, width - 2 * max(0, inset)), 1,
+                       self.theme.selection, amount)
+            style = self.theme.background.blend(self.theme.selection, amount)
+            frame.text(1, height - 1, self._toast, style, max(0, width - 2))
         self._dirty = False
         self._overlay_placements = frame.overlays
         return frame
+
+    def _modal_rect(self, width, height, w, h):
+        shift = round((1 - self._modal_motion.current) * min(3, height / 6))
+        return Rect((width - w) // 2, max(0, min(height - h, (height - h) // 2 + shift)), w, h)
 
     def _sync_overlays(self):
         from .overlay import _OverlaySession
@@ -490,6 +531,9 @@ class App:
         self._event_pollers.clear()
         for edge in self._focus_highlight.edges:
             self.animator.remove(edge)
+        self.animator.remove(self._modal_motion)
+        self.animator.remove(self._toast_motion)
+        self._modal_picture = None
         if self._executor:
             self._executor.shutdown(wait=False, cancel_futures=True)
 

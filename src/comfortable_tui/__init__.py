@@ -1,5 +1,5 @@
 """ComfortableTUI public API."""
-from .animation import Animator, Value
+from .animation import Animator, MotionProfile, Spring, Value
 from .app import App, Timer
 from .canvas import Canvas, Cell, Rect, crop_text, text_width
 from .containers import Collapsible, Grid, HBox, PageStack, Panel, ScrollView, Tabs, VBox
@@ -20,7 +20,7 @@ from .window_host import WindowHost
 
 __version__ = "0.1.0"
 __all__ = [
-    "Animator", "Value", "App", "Timer", "Canvas", "Cell", "Rect", "crop_text", "text_width",
+    "Animator", "MotionProfile", "Spring", "Value", "App", "Timer", "Canvas", "Cell", "Rect", "crop_text", "text_width",
     "Collapsible", "Grid", "HBox", "PageStack", "Panel", "ScrollView", "Tabs", "VBox", "BarChart",
     "Button", "Checkbox", "Input", "Label", "Log", "Paragraph", "ProgressBar", "Rule", "Slider",
     "Spacer", "Sparkline", "Spinner", "Switch", "Text", "TextArea", "DataTable", "DirectoryTree", "ListView",

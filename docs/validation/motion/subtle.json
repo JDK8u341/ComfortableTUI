@@ -1,0 +1,162 @@
+{
+  "result": "passed",
+  "installed_library": "C:\\Users\\VeryS\\Documents\\ChatGPT\\ComfortableTop\\.venv\\Lib\\site-packages\\comfortable_tui\\__init__.py",
+  "semantic_motion_supported": true,
+  "motion": "subtle",
+  "reduced_motion": false,
+  "mode": "terminal",
+  "canvas": "cpu",
+  "size": [
+    140,
+    42
+  ],
+  "samples": 2,
+  "readable_processes": 299,
+  "note": "CPU render+encode timings, not terminal presentation latency or screen FPS",
+  "stages": {
+    "warmup": {
+      "p50_ms": 10.718,
+      "p95_ms": 16.514,
+      "max_ms": 21.361,
+      "p95_bytes": 115,
+      "changed_frames": 21,
+      "frames": 48
+    },
+    "focus": {
+      "p50_ms": 11.353,
+      "p95_ms": 17.649,
+      "max_ms": 22.663,
+      "p95_bytes": 74,
+      "changed_frames": 34,
+      "frames": 48
+    },
+    "switch": {
+      "p50_ms": 10.986,
+      "p95_ms": 15.714,
+      "max_ms": 18.28,
+      "p95_bytes": 38,
+      "changed_frames": 4,
+      "frames": 48
+    },
+    "selection": {
+      "p50_ms": 11.99,
+      "p95_ms": 15.911,
+      "max_ms": 22.394,
+      "p95_bytes": 1770,
+      "changed_frames": 21,
+      "frames": 48
+    },
+    "resources": {
+      "p50_ms": 9.985,
+      "p95_ms": 14.619,
+      "max_ms": 23.67,
+      "p95_bytes": 7288,
+      "changed_frames": 28,
+      "frames": 48
+    },
+    "modal_enter": {
+      "p50_ms": 12.208,
+      "p95_ms": 18.663,
+      "max_ms": 24.298,
+      "p95_bytes": 7788,
+      "changed_frames": 29,
+      "frames": 48
+    },
+    "modal_exit": {
+      "p50_ms": 11.324,
+      "p95_ms": 18.267,
+      "max_ms": 28.455,
+      "p95_bytes": 9689,
+      "changed_frames": 22,
+      "frames": 48
+    },
+    "notification_enter": {
+      "p50_ms": 8.435,
+      "p95_ms": 12.38,
+      "max_ms": 14.121,
+      "p95_bytes": 186,
+      "changed_frames": 22,
+      "frames": 30
+    },
+    "notification_exit": {
+      "p50_ms": 9.552,
+      "p95_ms": 30.496,
+      "max_ms": 33.855,
+      "p95_bytes": 182,
+      "changed_frames": 17,
+      "frames": 72
+    },
+    "workspace": {
+      "p50_ms": 7.476,
+      "p95_ms": 9.818,
+      "max_ms": 17.56,
+      "p95_bytes": 4268,
+      "changed_frames": 29,
+      "frames": 48
+    },
+    "page_push": {
+      "p50_ms": 5.967,
+      "p95_ms": 7.648,
+      "max_ms": 10.404,
+      "p95_bytes": 1513,
+      "changed_frames": 18,
+      "frames": 48
+    },
+    "page_pop": {
+      "p50_ms": 8.631,
+      "p95_ms": 13.743,
+      "max_ms": 49.794,
+      "p95_bytes": 1464,
+      "changed_frames": 18,
+      "frames": 48
+    },
+    "settings": {
+      "p50_ms": 6.14,
+      "p95_ms": 8.616,
+      "max_ms": 13.19,
+      "p95_bytes": 4507,
+      "changed_frames": 27,
+      "frames": 48
+    },
+    "slider": {
+      "p50_ms": 5.45,
+      "p95_ms": 7.739,
+      "max_ms": 8.724,
+      "p95_bytes": 60,
+      "changed_frames": 18,
+      "frames": 48
+    },
+    "rapid_tabs": {
+      "p50_ms": 12.957,
+      "p95_ms": 21.208,
+      "max_ms": 23.675,
+      "p95_bytes": 7491,
+      "changed_frames": 56,
+      "frames": 90
+    },
+    "rapid_focus": {
+      "p50_ms": 15.483,
+      "p95_ms": 25.605,
+      "max_ms": 64.587,
+      "p95_bytes": 81,
+      "changed_frames": 51,
+      "frames": 90
+    },
+    "return": {
+      "p50_ms": 12.121,
+      "p95_ms": 17.418,
+      "max_ms": 20.242,
+      "p95_bytes": 0,
+      "changed_frames": 0,
+      "frames": 90
+    },
+    "settled": {
+      "p50_ms": 12.004,
+      "p95_ms": 18.857,
+      "max_ms": 22.57,
+      "p95_bytes": 0,
+      "changed_frames": 0,
+      "frames": 90
+    }
+  }
+}

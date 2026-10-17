@@ -207,7 +207,12 @@ def test_tab_motion_at_equal_time_matches(fps):
         tabs.select(1)
         for _ in range(fps // 5):
             app.render(60, 12, dt=1 / fps)
-        # Independent expected exponential trailing edge after 200ms.
+        # Independent underdamped solution at 200ms, including the trailing edge.
         import math
+        from comfortable_tui import MotionProfile
+        spec = MotionProfile().focus
+        w, z, t = spec.speed * .85, spec.damping, .2
+        b = w * math.sqrt(1 - z * z)
         goal = tabs._tab_bounds[1][0]
-        assert tabs._highlight.bounds[0] == pytest.approx(goal * (1 - math.exp(-16 * .2)))
+        expected = goal * (1 - math.exp(-z * w * t) * (math.cos(b * t) + z * w / b * math.sin(b * t)))
+        assert tabs._highlight.bounds[0] == pytest.approx(expected)

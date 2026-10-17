@@ -152,7 +152,7 @@ class Button(Widget):
     def __init__(self, label: str, on_press=None, **kwargs):
         super().__init__(**kwargs)
         self.label, self.on_press = label, on_press
-        self.pressed = self.value(0, speed=26)
+        self.pressed = self.value(0, role="control")
         self.armed = False
 
     def activate(self):
@@ -170,8 +170,18 @@ class Button(Widget):
         canvas.fill(self.rect, style)
         text = f"[ {self.label} ]"
         x = self.rect.x + max(0, (self.rect.width - text_width(text)) // 2)
-        canvas.text(x + (1 if self.pressed.current > 0.25 else 0),
+        canvas.text(x,
                     self.rect.y + max(0, (self.rect.height - 1) // 2), text, style, self.rect.width)
+        self.paint_feedback(canvas)
+
+    def paint_feedback(self, canvas):
+        amount = min(.45, max(0, self.pressed.current) * .6)
+        if amount and not self.disabled:
+            canvas.tint(self.rect.x, self.rect.y, self.rect.width, self.rect.height,
+                        self.theme.accent.with_(fg=self.theme.panel.bg, bg=self.theme.accent.fg), amount)
+
+    def paint_focus(self, canvas):
+        self.paint_feedback(canvas)
 
     def on_event(self, event):
         if self.disabled:
@@ -208,11 +218,17 @@ class Checkbox(Button):
     def __init__(self, label: str, checked=False, *, on_change=None, **kwargs):
         super().__init__(label, **kwargs)
         self.checked, self.on_change = checked, on_change
+        self.checked_mix = self.value(1 if checked else 0, role="effects")
+
+    def layout(self, rect):
+        super().layout(rect)
+        self.checked_mix.set(1 if self.checked else 0)
 
     def activate(self):
         if self.disabled:
             return
         self.checked = not self.checked
+        self.checked_mix.set(1 if self.checked else 0)
         self.pressed.kick(0.5)
         if self.on_change:
             self.on_change(self.checked)
@@ -222,12 +238,19 @@ class Checkbox(Button):
         style = self.content_style(canvas)
         canvas.text(self.rect.x, self.rect.y, f"[{'x' if self.checked else ' '}] {self.label}", style,
                     self.rect.width)
+        marker = self.theme.muted.blend(self.theme.success, self.checked_mix.current).with_(bg=style.bg)
+        canvas.text(self.rect.x, self.rect.y, f"[{'x' if self.checked else ' '}]", marker, min(3, self.rect.width))
+        self.paint_feedback(canvas)
 
 
 class Switch(Checkbox):
     def __init__(self, label: str, checked=False, **kwargs):
         super().__init__(label, checked, **kwargs)
-        self.position = self.value(1 if checked else 0, speed=26, damping=0.85)
+        self.position = self.value(1 if checked else 0, role="control")
+
+    def layout(self, rect):
+        super().layout(rect)
+        self.position.set(1 if self.checked else 0)
 
     def activate(self):
         super().activate()
@@ -236,8 +259,11 @@ class Switch(Checkbox):
     def paint(self, canvas):
         style = self.content_style(canvas)
         canvas.text(self.rect.x, self.rect.y, "[     ] " + self.label, style, self.rect.width)
-        canvas.put(self.rect.x + 1 + round(self.position.current * 4), self.rect.y,
-                   "●", (self.theme.success if self.checked else self.theme.muted).with_(bg=style.bg))
+        position = min(1.1, max(-.1, self.position.current)) * 4
+        marker = self.theme.muted.blend(self.theme.success, self.checked_mix.current).with_(bg=style.bg)
+        canvas.put(self.rect.x + 1 + round(position), self.rect.y, "●", marker)
+        canvas.tint(self.rect.x + 1 + position, self.rect.y, 1, 1, self.theme.selection, .65)
+        self.paint_feedback(canvas)
 
 
 class Input(Widget):
@@ -429,7 +455,7 @@ class Slider(Widget):
             raise ValueError("maximum must exceed minimum and step must be positive")
         self.minimum, self.maximum, self.step, self.on_change = minimum, maximum, step, on_change
         self.value_ = min(max(value, minimum), maximum)
-        self.motion = self.value(self.value_, speed=26, damping=0.9)
+        self.motion = self.value(self.value_, role="control")
         self._dragging = False
 
     def set_value(self, value):
@@ -446,7 +472,10 @@ class Slider(Widget):
         canvas.text(r.x, r.y, "─" * n, self.theme.muted.with_(bg=style.bg))
         if n:
             p = (self.motion.current - self.minimum) / (self.maximum - self.minimum)
-            canvas.put(r.x + min(n - 1, max(0, round(p * (n - 1)))), r.y, "●", style)
+            position = min(n - 1, max(0, p * (n - 1)))
+            canvas.tint(r.x, r.y, position, 1, self.theme.selection, .45)
+            canvas.put(r.x + round(position), r.y, "●", style)
+            canvas.tint(r.x + position, r.y, 1, 1, self.theme.selection, .7)
         canvas.text(r.x + n + 1, r.y, f"{self.value_:g}", style, max(0, r.width - n - 1))
 
     def on_event(self, event):
@@ -486,7 +515,7 @@ class ProgressBar(Widget):
         if total <= 0:
             raise ValueError("total must be positive")
         self.total = total
-        self.progress = self.value(min(total, max(0, value)), speed=20, damping=0)
+        self.progress = self.value(min(total, max(0, value)), role="data")
 
     def set_value(self, value):
         self.progress.set(min(self.total, max(0, value)))
@@ -513,6 +542,8 @@ class Spinner(Widget):
 
     def tick(self, dt):
         if self.running:
+            if self.app and self.app.animator.reduced_motion:
+                return
             old = int(self.elapsed * 10)
             self.elapsed += dt
             if int(self.elapsed * 10) != old:
@@ -544,20 +575,35 @@ class BarChart(Widget):
     def __init__(self, values: dict[str, float], **kwargs):
         super().__init__(**kwargs)
         self.samples = values
+        self._bars = {}
+
+    def layout(self, rect):
+        super().layout(rect)
+        visible = dict(list(self.samples.items())[:max(0, rect.height)])
+        for key in list(self._bars):
+            if key not in visible:
+                self.release_value(self._bars.pop(key))
+        maximum = max(self.samples.values(), default=1) or 1
+        for key, sample in visible.items():
+            if key not in self._bars:
+                self._bars[key] = self.value(role="data")
+            self._bars[key].set(min(1, max(0, sample / maximum)))
 
     def measure(self, width):
         return self.height if self.height is not None else len(self.samples)
 
     def paint(self, canvas):
-        max_value = max(self.samples.values(), default=1) or 1
         label_width = min(14, max(0, self.rect.width // 3))
         n = max(0, self.rect.width - label_width - 8)
         for i, (label, value) in enumerate(list(self.samples.items())[:self.rect.height]):
             style = self.content_style(canvas)
             canvas.text(self.rect.x, self.rect.y + i, crop_text(label, label_width),
                         self.theme.muted.with_(bg=style.bg))
+            fraction = min(1, max(0, self._bars[label].current))
+            full, partial = divmod(round(n * fraction * 8), 8)
+            text = "█" * full + (" ▏▎▍▌▋▊▉"[partial] if partial else "")
             canvas.text(self.rect.x + label_width + 1, self.rect.y + i,
-                        "█" * max(0, round(n * value / max_value)), self.theme.accent.with_(bg=style.bg), n)
+                        text, self.theme.accent.with_(bg=style.bg), n)
             canvas.text(self.rect.x + label_width + n + 2, self.rect.y + i,
                         f"{value:g}", style, 6)
 

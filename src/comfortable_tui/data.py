@@ -23,9 +23,9 @@ class ListView(Widget):
         self.items = [str(x) for x in items]
         self.selected, self.item_height = 0, item_height
         self.on_select, self.on_change = on_select, on_change
-        self.scroll = self.value(speed=22, damping=0.85)
-        self.cursor = self.value(speed=28, damping=0)
-        self.edge = self.value(speed=22)
+        self.scroll = self.value(role="scroll")
+        self.cursor = self.value(role="selection")
+        self.edge = self.value(role="control")
         self._effects = {}  # index -> [Value, deleting]
         self._prefix = []
         self._prefix_dirty = True
@@ -101,9 +101,7 @@ class ListView(Widget):
         self.invalidate()
 
     def _release_effect(self, value):
-        self._values.remove(value)
-        if self.app:
-            self.app.animator.remove(value)
+        self.release_value(value)
 
     def insert_item(self, index: int, text: str, *, animate=True):
         self._clear_row_widgets()
@@ -208,7 +206,8 @@ class ListView(Widget):
         first = max(0, bisect.bisect_right(self._prefix, offset) - 1)
         last = min(len(self.items), bisect.bisect_left(self._prefix, offset + r.height) + 1)
         # Composite against the actual parent surface, including fractional rows.
-        cy = self.cursor.current - offset
+        # The spring may overshoot; the visible marker must stay inside data.
+        cy = min(max(0, self.cursor.current), max(0, self._prefix[-1] - self.item_height)) - offset
         highlight = self.theme.selection.with_(reverse=bool(self.app and self.app.renderer.colors == "none"))
         canvas.tint(r.x, r.y + cy, max(0, r.width - 1), self.item_height, highlight,
                     opacity=1 if self.focused else 0.5)

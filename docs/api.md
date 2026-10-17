@@ -12,7 +12,7 @@ invalidate。App.close 会清理所有事件源。WebView 使用该接口轮询�
 
 ```python
 App(root, theme=None, fps=60, reduced_motion=None,
-    colors=None, synchronized=None, mouse=True)
+    colors=None, synchronized=None, mouse=True, motion=None)
 ```
 
 `theme` 默认深色；`colors` 为 truecolor / 256 / none，None 参考 NO_COLOR。
@@ -79,6 +79,13 @@ Widget(id="", width=None, height=None, flex=1,
 | `invalidate()` | 请求应用刷新 |
 
 ## Value / Animator
+
+语义弹簧、Expressive/Subtle 预设、环境变量及迁移说明见[动效指南](motion.md)。
+`App.set_motion(profile)` 在运行时切换，不重置当前位置和速度。
+`Widget.value(..., role="control")` 使用预设；不指定 role 时保持显式 speed/damping。
+`Widget.release_value(value)` 释放动态创建的动画，`paint_focus(canvas)` 在共享高亮上方画反馈。
+`Canvas.blit(source, rect=None, x=0, y=0, opacity=1)` 只合成单元格，保留宽字完整性，
+不复制 graphics、overlays 或输入所有权。
 
 `Value(current=0, speed=18, damping=1, target=None, velocity=0)`。
 公开状态：current / target / velocity / speed / damping；建议使用 set/jump，不随意写 current。

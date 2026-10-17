@@ -2,7 +2,7 @@ import base64
 import re
 import zlib
 
-from comfortable_tui import App, KittyEncoder, Panel, PixelCanvas, Rect, Surface
+from comfortable_tui import App, Canvas, KittyEncoder, Panel, PixelCanvas, Rect, Surface
 
 
 def test_kitty_chunks_round_trip_and_unchanged_frame_is_empty():
@@ -44,3 +44,25 @@ def test_modal_removes_background_image():
         from comfortable_tui import Label
         app.show_modal(Panel(Label("modal"), width=20, height=6))
         assert "a=d" in app.encode(app.render(32, 16))
+
+
+def test_braille_cache_tracks_direct_pixel_edits_resize_and_clipped_motion():
+    widget = PixelCanvas(8, 8, backend="braille")
+    widget.surface.rect(0, 0, 4, 4, (255, 0, 0))
+    widget.layout(Rect(0, 0, 4, 2))
+    first = Canvas(8, 4)
+    widget.draw(first)
+    original = widget._braille_cache[1]
+    widget.layout(Rect(2, 1, 4, 2))
+    moved = Canvas(8, 4)
+    with moved.clipped(Rect(3, 1, 3, 2)):
+        widget.draw(moved)
+    assert widget._braille_cache[1] is original
+    assert moved.cells[11] == first.cells[1]
+    assert moved.cells[10].text == " "
+    widget.surface.pixels[:3] = b"\x00\xff\x00"
+    widget.draw(Canvas(8, 4))
+    assert widget._braille_cache[1] is not original
+    widget.layout(Rect(0, 0, 3, 1))
+    widget.draw(Canvas(8, 4))
+    assert widget._braille_cache[1].width == 3
