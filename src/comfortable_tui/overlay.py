@@ -168,6 +168,11 @@ class OverlayCanvas(Widget):
         if not self._closed:
             canvas.overlays[id(self)] = (self, self.rect, self.rect.intersect(canvas.clip))
 
+    @property
+    def native_focus(self):
+        """Whether the GUI surface should take keyboard focus from the terminal."""
+        return self.focused
+
     def _emit(self, event):
         if event.kind == "detached":
             if self._detached:
@@ -175,7 +180,7 @@ class OverlayCanvas(Widget):
             self._detached = True
         if event.kind == "transform":
             self.transform = event.data["transform"]
-        elif event.kind in ("focus_in", "mouse_down") and self.app:
+        elif event.kind in ("mouse_down", "mouse_double_click", "tablet_press", "touch_begin") and self.app:
             ancestor, child = self.parent, self
             while ancestor:
                 rows = getattr(ancestor, "_row_widgets", {})
@@ -189,6 +194,20 @@ class OverlayCanvas(Widget):
         return consumed
 
     def _native_event(self, event):
+        if self.app and self.app.focused is not self:
+            # GUI notifications can arrive after Tab/F6 already changed logical
+            # focus. Never let a late focus-in reclaim the old canvas.
+            if event.kind == "focus_in":
+                return
+            if event.kind in ("key_down", "key_up"):
+                self.app.dispatch(Key(event.data.get("name", ""), text=event.data.get("text", ""),
+                    phase="release" if event.kind == "key_up" else
+                    "repeat" if event.data.get("repeat") else "press"))
+                return
+            if event.kind in ("text", "ime"):
+                if event.data.get("commit"):
+                    self.app.dispatch(Paste(event.data["commit"]))
+                return
         consumed = self._emit(event)
         if self.app and event.kind == "wheel" and not consumed:
             x, y = event.data.get("terminal_position", (self.rect.x, self.rect.y))
@@ -311,7 +330,7 @@ class _OverlaySession:
                           "placement": (placement[1], placement[2]) if placement else None,
                           "buffer": widget.buffer.info, "fit": widget.fit, "smooth": widget.smooth,
                           "input_mode": widget.input_mode, "enabled": not widget.disabled,
-                          "focused": widget.focused, "ime": widget.ime, "fps": widget.fps})
+                          "focused": widget.native_focus, "ime": widget.ime, "fps": widget.fps})
         state = {"grid": grid, "items": items,
                  "retired": [{"id": key, "token": token} for token, (key, _) in self.retired.items()]}
         self._pending = state if state != self._last else None
@@ -349,6 +368,10 @@ class _OverlaySession:
                 continue
             if event.kind == "tui_mouse":
                 self.app.dispatch(Mouse(**event.data["event"]))
+            elif event.kind == "tui_key":
+                self.app.dispatch(Key(**event.data["event"]))
+            elif event.kind == "tui_text":
+                self.app.dispatch(Paste(event.data["text"]))
             elif widget and not widget._closed and widget.app is self.app:
                 # Ignore late input for a page/row which has already disappeared.
                 if event.kind not in ("mouse_down", "mouse_up", "mouse_move", "key_down", "key_up", "focus_in") or key in self.app._overlay_placements:

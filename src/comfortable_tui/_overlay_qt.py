@@ -83,6 +83,7 @@ def _make_window_class():
         return "+".join((*mods, name))
 
     class OverlayWindow(QWidget):
+        key_name_for_event = staticmethod(key_name)
         def __init__(self, buffer, emit, owner=None, parent=None):
             # Child surfaces are alien widgets: never call winId() on them.
             super().__init__(parent, Qt.WindowType.Widget if parent else
@@ -145,8 +146,11 @@ def _make_window_class():
             self._logical_focus = state["focused"]
             layer = self.window()
             api = self.api or getattr(layer, "api", None)
-            if (not self._logical_focus or mode == "passthrough") and self.hasFocus() and api:
-                api.user.SetForegroundWindow(layer.owner)
+            if (not self._logical_focus or mode == "passthrough") and self.hasFocus():
+                if api and layer.owner:
+                    foreground = api.user.GetForegroundWindow()
+                    if foreground == int(layer.winId()) or api.user.GetAncestor(foreground, 3) == layer.owner:
+                        api.user.SetForegroundWindow(layer.owner)
                 self.clearFocus()
             QApplication.inputMethod().update(Qt.InputMethodQuery.ImQueryAll)
             if changed:
@@ -197,6 +201,12 @@ def _make_window_class():
 
         def request_focus(self):
             if self._want_focus and self.input_mode == "capture" and self.isVisible() and self.isEnabled():
+                layer = self.window()
+                api = self.api or getattr(layer, "api", None)
+                if api:
+                    foreground = api.user.GetForegroundWindow()
+                    if foreground not in (layer.owner, int(layer.winId())) and api.user.GetAncestor(foreground, 3) != layer.owner:
+                        return
                 self.window().activateWindow()
                 self.setFocus(Qt.FocusReason.OtherFocusReason)
                 self._want_focus = False
@@ -496,6 +506,8 @@ def _make_layer_class():
                 self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
             self.setMouseTracking(True)
+            self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
             if owner:
                 from ._win32_host import Win32
                 self.api = Win32()
@@ -508,6 +520,22 @@ def _make_layer_class():
 
         def _transform(self):
             pass  # The layer has terminal coordinates; each surface has its own transform.
+
+        def event(self, event):
+            # Keep TUI navigation working even if Windows delays/denies returning
+            # foreground to the terminal after the last canvas loses Qt focus.
+            if event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+                self.emit(CanvasEvent("tui_key", {"event": {
+                    "name": Surface.key_name_for_event(event), "text": event.text(),
+                    "phase": "release" if event.type() == QEvent.Type.KeyRelease else
+                    "repeat" if event.isAutoRepeat() else "press"}}))
+                return True
+            return super().event(event)
+
+        def inputMethodEvent(self, event):
+            if event.commitString():
+                self.emit(CanvasEvent("tui_text", {"text": event.commitString()}))
+            event.accept()
 
         def apply(self, state, viewport):
             self.grid = state["grid"]

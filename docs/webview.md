@@ -80,8 +80,12 @@ with BrowserService("com.example.notes") as browser:
 
 运行本机完整示例 `examples/webview.py` 可看到两个独立 profile、消息联动，以及
 VirtualList、DataTable 和 Text 内嵌视图。所有示例网页由本机 HTTP 服务提供，
-验证不登录外部账号。`F6` 返回 TUI 导航，网页中的 Tab/Shift+Tab 留给浏览器；
-Ctrl+Q/Ctrl+C 退出。页面中的方向键由浏览器处理。
+验证不登录外部账号。Tab/Shift+Tab 始终沿原有 TUI 焦点链切换；F6 切换到菜单并可
+返回原控件。WebView 默认是导航态，方向键和滚轮可交给外层列表/表格或相邻控件。
+点击网页或在 WebView 上按 Enter 进入交互态，此时键盘、IME 和滚轮交给网页；
+Esc 返回导航态，若嵌在列表/表格中则直接把焦点交回该控件，方向键导航同样优先
+交回外层选择控件。离开控件、隐藏画布或退出原生焦点也会结束交互态。
+Ctrl+Q/Ctrl+C 退出，应用注册的全局快捷键仍优先。
 
 关闭顺序必须是显示宿主 → App 控件 → BrowserService；示例中的 context 嵌套遵循
 此顺序。一个页面可以有多个 WebView 镜像，它们共享同一个 DOM、焦点、滚动、源
@@ -140,7 +144,11 @@ publish_topics=(), subscribe_topics=(), message_group=None)` 返回 BrowserPage�
 消息和评估不提供任意 Python 代码执行入口。
 
 `WebView(page, on_event=None, on_browser_event=None, **overlay_options)` 继承
-OverlayCanvas，因此支持 contain/cover/stretch/pixel、smooth、布局宽高、裁剪以及
+OverlayCanvas。`interacting` 表示当前交互状态；`enter_interaction()` / `leave_interaction()`
+供应用显式进入/退出，`native_focus` 只有控件已聚焦且处于交互态时为 true。
+进入所用的 Enter 不作为网页按键重复发送。
+
+其余选项支持 contain/cover/stretch/pixel、smooth、布局宽高、裁剪以及
 已有控件工厂。布局会自动缩放图像；不会每次调整窗口都重建网页源分辨率。
 鼠标坐标转为源坐标；中文提交/预编辑和光标位置进入 CEF 输入接口；select popup
 合成到同一帧。`window.open` 产生 new_window 事件并拒绝默认新窗口，应用自行决定
@@ -192,7 +200,7 @@ store 的检查操作，默认关闭。
 | 模式 | 本轮状态 |
 | --- | --- |
 | Windows 原生显示与输入闭环 | 受控真实 DComp 层通过 8 项测试，含 DWM 测试色、中文输入和 GIL 独立性；frame_backend 为 native_cpu |
-| Windows 外部终端附加层 | 复用已有共享层；完整新桌面用例未通过前台/层级/恢复检查，不把受控层测试当作终端跟随验收通过 |
+| Windows 外部终端附加层 | Windows Terminal 实测通过所有权、层级、移动缩放、输入、透明洞、Tabs/modal 隐藏恢复；失去前台焦点时保留附加层，置于终端上方和其他前台应用下方 |
 | Linux X11 window_host | WSLg Qt xcb 窗口实测通过，见验证脚本和记录 |
 | Linux Wayland window_host | WSLg Qt wayland 窗口单独实测通过；没有使用 Xwayland 替代 |
 | Linux 外部终端附加层 | 尚未实现；App.run() 继续明确报不支持，使用 WindowHost |
@@ -226,7 +234,7 @@ Windows 服务测试省略 --platform；完整终端组合测试为
 `python examples/verify_overlay_windows.py --webview --report build/windows-overlay.json`。
 受控原生层测试为 `python examples/verify_webview_windows_native.py --report build/windows-native.json`，
 额外需要 Pillow；只短暂显示自己的小测试层并抽样该层测试色，不依赖终端前台策略。
-它只创建/操作自己的 Windows Terminal；真实桌面测试要求该窗口可获得前台。
+它只创建/操作自己的 Windows Terminal；附加层可在终端处于后台时继续显示。
 服务测试可加 `--data-root <测试目录>` 保留 profile 与 cef.log/service-stderr.log，
 以定位启动失败；普通临时根在关闭后清理。
 

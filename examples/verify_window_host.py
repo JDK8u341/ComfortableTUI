@@ -56,6 +56,8 @@ def main():
                 assert host._rpc.request("test_snapshot")["sampled_colors"] > 10
                 result["checks"].append("native_window_paint_and_source_deduplication")
                 page.evaluate("document.querySelector('#editor').focus()")
+                view.enter_interaction()
+                host.step()
                 host._rpc.request("test_input", view=str(id(view)), kind="commit", text="原生输入")
                 wait(lambda: page.evaluate("document.querySelector('#editor').value") == "原生输入")
                 result["checks"].append("native_ime_commit_to_browser")
@@ -63,6 +65,15 @@ def main():
                 host._rpc.request("test_input", view=str(id(view)), kind="click", x=20, y=20)
                 wait(lambda: page.evaluate("clicks") > 0)
                 result["checks"].append("native_pointer_to_browser")
+                host._rpc.request("test_input", view=str(id(view)), kind="key", key=0x01000001, text="\t")
+                host.step()
+                assert app.focused is mirror and not view.interacting
+                # One more key may reach the former native surface before the
+                # helper has completely returned keyboard focus to the TUI.
+                host._rpc.request("test_input", view=str(id(view)), kind="key", key=0x01000001, text="\t")
+                host.step()
+                assert app.focused is tabs and not mirror.interacting
+                result["checks"].append("native_tab_returns_to_tui")
                 before = host.metrics()["source_paints"]
                 old_interval = sys.getswitchinterval()
                 try:

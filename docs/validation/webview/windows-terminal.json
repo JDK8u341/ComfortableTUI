@@ -1,0 +1,116 @@
+{
+  "result": "passed",
+  "host": {
+    "hwnd": 2493080,
+    "pid": 31528,
+    "host_hwnd": 2820556,
+    "shared_layer": true,
+    "platform": "windows",
+    "renderer": "d3d11",
+    "host_class": "CASCADIA_HOSTING_WINDOW_CLASS",
+    "canvas_id": 2390567661408,
+    "canvas_token": "e662c7d837c742aba14247150b3f193a",
+    "layer_rect": {
+      "x": 202.0,
+      "y": 253.0,
+      "width": 1440.0,
+      "height": 759.0
+    }
+  },
+  "checks": [
+    "owner",
+    "z_order_after_host_raise",
+    "move_resize_physical_alignment",
+    "native_mouse_keyboard",
+    "shared_frames_painted",
+    "transparent_input_hole",
+    "no_native_children",
+    "cef_native_cpu_frames",
+    "two_webviews_one_hwnd",
+    "tab_hide",
+    "modal_hide",
+    "resume",
+    "background_terminal_layer_visible",
+    "owned_occluder_background_z_order",
+    "background_does_not_steal_focus"
+  ],
+  "transform": {
+    "transform": {
+      "source_size": [
+        960,
+        540
+      ],
+      "viewport_size": [
+        648,
+        598
+      ],
+      "destination": {
+        "x": 0.0,
+        "y": 116.75,
+        "width": 648.0,
+        "height": 364.5
+      },
+      "dpi_scale": 1.25
+    },
+    "previous": {
+      "source_size": [
+        960,
+        540
+      ],
+      "viewport_size": [
+        648,
+        598
+      ],
+      "destination": {
+        "x": 0.0,
+        "y": 116.75,
+        "width": 648.0,
+        "height": 364.5
+      },
+      "dpi_scale": 1.25
+    },
+    "screen_rect": {
+      "x": 918,
+      "y": 332,
+      "width": 648,
+      "height": 598
+    },
+    "clip_rect": {
+      "x": 918,
+      "y": 332,
+      "width": 648,
+      "height": 598
+    },
+    "canvas_id": 2390567663904,
+    "canvas_token": "bc9c774d36b44ef9b1f1d7767d458f07",
+    "layer_rect": {
+      "x": 222.0,
+      "y": 263.0,
+      "width": 1356.0,
+      "height": 736.0
+    }
+  },
+  "metrics": {
+    "sequence": 591,
+    "skipped_frames": 1,
+    "frame_age_ms": 1.7155999994429294,
+    "ready_age_ms": null,
+    "acquire_ms": 0.1328,
+    "closed": false,
+    "gpu_shared": false,
+    "painted_fps": 59.756057845171156,
+    "source_fps": 59.756057845171156,
+    "draw_ms": 0.1201,
+    "presents": 869,
+    "renderer": "d3d11",
+    "canvas_id": 2390567663904,
+    "canvas_token": "bc9c774d36b44ef9b1f1d7767d458f07",
+    "layer_rect": {
+      "x": 222.0,
+      "y": 263.0,
+      "width": 1356.0,
+      "height": 736.0
+    }
+  },
+  "background_visibility_observed": true
+}

@@ -221,3 +221,41 @@ def test_layer_retirement_ack_follows_buffer_release_and_ids_can_be_reused(qt_ap
         finally:
             layer.shutdown()
             qt_app.processEvents()
+
+
+def test_surface_does_not_take_or_return_foreground_while_owner_is_background(window, qt_app):
+    from types import SimpleNamespace
+    widget, _ = window
+    returned = []
+    widget.owner = 1
+    widget.api = SimpleNamespace(user=SimpleNamespace(GetForegroundWindow=lambda: 999,
+        GetAncestor=lambda hwnd, flags: 999, SetForegroundWindow=returned.append))
+    try:
+        widget._want_focus = True
+        widget.request_focus()
+        assert widget._want_focus  # postponed, without activating the background group
+        widget.activateWindow()
+        qt_app.processEvents()
+        widget.setFocus()
+        qt_app.processEvents()
+        state = layer_state([widget.buffer])["items"][0]
+        widget.configure(state)
+        assert not widget.hasFocus()
+        assert not returned
+    finally:
+        widget.api = None
+
+
+def test_layer_without_a_focused_surface_forwards_tui_navigation_and_text(qt_app):
+    events = []
+    layer = _make_layer_class()(events.append)
+    try:
+        for code, name in ((Qt.Key.Key_Tab, "tab"), (Qt.Key.Key_F6, "f6")):
+            QApplication.sendEvent(layer, QKeyEvent(QEvent.Type.KeyPress, code, Qt.KeyboardModifier.NoModifier))
+            assert events[-1].kind == "tui_key" and events[-1].data["event"]["name"] == name
+        text = QInputMethodEvent()
+        text.setCommitString("你好")
+        QApplication.sendEvent(layer, text)
+        assert events[-1].kind == "tui_text" and events[-1].data["text"] == "你好"
+    finally:
+        layer.shutdown()

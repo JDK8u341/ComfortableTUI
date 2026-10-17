@@ -644,8 +644,10 @@ GPU 路径也要计入复制、颜色转换、popup 合成、同步和最终绘�
 
 2026-10-17 当前进度：M1/M2 已有独立 CEF 服务、portable CPU 图像接口、WebView
 输入适配和隔离/消息测试；M6 的 Linux window_host 在 WSLg X11/Wayland 分别跑通。
-Windows 组合测试观察到共享层 CEF 绘制，但新增完整桌面用例未通过前台/层级/恢复
-检查，保留 incomplete，不把它列为通过。M0/M3/M4 的 X11 外部终端附加层、
+初版 Windows 完整桌面测试曾在前台/层级/恢复检查失败。焦点与后台显示修复后，
+Windows Terminal 的所有权、层级、移动缩放、输入、透明命中、Tabs/modal 和恢复
+检查现已通过。默认 WebView 导航与交互分开，Tab 保留 TUI 焦点链；后台显示保留
+相对 owner 的窗口层级，不强制隐藏或全局置顶。M0/M3/M4 的 X11 外部终端附加层、
 Linux GPU 导入和 M5/M7 均未完成；原生 OS 输入法候选窗与更广泛桌面验证仍待完成。
 下表 macOS 行仅保留历史方案，本轮全部排除，不作为待交付支持。
 

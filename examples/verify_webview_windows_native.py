@@ -105,6 +105,7 @@ def main():
                 result["sampled_test_pixel"] = pixel
                 result["checks"].append("actual_dwm_browser_test_pixel")
                 page.evaluate("document.querySelector('#editor').focus()")
+                views[0].enter_interaction()
                 event = QInputMethodEvent()
                 event.setCommitString("中文原生")
                 QApplication.sendEvent(layer.items[id(views[0])], event)
@@ -136,6 +137,19 @@ def main():
                 pump(.2)
                 assert layer.renderer.metrics()["presents"] > paused
                 result["checks"].append("native_hide_pause_and_resume")
+                tui.focus(views[0])
+                views[0].enter_interaction()
+                QTest.keyClick(layer.items[id(views[0])], Qt.Key.Key_Tab)
+                assert tui.focused is views[1] and not views[0].interacting
+                # Even if the GUI delivers its old focus notification late,
+                # the logical focus must stay at the next TUI control.
+                from comfortable_tui import CanvasEvent
+                views[0]._native_event(CanvasEvent("focus_in"))
+                assert tui.focused is views[1]
+                views[1].enter_interaction()
+                QTest.keyClick(layer.items[id(views[1])], Qt.Key.Key_Escape)
+                assert not views[1].interacting
+                result["checks"].append("tab_exit_escape_and_stale_focus")
                 page.resize(800, 450)
                 configure()
                 pump(.2)

@@ -20,10 +20,15 @@ class Win32:
     def __init__(self):
         self.user = ctypes.WinDLL("user32", use_last_error=True)
         self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.dwm = ctypes.WinDLL("dwmapi")
+        self.dwm.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p,
+                                                 wintypes.DWORD]
+        self.dwm.DwmGetWindowAttribute.restype = ctypes.c_long
         for name, args, result in (
             ("GetForegroundWindow", [], wintypes.HWND),
             ("GetAncestor", [wintypes.HWND, wintypes.UINT], wintypes.HWND),
             ("GetWindow", [wintypes.HWND, wintypes.UINT], wintypes.HWND),
+            ("GetWindowLongPtrW", [wintypes.HWND, ctypes.c_int], ctypes.c_ssize_t),
             ("IsWindow", [wintypes.HWND], wintypes.BOOL),
             ("IsWindowVisible", [wintypes.HWND], wintypes.BOOL),
             ("IsIconic", [wintypes.HWND], wintypes.BOOL),
@@ -100,6 +105,20 @@ class Win32:
                     below = self.user.GetWindow(below, 2)
                 if below != owner:
                     self.user.SetWindowPos(owner, hwnd, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0200)
+        else:
+            # Stay immediately above the background terminal, below whatever
+            # covers it. Showing an inactive Qt tool must not raise it over the
+            # foreground application, and never activates either group member.
+            above = self.user.GetWindow(owner, 3)
+            if above != hwnd:
+                get_style = getattr(self.user, "GetWindowLongPtrW", None)
+                if above and get_style and get_style(above, -20) & 0x8:  # WS_EX_TOPMOST
+                    above = None  # Top of the normal band; never join the topmost band.
+                self.user.SetWindowPos(hwnd, above, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0200)
+
+    def cloaked(self, hwnd):
+        value = wintypes.DWORD()
+        return self.dwm.DwmGetWindowAttribute(hwnd, 14, ctypes.byref(value), ctypes.sizeof(value)) == 0 and bool(value.value)
 
 
 _TERMINALS = {"CASCADIA_HOSTING_WINDOW_CLASS", "ConsoleWindowClass", "org.wezfurlong.wezterm", "WezTermWindow"}
@@ -346,9 +365,8 @@ class HostTracker:
 
     def visible(self, overlay_hwnd):
         user, hwnd = self.api.user, self.host.hwnd
-        foreground = user.GetForegroundWindow()
         return bool(user.IsWindow(hwnd) and user.IsWindowVisible(hwnd) and not user.IsIconic(hwnd)
-                    and (foreground in (hwnd, overlay_hwnd) or user.GetAncestor(foreground, 3) == hwnd))
+                    and not getattr(self.api, "cloaked", lambda handle: False)(hwnd))
 
     def close(self):
         self._stop.set()

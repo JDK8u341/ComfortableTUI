@@ -14,14 +14,53 @@ class WebView(OverlayCanvas):
     """Display a BrowserPage and adapt canvas events to its independent service.
 
     A page may have multiple views; these mirror one document. Distinct documents
-    require service.open(). F6 moves back to TUI navigation; Tab stays in the page.
+    require service.open(). Tab traverses TUI controls; click/Enter enters page
+    interaction and Escape leaves it. F6 always returns to the TUI menu.
     """
     def __init__(self, page, *, on_event=None, on_browser_event=None, **kwargs):
         self.page, self._user_canvas_event = page, on_event
+        self.interacting = False
+        self._enter_key_pending = False
         self._user_browser_event = on_browser_event
         self._remove_listener = page.on_event(self._browser_event)
         super().__init__(page.source, on_event=self._canvas_event, **kwargs)
         page._widgets.add(self)
+
+    @property
+    def native_focus(self):
+        return self.focused and self.interacting
+
+    def enter_interaction(self):
+        """Explicitly give the browser keys; Tab/F6 still belong to the TUI."""
+        if self._closed or self.page._closed or self.disabled:
+            return False
+        if self.app and not self.app.focus(self):
+            return False
+        if not self.interacting:
+            self.interacting = True
+            self.page.input("focus_in")
+            self.invalidate()
+        return True
+
+    def leave_interaction(self):
+        if self.interacting:
+            self.interacting = False
+            if not self.page._closed:
+                self.page.input("focus_out")
+            self.invalidate()
+
+    def _focus_changed(self, focused):
+        if not focused:
+            self.leave_interaction()
+
+    def _navigation_parent(self):
+        from .data import ListView
+        parent = self.parent
+        while parent:
+            if isinstance(parent, ListView):  # includes DataTable and Tree
+                return parent
+            parent = parent.parent
+        return None
 
     def mount(self, app):
         super().mount(app)
@@ -72,6 +111,8 @@ class WebView(OverlayCanvas):
         if self.page._closed:
             return user_consumed
         if kind in ("show", "hide", "detached"):
+            if kind != "show":
+                self.leave_interaction()
             self._browser_display_visible = kind == "show"
             visible = self._page_visible()
             if getattr(self.page, "_reported_visible", None) != visible:
@@ -80,6 +121,40 @@ class WebView(OverlayCanvas):
             return False
         if user_consumed:
             return True
+        if kind == "focus_out":
+            self.leave_interaction()
+            return False
+        if kind == "mouse_down" and data.get("inside_source", True):
+            self.enter_interaction()
+        if kind in ("key_down", "key_up"):
+            name = data.get("name", "")
+            if name == "enter" and kind == "key_up" and self._enter_key_pending:
+                self._enter_key_pending = False
+                return True
+            if name in ("tab", "shift+tab", "f6"):
+                self.leave_interaction()
+                return False
+            if self.app and name in self.app.bindings:
+                return False
+            if name == "escape" and self.interacting:
+                self.leave_interaction()
+                parent = self._navigation_parent()
+                if self.app and parent:
+                    self.app.focus(parent)
+                return True
+            if not self.interacting:
+                if name == "enter":
+                    if kind == "key_down":
+                        self._enter_key_pending = True
+                        self.enter_interaction()
+                    return True
+                if kind == "key_down" and name in ("left", "right", "up", "down", "home", "end", "pageup", "pagedown"):
+                    parent = self._navigation_parent()
+                    if self.app and parent:
+                        self.app.focus(parent)
+                return False
+        if kind in ("text", "ime", "focus_in", "wheel") and not self.interacting:
+            return False
         fields = {"modifiers": list(data.get("modifiers", ())) }
         if kind.startswith("mouse_") or kind == "wheel":
             point = data.get("source_position")
@@ -119,15 +194,9 @@ class WebView(OverlayCanvas):
         self.page.input(kind, **fields)
         return True
 
-    def _native_event(self, event):
-        # Page Tab traversal belongs to the browser; F6 remains TUI navigation.
-        if event.kind in ("key_down", "key_up") and event.data.get("name") in ("tab", "shift+tab"):
-            self._emit(event)
-        else:
-            super()._native_event(event)
-
     def close(self):
         if not self._closed:
+            self.leave_interaction()
             self._remove_listener()
         super().close()
         if self._detached:

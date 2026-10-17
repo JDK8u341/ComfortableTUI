@@ -266,7 +266,10 @@ def test_terminal_itself_is_visible_even_when_its_root_owner_is_hidden():
 
 @pytest.mark.parametrize("z_order,foreground,expected_move", [([1, 2, 3], 1, (2, 0)),
                                                             ([2, 3, 1], 2, (1, 2)),
-                                                            ([2, 1, 3], 2, None)])
+                                                            ([2, 1, 3], 2, None),
+                                                            ([3, 1, 2], 3, (2, 3)),
+                                                            ([2, 3, 1], 3, (2, 3)),
+                                                            ([3, 2, 1], 3, None)])
 def test_owner_group_order_is_restored_without_global_topmost_or_activation(z_order, foreground, expected_move):
     from comfortable_tui._win32_host import Win32
     calls = []
@@ -295,3 +298,30 @@ def test_owner_group_order_is_restored_without_global_topmost_or_activation(z_or
     else:
         assert not calls
     assert all(after not in (-1, -2) and flags & 0x10 for _, after, flags in calls)
+    if foreground == 3:
+        assert z_order == [3, 2, 1]
+
+
+@pytest.mark.parametrize("shown,minimized,cloaked,expected", [(True, False, False, True),
+    (False, False, False, False), (True, True, False, False), (True, False, True, False)])
+def test_background_terminal_visibility_does_not_require_foreground(shown, minimized, cloaked, expected):
+    from comfortable_tui._win32_host import HostTracker
+    tracker = HostTracker.__new__(HostTracker)
+    tracker.host = TerminalHost(hwnd=1)
+    tracker.api = SimpleNamespace(cloaked=lambda hwnd: cloaked, user=SimpleNamespace(
+        IsWindow=lambda hwnd: True, IsWindowVisible=lambda hwnd: shown, IsIconic=lambda hwnd: minimized,
+        GetForegroundWindow=lambda: 999))
+    assert tracker.visible(2) is expected
+
+
+def test_late_canvas_focus_and_keys_cannot_reclaim_current_tui_control():
+    from comfortable_tui import App, CanvasEvent, HBox, Input
+    with FrameBuffer(2, 2) as buffer:
+        view, field = OverlayCanvas(buffer), Input()
+        with App(HBox(view, field)) as app:
+            app.render(40, 10)
+            app.focus(field)
+            view._native_event(CanvasEvent("focus_in"))
+            assert app.focused is field
+            view._native_event(CanvasEvent("key_down", {"name": "a", "text": "a"}))
+            assert app.focused is field and field.text == "a"

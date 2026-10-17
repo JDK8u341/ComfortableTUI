@@ -64,7 +64,7 @@ def main():
     api.user.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
     api.user.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
     api.user.SendMessageW.restype = ctypes.c_ssize_t
-    hwnd = host = None
+    hwnd = host = occluder = None
     success = False
     with tempfile.TemporaryDirectory(prefix="comfortable-tui-overlay-") as folder:
         path = Path(folder) / "events.json"
@@ -152,6 +152,40 @@ def main():
             assert api.user.IsWindowVisible(hwnd), "canvas hid when terminal regained foreground"
             wait_for(lambda: any(e["kind"] == "metrics" and e["data"]["sequence"] > 0 for e in load()),
                      timeout=4, message="no shared frames painted")
+            # A window owned by this verifier provides a real foreground switch,
+            # without controlling any unrelated application or global input.
+            api.user.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p]
+            api.user.CreateWindowExW.restype = wintypes.HWND
+            api.user.DestroyWindow.argtypes = [wintypes.HWND]
+            api.user.DestroyWindow.restype = wintypes.BOOL
+            # STATIC text controls are deliberately skipped by WindowFromPoint;
+            # BUTTON provides a normal, hit-testable system window class.
+            occluder = api.user.CreateWindowExW(0x80, "BUTTON", "ComfortableTUI background test",
+                0x80000000 | 0x00c00000 | 0x10000000, round(clip["x"] + 20), round(clip["y"] + 20),
+                180, 110, None, None, None, None)
+            if not occluder:
+                raise ctypes.WinError(ctypes.get_last_error())
+            activate_test_terminal(api, occluder)
+            wait_for(lambda: api.user.GetForegroundWindow() == occluder, timeout=3,
+                     message="owned background-test window did not become foreground")
+
+            def background_order():
+                below = api.user.GetWindow(occluder, 2)
+                for _ in range(1024):
+                    if not below or below in (hwnd, host):
+                        break
+                    below = api.user.GetWindow(below, 2)
+                return below == hwnd and api.user.IsWindowVisible(hwnd)
+            wait_for(background_order, timeout=3, message="background layer hid or covered the foreground window")
+            time.sleep(.15)
+            assert api.user.GetForegroundWindow() == occluder, "canvas stole foreground while terminal was inactive"
+            hit = api.user.WindowFromPoint(wintypes.POINT(round(clip["x"] + 80), round(clip["y"] + 80)))
+            assert api.user.GetAncestor(hit, 2) == occluder, (
+                "background hit-test mismatch", api.class_name(hit), api.user.GetAncestor(hit, 2), occluder)
+            api.user.DestroyWindow(occluder)
+            occluder = None
             if args.embedded or args.webview:
                 wait_for(lambda: any(e["kind"] == "checkpoint" and e["data"]["phase"] == "hidden" for e in load()),
                          timeout=9, message="hidden-page checkpoint missing")
@@ -177,12 +211,20 @@ def main():
                 report["logical_canvases_created"] = len(ready_events)
             if args.webview:
                 report["checks"] += ["cef_native_cpu_frames", "two_webviews_one_hwnd", "tab_hide", "modal_hide", "resume"]
+            background = [e["data"] for e in events if e["kind"] == "layer_status" and e["data"]["visible"]
+                          and e["data"]["foreground"] not in (host, hwnd)]
+            report["background_visibility_observed"] = bool(background)
+            if background:
+                report["checks"].append("background_terminal_layer_visible")
+            report["checks"] += ["owned_occluder_background_z_order", "background_does_not_steal_focus"]
             print(json.dumps(report, ensure_ascii=True, indent=2))
             if args.report:
                 args.report.parent.mkdir(parents=True, exist_ok=True)
                 args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
             success = True
         finally:
+            if occluder:
+                api.user.DestroyWindow(occluder)
             if args.report and not success:
                 args.report.parent.mkdir(parents=True, exist_ok=True)
                 args.report.write_text(json.dumps({"result": "incomplete", "events": load(),

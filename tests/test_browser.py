@@ -13,6 +13,7 @@ class FakeProcess:
     def __init__(self, command, **kwargs):
         self.command = command
         self.capabilities = {"startup_ui_suppressed": True}
+        self.messages = []
         self.calls.append(self)
 
     def close(self):
@@ -22,6 +23,7 @@ class FakeProcess:
         return {}
 
     def send(self, op, **kwargs):
+        self.messages.append((op, kwargs))
         future = Future()
         future.set_result({})
         return future
@@ -107,3 +109,81 @@ def test_hidden_pages_share_one_app_poll_and_unsubscribe_on_unmount(monkeypatch,
             assert page.title == "arrived"
         assert not app._event_pollers
         assert not service._app_bindings
+
+
+@pytest.fixture
+def browser_service(monkeypatch, tmp_path):
+    monkeypatch.setattr(browser, "NativeProcess", FakeProcess)
+    executable = tmp_path / "ctui_browser"
+    executable.touch()
+    with browser.BrowserService(executable=executable) as service:
+        yield service
+
+
+def test_webview_tab_escape_and_f6_preserve_tui_focus(browser_service):
+    from comfortable_tui import App, Button, CanvasEvent, HBox, Key, Tabs, WebView
+    page = browser_service.open("about:blank", width=8, height=8)
+    view, button = WebView(page), Button("Next")
+    tabs = Tabs({"Web": HBox(view, button)})
+    with App(tabs) as app:
+        app.render(60, 16)
+        app.focus(view)
+        assert not view.native_focus
+        app.dispatch(Key("enter"))
+        assert view.interacting and view.native_focus
+        view._native_event(CanvasEvent("key_down", {"name": "tab"}))
+        assert app.focused is button and not view.interacting
+        view._native_event(CanvasEvent("focus_in"))
+        assert app.focused is button
+        app.dispatch(Key("shift+tab"))
+        assert app.focused is view and not view.interacting
+        view.enter_interaction()
+        view._native_event(CanvasEvent("key_down", {"name": "escape"}))
+        assert app.focused is view and not view.interacting
+        view.enter_interaction()
+        view._native_event(CanvasEvent("key_down", {"name": "f6"}))
+        assert app.focused is tabs and not view.interacting
+        assert not any(op == "input" and data.get("kind") == "key_down" and
+                       data.get("data", {}).get("key_code") in (9, 27) for op, data in browser_service._rpc.messages)
+
+
+def test_webview_embedded_in_virtual_list_defers_arrows_until_interacting(browser_service):
+    from comfortable_tui import App, CanvasEvent, Key, ListView, WebView
+    page = browser_service.open("about:blank", width=8, height=8)
+    listing = ListView(range(30), item_height=3, item_widget=lambda i, value: WebView(page))
+    with App(listing, reduced_motion=True) as app:
+        app.render(40, 12)
+        view = listing._row_widgets[1]
+        app.focus(view)
+        view._native_event(CanvasEvent("key_down", {"name": "down"}))
+        assert listing.selected == 1 and app.focused is listing and not view.interacting
+        view._native_event(CanvasEvent("key_down", {"name": "down"}))
+        assert listing.selected == 2
+        view._native_event(CanvasEvent("mouse_down", {"source_position": (1, 1), "inside_source": True}))
+        assert view.interacting and app.focused is view
+        selected = listing.selected
+        view._native_event(CanvasEvent("key_down", {"name": "down"}))
+        assert listing.selected == selected
+        view._native_event(CanvasEvent("key_down", {"name": "escape"}))
+        assert app.focused is listing and not view.interacting
+        view.enter_interaction()
+        app.dispatch(Key("tab"))
+        assert app.focused is not view and not view.interacting
+
+
+@pytest.mark.parametrize("container", ["table", "text"])
+def test_webview_in_table_or_text_can_navigate_to_neighbor(browser_service, container):
+    from comfortable_tui import App, Button, CanvasEvent, DataTable, HBox, Text, WebView
+    page = browser_service.open("about:blank", width=8, height=8)
+    neighbor = Button("Next")
+    if container == "table":
+        parent = DataTable(["Page"], [("one",)], column_widths=[12], item_height=4,
+                           cell_widget=lambda r, c, value: WebView(page))
+    else:
+        parent = Text("Page ", WebView(page, width=12, height=4))
+    with App(HBox(parent, neighbor, gap=2)) as app:
+        app.render(60, 12)
+        view = next(w for w in parent.walk() if isinstance(w, WebView))
+        app.focus(view)
+        view._native_event(CanvasEvent("key_down", {"name": "right"}))
+        assert app.focused is neighbor and not view.interacting

@@ -10,9 +10,10 @@ Mesa 23.2.1 glxinfo 报告 D3D12 AMD Radeon 780M；这不是 DMA-BUF 导入能�
 | service-windows.json | Windows CEF 服务 14 项检查通过，默认沙箱 |
 | service-x11.json | CEF 显式 Ozone x11，同组服务检查通过，默认沙箱 |
 | service-wayland.json | CEF 显式 Ozone wayland，同组服务检查通过，默认沙箱 |
-| window-x11.json | Qt 实际 platform=xcb，9 项 CEF+原生窗口组合检查通过 |
-| window-wayland.json | Qt 实际 platform=wayland，9 项组合检查独立通过 |
-| windows-controlled-layer.json | 真实 DComp 层 8 项通过，包括 DWM 测试色、原生输入、GIL 独立帧、暂停恢复及源更换；不替代终端跟随测试 |
+| window-x11.json | Qt 实际 platform=xcb，10 项 CEF+原生窗口组合检查通过，含 Tab 返回 TUI |
+| window-wayland.json | Qt 实际 platform=wayland，10 项组合检查独立通过，含 Tab 返回 TUI |
+| windows-controlled-layer.json | 真实 DComp 层通过，包括 DWM 测试色、原生输入、Tab/Esc 退出与延迟焦点事件、GIL 独立帧、暂停恢复及源更换 |
+| windows-terminal.json | 焦点/后台显示修复后，真实 Windows Terminal 的所有权、层级、移动缩放、输入、透明洞、Tabs/modal 隐藏恢复通过 |
 
 首轮去除弹窗的 X11 服务回归额外在 Xvfb 中通过；后续 service-x11.json 在 WSLg
 显示服务器重新运行。匿名服务每次都生成全新目录；测试未共享应用 A/B 的目录，
@@ -31,9 +32,15 @@ Failed to connect to Wayland display。复查发现 WSLg socket 仍在 /mnt/wslg
 [Microsoft WSL 问题记录](https://github.com/microsoft/WSL/issues/8842)提供运行目录与
 用户 session 交互背景，不能据此推断所有 WSL 启动错误都相同。
 
-Windows 新增终端 WebView 组合测试观察到同一 DComp HWND 绘制两个源和输入返回，
-但完整用例未通过前台激活/层级/隐藏后恢复检查，结果是 incomplete；不把旧附加层
-的通过记录当作新组合通过，也不把它推断为已支持任意终端。
+初版 Windows 完整终端测试是 incomplete。随后修复了“失去前台直接隐藏”、
+后台层级跟随、原生焦点异步回抢和 WebView 吞掉 TUI 导航的问题，新增终端验证
+现已通过；不将这一特定 Windows Terminal 结果外推到任意终端。
+
+后台策略保留 owner 之上的正常窗口层级，用 SWP_NOACTIVATE/SWP_NOOWNERZORDER
+调整位置，不使用全局置顶，最小化/隐藏/DWM cloak 仍隐藏画布。接口依据：
+[Microsoft SetWindowPos](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos)。
+逻辑焦点为 App 的焦点链，延迟 focus_in 不能重新选中已离开的画布；没有原生子表面
+持有键盘时，辅助层将按键和提交文本转回 TUI。
 
 可复现命令与局限见 [WebView 指南](../../webview.md)。这里的通过范围仅对应该环境；
 原生 Linux 桌面、不同 compositor、真实中文输入法、GPU 浏览器 adapter、X11 外部

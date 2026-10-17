@@ -59,7 +59,7 @@ def main():
                            subscribe_topics=["selection.changed"], message_group="demo-link")
             first = browser.open(origin + "/demo.html", profile=browser.profile("account-a", persistent=True), **options)
             second = browser.open(origin + "/demo.html", profile=browser.profile("account-b"), **options)
-            status = Label("Separate cookies · shared authorized topic · F6: TUI focus · Ctrl+Q: quit", height=1)
+            status = Label("Tab: controls · Enter/click: interact · Esc: leave · F6: menu · Ctrl+Q: quit", height=1)
 
             def browser_event(e):
                 if e["event"] == "message":

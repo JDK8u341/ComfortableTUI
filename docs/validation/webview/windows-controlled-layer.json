@@ -7,6 +7,7 @@
     "native_mouse_to_cef",
     "gil_independent_native_browser_frames",
     "native_hide_pause_and_resume",
+    "tab_exit_escape_and_stale_focus",
     "native_source_replacement",
     "native_consumer_detach"
   ],
@@ -16,28 +17,28 @@
     0
   ],
   "metrics": {
-    "presents": 77,
-    "submit_ms": 0.1285,
+    "presents": 76,
+    "submit_ms": 0.1374,
     "views": [
       {
-        "id": 2245505394704,
-        "sequence": 82,
-        "frames": 76,
-        "skipped_frames": 5,
-        "frame_age_ms": 4.843299999265582,
+        "id": 3017686297984,
+        "sequence": 80,
+        "frames": 75,
+        "skipped_frames": 4,
+        "frame_age_ms": 6.219299997610506,
         "ready_age_ms": null,
-        "acquire_ms": 0.1119,
+        "acquire_ms": 0.1074,
         "closed": false,
         "gpu_shared": false
       },
       {
-        "id": 2245505395136,
-        "sequence": 82,
-        "frames": 76,
-        "skipped_frames": 5,
-        "frame_age_ms": 4.843400000027032,
+        "id": 3017686300240,
+        "sequence": 80,
+        "frames": 75,
+        "skipped_frames": 4,
+        "frame_age_ms": 6.219399998371955,
         "ready_age_ms": null,
-        "acquire_ms": 0.1119,
+        "acquire_ms": 0.1074,
         "closed": false,
         "gpu_shared": false
       }

@@ -126,7 +126,8 @@ class WindowHost:
                 styles.append(asdict(cell.style))
             cells.append([index % frame.width, index // frame.width, cell.width, cell.text, style_id])
         state = dict(items=items, styles=styles, cells=cells,
-                     focus=str(id(self.app.focused)) if self.app.focused else "")
+                     focus=str(id(self.app.focused)) if self.app.focused and
+                     getattr(self.app.focused, "native_focus", False) else "")
         if state == self._last:
             return
         self._rpc.request("scene", **state)

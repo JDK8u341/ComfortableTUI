@@ -104,7 +104,7 @@ class App:
                 self.focused.pressed.set(0)
             if self.focused and hasattr(self.focused, "_armed"):
                 self.focused._armed = False
-            self.focused = widget
+            self._assign_focus(widget)
             parent = widget.parent
             while parent:
                 if isinstance(parent, ScrollView):
@@ -112,6 +112,17 @@ class App:
                 parent = parent.parent
             self.invalidate()
         return True
+
+    def _assign_focus(self, widget):
+        previous = self.focused
+        if previous is widget:
+            return
+        self.focused = widget
+        for target, focused in ((previous, False), (widget, True)):
+            callback = getattr(target, "_focus_changed", None)
+            if callback:
+                callback(focused)
+        self.invalidate()
 
     def focus_next(self, direction=1):
         widgets = list((self.modal or self.root).focusables())
@@ -208,14 +219,14 @@ class App:
         self._modal_focus = self.focused
         self.modal = widget
         widget.mount(self)
-        self.focused = None
+        self._assign_focus(None)
         self.invalidate()
 
     def close_modal(self):
         if self.modal:
             self.modal.unmount()
             self.modal = None
-            self.focused = self._modal_focus
+            self._assign_focus(self._modal_focus)
             self._capture = None
             self.invalidate()
 
@@ -344,7 +355,7 @@ class App:
         scope = self.modal or self.root
         focusable = list(scope.focusables())
         if self.focused not in focusable:
-            self.focused = focusable[0] if focusable else None
+            self._assign_focus(focusable[0] if focusable else None)
         self._prepare_focus(width, height)
         if self.animator.step(dt):
             self._dirty = True
