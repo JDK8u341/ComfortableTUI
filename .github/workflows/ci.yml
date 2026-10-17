@@ -90,7 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Qt development files
-        run: sudo apt-get update && sudo apt-get install -y qt6-base-dev qt6-wayland ninja-build
+        run: sudo apt-get update && sudo apt-get install -y qt6-base-dev qt6-wayland libgl1-mesa-dev libopengl-dev ninja-build
       - name: Build portable frame SDK and optional native Linux window host
         run: |
           cmake -S . -B build/linux-host -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOMFORTABLE_TUI_BUILD_LINUX_HOST=ON
