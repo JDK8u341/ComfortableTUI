@@ -12,6 +12,7 @@ import uuid
 
 from ._shared_frame import FrameBuffer, FrameBufferInfo, FrameLease
 from .events import Key, Mouse, Paste
+from .gpu import GpuFrameSource
 from .widget import Widget
 
 __all__ = ["FrameBuffer", "FrameBufferInfo", "FrameLease", "PixelRect", "CanvasTransform",
@@ -115,7 +116,7 @@ class OverlayCanvas(Widget):
     focusable = True
     focus_indicator = False
 
-    def __init__(self, buffer: FrameBuffer, *, on_event=None, fit="contain", smooth=True,
+    def __init__(self, buffer: FrameBuffer | GpuFrameSource, *, on_event=None, fit="contain", smooth=True,
                  input_mode="capture", host: TerminalHost | None = None, fps=120, **kwargs):
         super().__init__(**kwargs)
         self._validate(fit, input_mode, fps)
@@ -148,7 +149,7 @@ class OverlayCanvas(Widget):
             self.smooth = bool(smooth)
         self.invalidate()
 
-    def set_buffer(self, buffer: FrameBuffer):
+    def set_buffer(self, buffer: FrameBuffer | GpuFrameSource):
         """Keep the old buffer alive until the new buffer_attached event arrives."""
         buffer._check_open()
         self.buffer = buffer

@@ -180,3 +180,13 @@ TerminalHost 须一致；详见 [画布接口](overlay-canvas.md)。
 - `Text(*runs, **Widget_kwargs)`：字符串/Widget 混排，内嵌控件需指定 width。
 
 `Label`、`Paragraph` 和 `TextArea` 的原有字符串接口不变。
+
+## 原生 C++ / GPU
+
+`GpuFrameInfo` 与 `GpuFrameSource.attach(channel_name)` 只用于握手，GpuFrameSource
+可直接传入 OverlayCanvas；它没有Python逐帧read/write/sequence接口。
+`gpu_available()` 检查Windows原生扩展是否可导入，不代表当前GPU/桌面运行可用。
+
+构建 `COMFORTABLE_TUI_BUILD_GPU=1` 后，auto模式在Windows选择原生数据平面，
+旧FrameBuffer也由C++消费者处理。支持显式native/qt后端选择、独立C++静态SDK、
+原生CPU上传和跨进程共享D3D11纹理。详细API、SDK示例与限制见 [C++ GPU](native-gpu.md)。

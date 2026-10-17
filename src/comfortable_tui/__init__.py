@@ -8,6 +8,7 @@ from .controls import (BarChart, Button, Checkbox, Input, Label, Log, Paragraph,
 from .data import DataTable, DirectoryTree, ListView, RadioGroup, Select, SelectionList, Tree, TreeNode
 from .events import Capability, InputParser, Key, Mouse, Paste
 from .graphics import KittyEncoder, PixelCanvas, Surface
+from .gpu import GpuFrameInfo, GpuFrameSource, gpu_available
 from .overlay import (CanvasEvent, CanvasTransform, FrameBuffer, FrameBufferInfo, FrameLease,
                       OverlayCanvas, PixelRect, TerminalHost)
 from .renderer import FrameStats, Renderer
@@ -25,4 +26,5 @@ __all__ = [
     "Theme", "Widget",
     "CanvasEvent", "CanvasTransform", "FrameBuffer", "FrameBufferInfo", "FrameLease",
     "OverlayCanvas", "PixelRect", "TerminalHost",
+    "GpuFrameInfo", "GpuFrameSource", "gpu_available",
 ]

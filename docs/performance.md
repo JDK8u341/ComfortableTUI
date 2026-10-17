@@ -138,3 +138,21 @@ ListView/DataTable 的 widget 工厂只构建可见行，离屏控件立即卸�
 缓冲区可以节省源三槽内存；独立源仍各自占 stride×height×3。共享层本身需要
 终端文本区对应的 backing store。真实桌面检查使用
 `python examples/verify_overlay_windows.py --embedded`。
+
+## C++ 原生帧传输与共享 GPU
+
+独立C++生产者、240fps、960×540显示区，三秒采样的帧龄中位数：
+
+| 输入尺寸 | Qt CPU绘制完成 | C++ CPU Present返回 | 共享GPU Present返回 |
+| --- | --- | --- | --- |
+| 1280×720 | 2.710 ms | 0.425 ms | 0.441 ms |
+| 3840×2160 | 3.550 ms | 4.054 ms | 0.436 ms |
+
+比较CPU呈现时使用同一原生填色生产者和频率；GPU源用原生GPU清屏，生产方式不同。
+数据是绘制/提交阶段，不是输入到显示或DWM扫描延迟；仅采到的新序号构成样本。
+4K CPU路径上传成本仍较高，不能承诺所有CPU源加速；推荐原生GPU提供者。
+原始分布及环境见 [720p](benchmark-gpu.json)、[4K](benchmark-gpu-4k.json)。
+
+GPU路径不取GIL、不进行CPU读回或私有GPU中转复制。等待原生帧event与DXGI容量后
+采样最新共享纹理；最终仍需GPU合成。构建、复现及硬件边界见
+[原生数据平面](native-gpu.md) 与 [Exa调研](native-gpu-research.md)。

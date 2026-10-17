@@ -1,5 +1,7 @@
 include LICENSE
 include mkdocs.yml
 include native/diff.cpp
+include CMakeLists.txt
+recursive-include native/canvas *.cpp *.hpp *.cmake *.in *.md
 recursive-include docs *.md *.json *.gif *.png
 recursive-include examples *.py *.md

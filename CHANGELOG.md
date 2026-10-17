@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add a standalone C++17 frame-provider SDK with shared D3D11 NT textures, bounded latest-frame slots and keyed synchronization.
+- Move native frame transport/composition off Python/GIL to an event-driven DirectComposition worker with DXGI frame latency 1.
+- Add C++ compatibility ingestion for CPU FrameBuffer, GPU handshake descriptors, native demos, real-desktop verification and latency benchmarks.
+- Retain Qt as input/control plane and optional CPU fallback; acknowledge native source attachment/removal before lifecycle events.
+
 - Replace per-canvas GUI processes/windows with one shared terminal overlay layer and non-native Qt surfaces.
 - Add virtualized ListView item_widget, DataTable cell_widget and inline Text widget composition.
 - Route input per logical canvas, bubble unconsumed keys/wheel, cancel hidden drags and acknowledge detached sources.

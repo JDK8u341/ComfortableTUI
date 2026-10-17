@@ -26,3 +26,9 @@ Ctrl+Q 或 Ctrl+C 退出。画廊中先聚焦顶部 Tabs，再按左右键切换
 Gallery 默认目标 120fps，CLI 可用 `python -m comfortable_tui --fps 60` 调低。
 
 `python examples/verify_overlay_windows.py --embedded` 在自己创建的 Windows Terminal 中验证多画布共享窗口、原生输入、标签页隐藏与恢复。
+
+- `python examples/gpu_canvas.py`：独立C++提供者、共享GPU纹理、原生呈现与内嵌视图。
+- `python examples/benchmark_gpu.py`：同一原生CPU源对比Qt/C++呈现，再测共享GPU源。
+- `python examples/verify_gpu_windows.py`：真实DWM图案、GIL独立性、输入和释放握手。
+
+这些示例需先编译原生GPU扩展与CMake SDK，步骤见 [构建文档](../docs/native-gpu.md)。

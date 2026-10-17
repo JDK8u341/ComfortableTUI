@@ -1,5 +1,9 @@
 # 原生缓冲区画布（Windows）
 
+新增 [C++/GPU 数据平面](native-gpu.md)：编译原生扩展后使用 D3D11/DirectComposition，
+帧传输与呈现在 C++ 内完成；支持 GpuFrameSource 以及旧 CPU FrameBuffer。
+未编译时保留本页描述的 Qt 栅格路径。
+
 `OverlayCanvas` 是一个真正的 TUI 控件：在 VBox/HBox/Grid/Panel 中参与布局、裁剪和
 焦点切换，但像素由附加到终端文本区域的透明、无边框共享层显示。一个 App 仅创建一个 GUI
 进程和一个原生 HWND；各画布是内部非原生 Qt 子控件。Windows Terminal 不需要

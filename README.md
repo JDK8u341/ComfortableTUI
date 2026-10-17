@@ -65,3 +65,7 @@ The core is an independent implementation. No osu-mc source or assets are bundle
 MIT licensed.
 
 Windows 画布现使用一个共享附加层显示多个逻辑画布，支持虚拟列表行、表格单元格与 Text 混排。运行 `python examples/embedded_canvas.py`，详见 [共享层调研](docs/shared-overlay-research.md) 和 [画布文档](docs/overlay-canvas.md)。
+
+新增 [C++/GPU 数据平面](docs/native-gpu.md)：独立C++帧提供者SDK、D3D11跨进程共享
+纹理与DirectComposition呈现，Python负责握手和控件控制。编译后运行
+`python examples/gpu_canvas.py`；[调研与实测](docs/native-gpu-research.md)。

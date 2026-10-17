@@ -101,7 +101,10 @@ def _make_window_class():
             self._draw_ms = self._age_ms = 0.0
             self._metrics_time = time.perf_counter()
             self.setWindowTitle("ComfortableTUI OverlayCanvas")
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            if parent and getattr(parent, "native_renderer", False):
+                self.setUpdatesEnabled(False)
+            else:
+                self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
             self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
             self.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents)
@@ -199,6 +202,8 @@ def _make_window_class():
                 self._want_focus = False
 
         def paintEvent(self, event):
+            if self.parentWidget() and getattr(self.parentWidget(), "native_renderer", False):
+                return
             started = time.perf_counter()
             painter = QPainter(self)
             try:
@@ -466,20 +471,29 @@ def _pixel_placement(placement, grid, viewport):
 
 def _make_layer_class():
     """A single native window with non-native QWidget surfaces and one backing store."""
-    from PySide6.QtCore import QEvent, Qt
-    from PySide6.QtGui import QColor, QPainter, QWindow
+    from PySide6.QtCore import QEvent, QRect, Qt
+    from PySide6.QtGui import QColor, QPainter, QRegion, QWindow
     from PySide6.QtWidgets import QApplication, QWidget
+    from .gpu import GpuFrameInfo, _FrameReference
     Surface = _make_window_class()
 
     class OverlayLayer(QWidget):
-        def __init__(self, emit, owner=None):
+        def __init__(self, emit, owner=None, native=False):
             super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
             self.emit, self.owner, self.api = emit, owner, None
             self.items, self.states, self.scheduled = {}, {}, {}
             self.full, self.clipped = PixelRect(), PixelRect()
             self.grid = (80, 24)
+            self.native_renderer = bool(native)
+            self.renderer, self.renderer_luid = None, None
+            self.renderer_hwnd = None
+            self._native_metrics_time, self._native_counts = time.perf_counter(), {}
             self.setWindowTitle("ComfortableTUI shared overlay layer")
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            if native:
+                self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+                self.setUpdatesEnabled(False)
+            else:
+                self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
             self.setMouseTracking(True)
             if owner:
@@ -498,6 +512,7 @@ def _make_layer_class():
         def apply(self, state, viewport):
             self.grid = state["grid"]
             self.place(viewport, viewport)
+            attached = []
             wanted = {item["id"]: item for item in state["items"]}
             for key in list(self.items):
                 incoming = wanted.get(key)
@@ -515,20 +530,24 @@ def _make_layer_class():
                     def route(event, key=key, token=spec.get("token")):
                         self.emit(CanvasEvent(event.kind, dict(event.data, canvas_id=key,
                                               canvas_token=token, layer_rect=self.clipped), event.timestamp))
-                    item = Surface(FrameBuffer.attach(spec["buffer"]), route, parent=self)
+                    if isinstance(spec["buffer"], GpuFrameInfo) and not self.native_renderer:
+                        raise RuntimeError("GPU sources require the native GPU extension and Windows Qt platform")
+                    reference = _FrameReference(spec["buffer"]) if self.native_renderer else FrameBuffer.attach(spec["buffer"])
+                    item = Surface(reference, route, parent=self)
                     self.items[key] = item
                     item.emit(CanvasEvent("ready", {"hwnd": int(self.winId()), "pid": os.getpid(),
                                           "host_hwnd": self.owner, "shared_layer": True,
                                           "platform": QApplication.platformName(),
+                                          "renderer": "d3d11" if self.native_renderer else "qt-raster",
                                           "host_class": self.api.class_name(self.owner) if self.api else ""}))
-                    item.emit(CanvasEvent("buffer_attached", {"buffer": item.buffer.info}))
+                    attached.append(item)
                 if item.buffer.info != spec["buffer"]:
-                    replacement = FrameBuffer.attach(spec["buffer"])
+                    replacement = _FrameReference(spec["buffer"]) if self.native_renderer else FrameBuffer.attach(spec["buffer"])
                     item.buffer.close()
                     item.buffer = replacement
                     item._sequence = 0
                     self.scheduled.pop(key, None)
-                    item.emit(CanvasEvent("buffer_attached", {"buffer": replacement.info}))
+                    attached.append(item)
                     item.update()
                 if self.states.get(key) != spec:
                     item.configure(spec)
@@ -539,10 +558,86 @@ def _make_layer_class():
                     item.place(*mapped)
                     item.raise_()  # Scene order is the TUI's paint order.
                 item.setVisible(visible)
+            if self.native_renderer:
+                self._configure_native(state)
+            for item in attached:
+                item.emit(CanvasEvent("buffer_attached", {"buffer": item.buffer.info}))
             for retired in state.get("retired", ()):
                 self.emit(CanvasEvent("detached", {"canvas_id": retired["id"], "canvas_token": retired["token"]}))
 
+        def _configure_native(self, state):
+            from . import _native_gpu
+            luids = {(s["buffer"].adapter_low, s["buffer"].adapter_high) for s in state["items"]
+                     if isinstance(s["buffer"], GpuFrameInfo)}
+            if len(luids) > 1:
+                raise RuntimeError("all GPU frame sources in a layer must use the same adapter LUID")
+            luid = next(iter(luids), self.renderer_luid or (0, 0))
+            hwnd = int(self.winId())
+            if self.renderer is None or self.renderer_luid != luid or self.renderer_hwnd != hwnd:
+                previous, self.renderer = self.renderer, None
+                if previous:
+                    previous.close()
+                self.renderer = _native_gpu.Compositor(hwnd, *luid)
+                self.renderer_luid = luid
+                self.renderer_hwnd = hwnd
+                self._native_counts.clear()
+                self._native_metrics_time = time.perf_counter()
+            views, mask = [], QRegion()
+            dpr = self.devicePixelRatioF()
+            for spec in state["items"]:
+                item, info = self.items[spec["id"]], spec["buffer"]
+                full, clip = item.full, item.clipped
+                active = spec["placement"] is not None and item.isVisibleTo(self)
+                if active:
+                    mask |= QRegion(item.geometry())
+                def relative(rect):
+                    return (rect.x - self.clipped.x, rect.y - self.clipped.y, rect.width, rect.height)
+                gpu = isinstance(info, GpuFrameInfo)
+                views.append({"id": spec["id"], "gpu": gpu, "name": info.name, "width": info.width,
+                              "height": info.height, "stride": getattr(info, "stride", 0),
+                              "adapter_low": getattr(info, "adapter_low", 0), "adapter_high": getattr(info, "adapter_high", 0),
+                              "pixel_format": info.pixel_format, "full": relative(full) if active else (0, 0, 0, 0),
+                              "clip": relative(clip) if active else (0, 0, 0, 0), "fit": spec["fit"], "smooth": spec["smooth"]})
+            # DirectComposition transparency does not implement per-pixel input
+            # transparency. A native union region preserves TUI input holes.
+            self.setMask(mask if not mask.isEmpty() else QRegion(QRect(-2, -2, 1, 1)))
+            self.renderer.configure(views, max(1, round(self.width() * dpr)), max(1, round(self.height() * dpr)))
+            names = {spec["buffer"].name for spec in state["items"]}
+            self._native_counts = {name: count for name, count in self._native_counts.items() if name in names}
+
+        def setVisible(self, visible):
+            super().setVisible(visible)
+            if getattr(self, "renderer", None):
+                self.renderer.visible(bool(visible))
+
         def animate(self):
+            if self.native_renderer:
+                for item in self.items.values():
+                    if item.isVisible():
+                        item.request_focus()
+                now = time.perf_counter()
+                if self.renderer and now - self._native_metrics_time >= 1:
+                    stats = self.renderer.metrics()
+                    if stats["error"]:
+                        raise RuntimeError(stats["error"])
+                    counts = {}
+                    for metrics in stats["views"]:
+                        key = metrics.pop("id")
+                        if key not in self.items:
+                            continue
+                        frames = metrics.pop("frames")
+                        name = self.items[key].buffer.info.name
+                        previous = self._native_counts.get(name, 0)
+                        if frames < previous:
+                            previous = 0
+                        counts[name] = frames
+                        rate = max(0, frames - previous) / (now - self._native_metrics_time)
+                        metrics.update(painted_fps=rate if self.items[key].isVisible() else 0, source_fps=rate,
+                                       draw_ms=stats["submit_ms"], presents=stats["presents"], renderer="d3d11")
+                        self.items[key].emit(CanvasEvent("metrics", metrics))
+                    self._native_counts.update(counts)
+                    self._native_metrics_time = now
+                return
             for key, item in self.items.items():
                 if item.isVisible():
                     item.request_focus()
@@ -596,6 +691,9 @@ def _make_layer_class():
 
         def shutdown(self):
             self.hide()
+            renderer, self.renderer = self.renderer, None
+            if renderer:
+                renderer.close()
             for item in self.items.values():
                 item.buffer.close()
             self.items.clear()
@@ -617,7 +715,14 @@ def run_overlay(host, commands, events, stop, parent_pid):
         from PySide6.QtWidgets import QApplication
         application = QApplication([])
         application.setQuitOnLastWindowClosed(False)
-        window = _make_layer_class()(sink.emit, host.hwnd)
+        from .gpu import gpu_available
+        backend = os.environ.get("COMFORTABLE_TUI_OVERLAY_BACKEND", "auto")
+        if backend not in ("auto", "native", "qt"):
+            raise RuntimeError("COMFORTABLE_TUI_OVERLAY_BACKEND must be auto, native or qt")
+        native = gpu_available() and application.platformName() == "windows" and backend != "qt"
+        if backend == "native" and not native:
+            raise RuntimeError("native overlay backend requires Windows and COMFORTABLE_TUI_BUILD_GPU=1 extension")
+        window = _make_layer_class()(sink.emit, host.hwnd, native=native)
         state, applied, last_error = None, None, ""
         started = time.perf_counter()
         calibrated, closing, decision = False, False, None

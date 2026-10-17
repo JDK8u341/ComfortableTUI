@@ -1,0 +1,87 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "source_pixels": [
+    1280,
+    720
+  ],
+  "source_fps": 240,
+  "display_pixels": [
+    960,
+    540
+  ],
+  "seconds": 3.0,
+  "adapters": [
+    {
+      "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+      "low": 71547,
+      "high": 0,
+      "software": false
+    },
+    {
+      "name": "AMD Radeon(TM) 780M",
+      "low": 78682,
+      "high": 0,
+      "software": false
+    },
+    {
+      "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+      "low": 149167,
+      "high": 0,
+      "software": false
+    },
+    {
+      "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+      "low": 143843,
+      "high": 0,
+      "software": false
+    },
+    {
+      "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+      "low": 136290,
+      "high": 0,
+      "software": false
+    },
+    {
+      "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+      "low": 119481,
+      "high": 0,
+      "software": false
+    },
+    {
+      "name": "Microsoft Basic Render Driver",
+      "low": 78555,
+      "high": 0,
+      "software": true
+    }
+  ],
+  "note": "submission/paint age, not input-to-photon or DWM scanout; sampled only unique frames after warmup",
+  "results": [
+    {
+      "mode": "qt_cpu",
+      "samples": 285,
+      "source_sequence_delta": 707,
+      "median_ms": 2.7095999998891784,
+      "p95_ms": 4.574000000047818,
+      "max_ms": 26.164800000060495,
+      "endpoint": "Qt paint complete"
+    },
+    {
+      "mode": "native_cpu",
+      "samples": 665,
+      "source_sequence_delta": 718,
+      "median_ms": 0.42540000004009926,
+      "p95_ms": 0.5701999998564133,
+      "max_ms": 11.170900000252004,
+      "endpoint": "DXGI Present return"
+    },
+    {
+      "mode": "native_gpu",
+      "samples": 668,
+      "source_sequence_delta": 718,
+      "median_ms": 0.44084999990445795,
+      "p95_ms": 0.5539999997381528,
+      "max_ms": 0.7310000000870787,
+      "endpoint": "DXGI Present return"
+    }
+  ]
+}

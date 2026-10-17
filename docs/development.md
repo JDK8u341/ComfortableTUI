@@ -71,6 +71,11 @@ python -m mkdocs serve
 本仓库没有自动发布文档或 PyPI 包。发布前更新版本、CHANGELOG、基准与支持范围。
 对所有新公共 API 同时提供文档和可运行使用方式。
 
+原生GPU模块以 `COMFORTABLE_TUI_BUILD_GPU=1` 独立构建；无需同时构建ANSI差分扩展。
+CMake构建独立SDK、提供者和硬件协议测试；CI单独检查Windows SDK/pybind编译及
+无硬件控制API。真实GPU验证见 [原生模块文档](native-gpu.md)，不使用托管runner
+上的编译通过替代真实纹理共享/呈现测试。
+
 ## 当前边界
 
 - alpha API，无 CSS、Markdown、完整富文本、语法高亮或文本选区/撤销。
