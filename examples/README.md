@@ -28,6 +28,7 @@ Gallery 默认目标 120fps，CLI 可用 `python -m comfortable_tui --fps 60` �
 `python examples/verify_overlay_windows.py --embedded` 在自己创建的 Windows Terminal 中验证多画布共享窗口、原生输入、标签页隐藏与恢复。
 
 - `python examples/gpu_canvas.py`：独立C++提供者、共享GPU纹理、原生呈现与内嵌视图。
+- `python examples/gpu_canvas_inprocess.py`：在Python进程内加载pybind11模块，C++线程绘制移动方块；先构建`examples/native`，步骤见SDK文档。
 - `python examples/benchmark_gpu.py`：同一原生CPU源对比Qt/C++呈现，再测共享GPU源。
 - `python examples/verify_gpu_windows.py`：真实DWM图案、GIL独立性、输入和释放握手。
 

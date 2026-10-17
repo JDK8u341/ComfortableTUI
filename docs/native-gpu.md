@@ -45,6 +45,58 @@ GPU源不支持静默降级为CPU，offscreen Qt后端也不能显示GPU源。
 
 ## Python 握手
 
+### 进程内提供者示例
+
+`examples/gpu_canvas_inprocess.py` 将提供者作为 pybind11 模块加载到运行 TUI 的
+Python 进程中，不启动 producer.exe。C++ 线程拥有 FrameProvider、D3D11 context
+和绘制循环，每帧绘制一个移动方块；Python 只创建对象、读取一次通道名称、处理
+布局/输入和关闭。附加层显示进程仍然存在，与其他画布共用，并非把 Qt 窗口放进
+TUI 主进程。图像继续通过共享 GPU 纹理交给原生合成器。
+
+先按上文编译 GPU 扩展和 SDK，再编译单独的示例模块（无需修改或重编 TUI 核心）：
+
+```powershell
+cmake --install .research/gpu-build --config Release --prefix .research/gpu-sdk
+$sdkPath = (Resolve-Path .research/gpu-sdk).Path
+$pythonPath = (Resolve-Path .venv/Scripts/python.exe).Path
+$pybindPath = & $pythonPath -m pybind11 --cmakedir
+cmake -S examples/native -B .research/inprocess-build -A x64 "-DCMAKE_PREFIX_PATH=$sdkPath" "-Dpybind11_DIR=$pybindPath" "-DPython_EXECUTABLE=$pythonPath"
+cmake --build .research/inprocess-build --config Release
+.\.venv\Scripts\python.exe examples/gpu_canvas_inprocess.py
+```
+
+核心用法：
+
+```python
+from _ctui_inprocess_example import InprocessProvider
+from comfortable_tui import App, GpuFrameSource, OverlayCanvas, Panel
+
+provider = InprocessProvider(1280, 720, 120)  # C++ 后台线程，无 Python 绘图回调
+source = None
+try:
+    source = GpuFrameSource.attach(provider.channel_name)
+    with App(Panel(OverlayCanvas(source), "Embedded C++ renderer")) as app:
+        app.run()
+finally:
+    if source is not None:
+        source.close()
+    provider.close()  # App 必须先关闭，释放显示端的读租约
+```
+
+模块搜索路径需包含 `.research/inprocess-build/Release`；完整示例自动添加它，
+也可用 `--module-dir` 指定其他目录。`--fps` 设置生产率；`--check` 无需终端显示，
+在 Python 持有 GIL 时检查 C++ 线程仍在发布帧。这只验证生产线程，不验证屏幕显示。
+
+源码 `examples/native/inprocess_provider.cpp` 展示线程启动握手、异常传回、可中断
+的节拍等待和幂等 close/join。`frames`、`error` 是显式查询的诊断属性，不会触发
+Python 每帧回调。运行中错误可查询 error；构造时设备初始化失败会立即抛出。
+示例使用 condition_variable 定时等待，不承诺严格帧间隔。替换线程里的 ClearView
+即可接入自己的渲染逻辑；已有引擎也可以在自己的渲染线程上直接调用 SDK，无需
+套用这个线程类。当前示例不将鼠标/缩放事件反向传入 C++，仍由 OverlayCanvas
+Python 回调处理；需要交互的引擎可另建控制队列，避免每帧图像进入 Python。
+
+### 独立进程握手
+
 ```python
 from comfortable_tui import App, GpuFrameSource, OverlayCanvas, Panel
 

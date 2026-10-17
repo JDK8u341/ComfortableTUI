@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a separately built pybind11 in-process GPU provider example with a native rendering thread and GIL independence check.
+
 - Add a standalone C++17 frame-provider SDK with shared D3D11 NT textures, bounded latest-frame slots and keyed synchronization.
 - Move native frame transport/composition off Python/GIL to an event-driven DirectComposition worker with DXGI frame latency 1.
 - Add C++ compatibility ingestion for CPU FrameBuffer, GPU handshake descriptors, native demos, real-desktop verification and latency benchmarks.

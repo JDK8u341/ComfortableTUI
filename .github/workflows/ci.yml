@@ -67,6 +67,14 @@ jobs:
           cmake -S . -B build/gpu -A x64
           cmake --build build/gpu --config Release
           cmake --install build/gpu --config Release --prefix build/gpu-sdk
+      - name: Build in-process provider example against installed SDK
+        run: |
+          $sdkPath = (Resolve-Path build/gpu-sdk).Path
+          $pythonPath = (Get-Command python).Source
+          $pybindPath = & $pythonPath -m pybind11 --cmakedir
+          cmake -S examples/native -B build/inprocess -A x64 "-DCMAKE_PREFIX_PATH=$sdkPath" "-Dpybind11_DIR=$pybindPath" "-DPython_EXECUTABLE=$pythonPath"
+          cmake --build build/inprocess --config Release
+          python -c "import sys; sys.path.insert(0, 'build/inprocess/Release'); from _ctui_inprocess_example import InprocessProvider"
       - name: Build pybind11 GPU control plane
         run: python -m pip install --no-build-isolation -e .
         env:
