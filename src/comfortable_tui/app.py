@@ -375,6 +375,14 @@ class App:
         self._prepare_focus(width, height)
         if self.animator.step(dt):
             self._dirty = True
+        # A retired layer has no visible overshoot below zero. Release its
+        # snapshot and native occlusion at the first zero crossing, rather than
+        # waiting for an invisible mathematical spring tail to settle.
+        if self.modal is None and self._modal_motion.target == 0 and self._modal_motion.current <= 0:
+            self._modal_motion.snap()
+            self._modal_picture = None
+        if self._toast_expiring and self._toast_motion.current <= 0:
+            self._toast_motion.snap()
         # Reflow from target geometry after advancing animated offsets.
         self.root.layout(Rect(0, 0, width, height))
         if self.modal:
@@ -383,7 +391,7 @@ class App:
         self._prepare_focus(width, height)
         frame = Canvas(width, height, self.theme.background)
         self.root.draw(frame)
-        if self.modal or self._modal_picture and self._modal_motion.active:
+        if self.modal or (self._modal_picture and self._modal_motion.active):
             # Background image placements must not cover a cell modal.
             frame.graphics.clear()
             frame.overlays.clear()

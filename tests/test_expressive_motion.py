@@ -92,6 +92,8 @@ def test_modal_animates_without_delaying_focus_or_retaining_a_live_widget():
         assert len(app.animator.values) == baseline
         app.render(60, 18, dt=.03)
         assert app._modal_picture is not None
+        app.render(60, 18, dt=.18)
+        assert app._modal_picture is None and not app._modal_motion.active
         frame = settle(app)
         assert app._modal_picture is None and "Dialog" not in frame.plain()
     finally:
