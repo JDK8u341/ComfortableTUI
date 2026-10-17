@@ -15,7 +15,7 @@ ComfortableTUI 是基于 Python 的终端 UI 库。它把嵌入式 OLED 界面�
 8. [自定义控件、测试与贡献](development.md)
 9. [示例程序](https://github.com/JDK8u341/ComfortableTUI/tree/main/examples)
 10. [Exa 调研：焦点与菜单运动优化](motion-research.md)
-11. [Exa 调研：跨平台 WebView 与画布接入](webview-research.md)（方案调研，尚未实现）
+11. [Exa 调研与完整计划：WebView、跨平台附加层与呈现后端](webview-research.md)（方案调研，尚未实现）
 
 项目结构：
 

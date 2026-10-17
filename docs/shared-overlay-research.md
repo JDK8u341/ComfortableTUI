@@ -1,5 +1,8 @@
 # 共享附加层调研与实现
 
+> WebView、macOS/X11/Wayland 附加层及替代呈现模式的后续选型与唯一实施计划，
+> 已合并到 [跨平台完整报告](webview-research.md)。本页仍记录 Windows 共享层的历史实现依据。
+
 > 共享层的控件/输入架构仍然使用。当前可选的
 > [C++ GPU 数据平面](native-gpu.md) 已替换其逐帧传输与呈现路径；
 > 本页 Qt backing-store 基准作为原路径记录保留。

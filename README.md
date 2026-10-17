@@ -44,6 +44,7 @@ the selected page. The focused menu title shows a `›` marker and underline.
 - [Exa 调研：焦点与菜单动画优化](docs/motion-research.md)
 - [Windows 原生缓冲区画布](docs/overlay-canvas.md)
 - [Exa 调研：覆盖窗口与性能](docs/overlay-research.md)
+- [Exa 完整报告与计划：WebView 和跨平台附加层](docs/webview-research.md)（尚未实现）
 - [架构与动画](docs/architecture.md)
 - [全部控件与交互](docs/widgets.md)
 - [公共 API](docs/api.md)
