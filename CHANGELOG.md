@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.4 — 2026-10-18
 
 - Add an optional fixed maximum to BarChart so percentage charts can use an absolute 0..100 scale while default charts keep relative scaling.
 
