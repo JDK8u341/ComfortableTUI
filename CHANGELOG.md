@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 — 2026-10-18
 
 - Simplify browser policies to service defaults plus one final per-page configuration; make CEF the only URL/origin parser (security protocol 2).
 - Cache profile preferences and completed origin permission pairs; remove forced audio muting and add explicit set_muted().
