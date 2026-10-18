@@ -18,7 +18,7 @@ dangerous web permissions. Host Python, native extensions and frame providers re
 trusted; importing a plugin is not a sandbox. See the [security model](docs/security-model.md)
 and [reporting policy](SECURITY.md). A matching rebuilt browser helper is required.
 
-**状态：0.1 alpha。** 面向开发者的通用 TUI 库，Python 3.10+，支持 Windows、Linux、macOS
+**状态：0.1.2 alpha。** 面向开发者的通用 TUI 库，Python 3.10+，支持 Windows、Linux、macOS
 的 VT 终端。字符文字仍然受终端网格限制；像素画布在支持 Kitty graphics 的终端中可按像素移动。
 
 ```sh

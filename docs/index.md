@@ -6,7 +6,9 @@
 ComfortableTUI 是基于 Python 的终端 UI 库。它把嵌入式 OLED 界面中的目标值、弹簧、
 局部刷新机制迁移到终端，同时提供表单、集合、布局和像素画布。
 
-本手册对应 **0.1.0 alpha**。API 仍可能调整；已实现行为和边界均在下列页面说明。
+本手册对应 **0.1.2 alpha**。API 仍可能调整；已实现行为和边界均在下列页面说明。
+浏览器服务需要匹配的安全协议 2 helper；升级库时应同时更新完整 CEF 运行时。
+具体迁移与验证见[浏览器实现简化](browser-simplification.md)和[安全模型](security-model.md)。
 
 1. [安装、运行与第一个应用](getting-started.md)
 2. [osu-mc 原理与现有 TUI 库调研](research.md)
