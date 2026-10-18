@@ -130,6 +130,9 @@ def test_continuous_resizes_and_mirrors_keep_all_inflight_sources_until_latest_a
         view._emit(CanvasEvent("attaching", {"buffer": page.source.info}))
         view._emit(CanvasEvent("buffer_attached", {"buffer": page.source.info}))
     original = page.source
+    first.set_buffer(original)
+    assert first._awaiting_buffer is None  # No new helper ack is sent for an unchanged source.
+    assert page._attachments[first._event_token] == original.info
     page.resize(12, 12)
     intermediate = page.source
     page.resize(16, 16)

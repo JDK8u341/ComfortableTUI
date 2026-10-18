@@ -152,8 +152,9 @@ class OverlayCanvas(Widget):
     def set_buffer(self, buffer: FrameBuffer | GpuFrameSource):
         """Keep the old buffer alive until the new buffer_attached event arrives."""
         buffer._check_open()
+        changed = self.buffer.info != buffer.info
         self.buffer = buffer
-        if self._session is not None:
+        if changed and self._session is not None:
             self._emit(CanvasEvent("attaching", {"buffer": buffer.info}))
         self.invalidate()
 

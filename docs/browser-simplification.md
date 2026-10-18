@@ -89,7 +89,8 @@ with BrowserService(policy=BrowserPolicy()) as browser:
 
 单元测试 Windows 256 passed / 1 skipped，WSL2 240 passed / 6 skipped；数量变化包括
 移除 Python URL 解释测试，改由原生专项覆盖。新增检查每次 App 推进只 poll 一次、
-连续两次 resize、旧确认迟到、多视图及关闭后等待 detach。Ruff 和 MkDocs strict 通过。
+连续两次 resize、旧确认迟到、多视图、重复设置相同源不等待新确认，以及关闭后等待
+detach。Ruff 和 MkDocs strict 通过。
 
 集成过程中，WSL 的固定 4 秒采样断言出现过失败；未放宽断言，最终结果单独保存。
 Windows 首次临时启动脚本缺少 multiprocessing main guard 导致 helper 退出，修正了
