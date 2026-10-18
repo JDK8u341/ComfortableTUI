@@ -1,9 +1,9 @@
 # WebView 服务与 Linux 窗口宿主
 
 本模块是可选的上层服务。CEF 管理网页、Cookie 和 JS；普通图像 SDK 只认识帧。
-基础字符 TUI 不依赖 CEF 或 Qt。当前版本提供 Windows 与 Linux 的原生 CPU 共享帧
-闭环，不支持 macOS。GPU SDK 原有能力保留，但本次浏览器输出没有使用共享 GPU
-纹理；Linux 的 DMA-BUF 导入也未实现。
+基础字符 TUI 不依赖 CEF 或 Qt。默认使用 Windows 与 Linux 的原生 CPU 共享帧闭环，
+Windows 可通过 `open(..., render_mode="gpu")` 选择 [GPU 纹理模式](webview-gpu.md)。
+不支持 macOS；Linux 的 DMA-BUF 导入未实现，X11/Wayland 仍使用 CPU WindowHost。
 
 ## 构建
 

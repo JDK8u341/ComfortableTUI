@@ -33,6 +33,132 @@ class FakeProcess:
         return []
 
 
+@pytest.fixture
+def gpu_browser_service(monkeypatch, tmp_path):
+    from comfortable_tui.gpu import GpuFrameInfo, GpuFrameSource
+
+    class GpuProcess(FakeProcess):
+        counter = 0
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.capabilities["gpu_texture_transport"] = 1
+
+        def request(self, op, **kwargs):
+            result = super().request(op, **kwargs)
+            if op in ("open", "resize"):
+                self.counter += 1
+                info = kwargs["source"]
+                result.update(frame_backend="native_gpu_d3d11", source=dict(
+                    name="Local\\CTUI_GPU_" + f"{self.counter:032x}", width=info["width"], height=info["height"]))
+            return result
+
+    sizes = {}
+    original = GpuProcess.request
+
+    def request(self, op, **kwargs):
+        result = original(self, op, **kwargs)
+        if "source" in result:
+            sizes[result["source"]["name"]] = result["source"]
+        return result
+
+    GpuProcess.request = request
+
+    def attach(name):
+        info = sizes[name]
+        return GpuFrameSource(GpuFrameInfo(name, info["width"], info["height"], 1, 0))
+
+    monkeypatch.setattr(browser, "NativeProcess", GpuProcess)
+    monkeypatch.setattr(browser, "gpu_available", lambda: True)
+    monkeypatch.setattr(GpuFrameSource, "attach", attach)
+    executable = tmp_path / "ctui_browser"
+    executable.touch()
+    with browser.BrowserService(executable=executable) as service:
+        yield service
+
+
+def test_gpu_frames_use_descriptors_and_release_only_after_display_ack(gpu_browser_service, monkeypatch):
+    from comfortable_tui import CanvasEvent, WebView
+
+    def unexpected_cpu_allocation(*args, **kwargs):
+        raise AssertionError("GPU mode must not allocate a CPU pixel buffer")
+
+    monkeypatch.setattr(browser, "FrameBuffer", unexpected_cpu_allocation)
+    page = gpu_browser_service.open("about:blank", width=16, height=12, render_mode="gpu")
+    view = WebView(page)
+    view._session = object()
+    view._emit(CanvasEvent("attaching", {"buffer": page.source.info}))
+    first = page.source
+    page.resize(20, 14)
+    second = page.source
+    page.resize(24, 16)
+    assert len(page._buffers) == 3
+    assert not first._closed and not second._closed
+    view._emit(CanvasEvent("buffer_attached", {"buffer": page.source.info}))
+    assert first._closed and second._closed
+    final = page.source
+    page.close()
+    view.close()
+    assert not final._closed
+    view._emit(CanvasEvent("detached"))
+    assert final._closed
+    releases = [data["name"] for op, data in gpu_browser_service._rpc.messages if op == "release_gpu_frame"]
+    assert releases == [first.info.name, second.info.name, final.info.name]
+
+
+def test_gpu_surface_budget_includes_retired_allocations(gpu_browser_service):
+    from comfortable_tui import BrowserLimits, CanvasEvent, WebView
+
+    gpu_browser_service.limits = BrowserLimits(max_frame_bytes=3000, max_total_frame_bytes=4500)
+    page = gpu_browser_service.open("about:blank", width=10, height=10, render_mode="gpu")
+    view = WebView(page)
+    view._session = object()
+    view._emit(CanvasEvent("attaching", {"buffer": page.source.info}))
+    page.resize(10, 10)
+    with pytest.raises(PermissionError, match="total buffer"):
+        page.resize(10, 10)
+    view._emit(CanvasEvent("buffer_attached", {"buffer": page.source.info}))
+    page.resize(10, 10)
+    view._emit(CanvasEvent("detached"))
+    view.close()
+
+
+def test_gpu_unavailable_never_silently_falls_back(browser_service, monkeypatch):
+    monkeypatch.setattr(browser, "gpu_available", lambda: True)
+    with pytest.raises(RuntimeError, match="GPU-capable CEF"):
+        browser_service.open("about:blank", render_mode="gpu")
+    assert not browser_service._pages
+    with pytest.raises(ValueError, match="render_mode"):
+        browser_service.open("about:blank", render_mode="auto")
+
+
+def test_gpu_backend_must_be_confirmed_by_the_helper(browser_service, monkeypatch):
+    monkeypatch.setattr(browser, "gpu_available", lambda: True)
+    browser_service.capabilities["gpu_texture_transport"] = 1
+    with pytest.raises(RuntimeError, match="negotiate strict GPU"):
+        browser_service.open("about:blank", render_mode="gpu")
+    assert not browser_service._pages
+    operations = [op for op, fields in browser_service._rpc.messages]
+    assert operations[-2:] == ["close", "release_gpu_page"]
+
+
+def test_failed_gpu_resize_attachment_closes_page_and_releases_new_channel(gpu_browser_service, monkeypatch):
+    from comfortable_tui import GpuFrameSource
+
+    page = gpu_browser_service.open("about:blank", width=16, height=12, render_mode="gpu")
+    old = page.source
+
+    def unavailable(name):
+        raise OSError("cannot attach new GPU channel")
+
+    monkeypatch.setattr(GpuFrameSource, "attach", unavailable)
+    with pytest.raises(OSError, match="cannot attach"):
+        page.resize(20, 16)
+    assert page._closed and old._closed
+    releases = [fields["name"] for op, fields in gpu_browser_service._rpc.messages if op == "release_gpu_frame"]
+    assert len(releases) == 2 and releases[0] == old.info.name
+
+
 @pytest.mark.parametrize("application_id", [None, "example.application"])
 def test_fresh_roots_start_without_interactive_browser_onboarding(monkeypatch, tmp_path, application_id):
     monkeypatch.setattr(browser, "NativeProcess", FakeProcess)

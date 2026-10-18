@@ -46,3 +46,9 @@ Gallery 默认目标 120fps，CLI 可用 `python -m comfortable_tui --fps 60` �
 这些示例需先编译原生GPU扩展与CMake SDK，步骤见 [构建文档](../docs/native-gpu.md)。
 
 综合系统监视器已迁移到独立项目 [ComfortableTop](https://github.com/JDK8u341/ComfortableTop)，不再随本库 examples 分发。
+
+- `python examples/webview_gpu.py`：Windows CEF GPU 纹理输出，含列表/表格/Text 镜像与标签隐藏；可用 `--render-mode cpu` 对照。
+- `python examples/webview.py --render-mode gpu`：GPU 模式下的多页面、独立账号与消息示例。
+- `python examples/verify_webview_gpu_windows.py --report gpu-report.json --benchmark-seconds 2`：真实 GPU/DWM 验证与同网页 CPU/GPU 采样。
+
+这些 WebView 示例需要匹配的新 CEF helper；构建、预算与同步说明见 [WebView GPU 文档](../docs/webview-gpu.md)。

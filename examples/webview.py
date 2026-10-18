@@ -20,6 +20,7 @@ from comfortable_tui import (App, BrowserService, Button, DataTable, HBox, Label
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", choices=("x11", "wayland"))
+    parser.add_argument("--render-mode", choices=("cpu", "gpu"), default="cpu")
     parser.add_argument("--smoke-seconds", type=float, default=0)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
@@ -55,7 +56,7 @@ def main():
     try:
         with BrowserService("org.comfortabletui.examples.webview", display_platform=args.platform) as browser:
             record("browser_service", browser.capabilities)
-            options = dict(origins=[origin], publish_topics=["selection.changed"],
+            options = dict(render_mode=args.render_mode, origins=[origin], publish_topics=["selection.changed"],
                            subscribe_topics=["selection.changed"], message_group="demo-link")
             first = browser.open(origin + "/demo.html", profile=browser.profile("account-a", persistent=True), **options)
             second = browser.open(origin + "/demo.html", profile=browser.profile("account-b"), **options)
@@ -87,6 +88,10 @@ def main():
                     message_group="demo-link")), Button("Quit", lambda: app.exit()), height=1))
             with App(root) as app:
                 if args.smoke_seconds:
+                    app.call_later(3, lambda: tabs.select(1))
+                    app.call_later(4, lambda: listing.select(20))
+                    app.call_later(5, lambda: record("checkpoint", {"phase": "embedded", "items": len(app._overlay_placements)}))
+                    app.call_later(6, lambda: tabs.select(0))
                     app.call_later(8, lambda: tabs.select(2))
                     app.call_later(9.5, lambda: record("checkpoint", {"phase": "hidden", "items": len(app._overlay_placements)}))
                     app.call_later(10, lambda: tabs.select(0))
@@ -100,6 +105,8 @@ def main():
                     with WindowHost(app, display_platform=args.platform) as host:
                         record("window_host", host.capabilities)
                         host.run()
+                if args.report and args.render_mode == "gpu":
+                    record("frame_stats", {"first": first.frame_stats(), "second": second.frame_stats()})
     finally:
         server.shutdown()
         server.server_close()

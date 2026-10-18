@@ -201,6 +201,10 @@ TerminalHost 须一致；详见 [画布接口](overlay-canvas.md)。
 
 ## 原生 C++ / GPU
 
+WebView 的 `BrowserService.open(..., render_mode="cpu" | "gpu")` 默认 CPU；GPU 仅支持
+Windows 的匹配 helper 与原生扩展。`BrowserPage.frame_stats()` 提供低频原生帧诊断。
+GPU 页的 source 是 GpuFrameSource，画布事件和内嵌接口不变；详见 [WebView GPU](webview-gpu.md)。
+
 `GpuFrameInfo` 与 `GpuFrameSource.attach(channel_name)` 只用于握手，GpuFrameSource
 可直接传入 OverlayCanvas；它没有Python逐帧read/write/sequence接口。
 `gpu_available()` 检查Windows原生扩展是否可导入，不代表当前GPU/桌面运行可用。

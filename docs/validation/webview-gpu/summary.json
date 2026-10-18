@@ -1,0 +1,24 @@
+{
+  "windows_tests": {
+    "passed": 261,
+    "skipped": 1
+  },
+  "linux_tests": {
+    "passed": 245,
+    "skipped": 6
+  },
+  "gpu_checks": 9,
+  "security_checks": 17,
+  "CPU_feature_checks_per_platform": 14,
+  "comfortable_top": {
+    "version": "0.1.3",
+    "checks": 10,
+    "driver": "Test worker explicitly defaults BrowserService.open to render_mode=gpu; Top source/defaults unchanged."
+  },
+  "source": "codex/webview-gpu-textures",
+  "limitations": [
+    "Windows D3D11 only. Linux GPU is not implemented.",
+    "GPU copies and completion waits are required; not zero-copy or a universal latency guarantee.",
+    "CPU/GPU samples use 640x360 display area and cannot establish fullscreen source-resolution FPS."
+  ]
+}

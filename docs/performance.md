@@ -141,6 +141,10 @@ ListView/DataTable 的 widget 工厂只构建可见行，离屏控件立即卸�
 
 ## C++ 原生帧传输与共享 GPU
 
+这里直接 SDK 提供者的路径与 WebView 上层适配不同：CEF 的借用纹理必须先复制到
+服务自有纹理，再合成到共享槽。WebView GPU 模式避免 CPU 像素回读/上传，但不是
+零 GPU 复制；复制完成等待和实际采样见 [WebView GPU 调研](webview-gpu-research.md)。
+
 独立C++生产者、240fps、960×540显示区，三秒采样的帧龄中位数：
 
 | 输入尺寸 | Qt CPU绘制完成 | C++ CPU Present返回 | 共享GPU Present返回 |
