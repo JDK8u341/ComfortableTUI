@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 — 2026-10-18
 
 - Suspend Linux graphical/WebView support: withdraw the separate Qt WindowHost, reject Linux GUI build options, and retain terminal-mode/core and portable CPU SDK checks. Existing WSL window tests are historical evidence, not external-terminal compatibility.
 

@@ -68,7 +68,8 @@ Kitty 图像协议允许图像与文字一起定位、缩放和滚动，提供�
 - Top 在 Linux 仅允许 terminal 模式；bootstrap 仅允许 `--terminal-only`，拒绝图形
   运行时构建，不再自动发现旧 Linux 图形运行时。
 - 当前安装指南撤下 Linux GUI 命令。旧报告明确标记为历史自有窗口结果。
-- 已发布版本和归档不会被静默改写；这些变更首先位于当前开发分支。
+- 从 ComfortableTUI 0.1.3 起生效，旧版归档保留原样。ComfortableTop 0.1.4 起整体
+  仅提供 Windows 版本；库的 Linux 纯 TUI 与可移植 CPU SDK 不受影响。
 
 ## 恢复支持的条件
 
