@@ -9,6 +9,7 @@ from .data import DataTable, DirectoryTree, ListView, RadioGroup, Select, Select
 from .events import Capability, InputParser, Key, Mouse, Paste
 from .graphics import KittyEncoder, PixelCanvas, Surface
 from .gpu import GpuFrameInfo, GpuFrameSource, gpu_available
+from .glass import GlassCard, GlassControl, GlassEvent, GlassTheme, GlassWorkspace
 from .overlay import (CanvasEvent, CanvasTransform, FrameBuffer, FrameBufferInfo, FrameLease,
                       OverlayCanvas, PixelRect, TerminalHost)
 from .renderer import FrameStats, FrameTiming, Renderer
@@ -31,6 +32,7 @@ __all__ = [
     "CanvasEvent", "CanvasTransform", "FrameBuffer", "FrameBufferInfo", "FrameLease",
     "OverlayCanvas", "PixelRect", "TerminalHost",
     "GpuFrameInfo", "GpuFrameSource", "gpu_available",
+    "GlassCard", "GlassControl", "GlassEvent", "GlassTheme", "GlassWorkspace",
     "BrowserService", "BrowserProfile", "BrowserPage", "BrowserPolicy", "BrowserLimits", "WebView",
     "WindowHost",
 ]

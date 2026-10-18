@@ -249,8 +249,9 @@ class HostTracker:
     An explicit viewport bypasses UIA and tracks the owner's client origin.
     """
 
-    def __init__(self, host, grid):
+    def __init__(self, host, grid, *, visibility_only=False):
         self.host, self.grid = host, grid
+        self.visibility_only = visibility_only
         self.api = Win32()
         self._lock, self._stop = threading.Lock(), threading.Event()
         self._snapshot = HostSnapshot(host.viewport, host.viewport is not None)
@@ -307,9 +308,15 @@ class HostTracker:
                     raise RuntimeError("Ambiguous terminal text panes; focus the desired pane or set pane_index")
                 element = focused[0] if focused else candidates[0]
             # Pin the element, never silently switch to a different terminal tab/pane.
-            pattern = element.GetCurrentPattern(uia.UIA_TextPatternId).QueryInterface(uia.IUIAutomationTextPattern)
+            pattern = None if self.visibility_only else element.GetCurrentPattern(
+                uia.UIA_TextPatternId).QueryInterface(uia.IUIAutomationTextPattern)
             while not self._stop.is_set():
                 try:
+                    if self.visibility_only:
+                        with self._lock:
+                            self._snapshot = HostSnapshot(None, not element.CurrentIsOffscreen)
+                        self._stop.wait(.1)
+                        continue
                     if element.CurrentIsOffscreen:
                         snapshot = HostSnapshot(None, False)
                     else:

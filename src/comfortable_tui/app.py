@@ -65,6 +65,7 @@ class App:
         self._overlay_sessions = {}
         self._overlay_placements = {}
         self._event_pollers = []
+        self._glass_workspaces = []
         self._terminal = None
         self._toast, self._toast_timer = "", None
         self.on_frame = None
@@ -543,6 +544,8 @@ class App:
                     try:
                         terminal.stop_input()
                     finally:
+                        for workspace in list(self._glass_workspaces):
+                            workspace.close()
                         self._close_overlays()
                         for encoder in self._images.values():
                             terminal.write(encoder.delete())
@@ -554,6 +557,8 @@ class App:
 
     def close(self):
         self.exit()
+        for workspace in list(self._glass_workspaces):
+            workspace.close()
         self._close_overlays()
         self.close_modal()
         self.root.unmount()

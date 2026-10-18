@@ -10,6 +10,9 @@ nav:
   - 弹性动效调研与验证: expressive-motion-research.md
   - 帧调度与卡顿排查: frame-pacing.md
   - 原生缓冲区画布: overlay-canvas.md
+  - 终端周边玻璃工作区: glass-workspace.md
+  - 玻璃 UI 调研与计划: glass-research-plan.md
+  - 玻璃 UI 验证记录: validation/glass/README.md
   - 叠加层移动同步: overlay-tracking.md
   - 覆盖画布调研: overlay-research.md
   - 共享附加层调研: shared-overlay-research.md

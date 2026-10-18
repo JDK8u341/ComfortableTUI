@@ -13,6 +13,10 @@ invalidate。App.close 会清理所有事件源。WebView 使用该接口轮询�
 导入路径统一为 `comfortable_tui`。控件构造参数见[控件手册](widgets.md)。以下补充所有
 基础设施与生命周期 API；下划线成员为内部实现，不承诺兼容。
 
+可选的终端周边 UI 导出 `GlassWorkspace`、`GlassCard`、`GlassControl`、`GlassTheme`、
+`GlassEvent`，完整参数与事件表见[玻璃工作区 API](glass-workspace.md)。它使用自身原生
+控件模型和 App 事件源，不属于终端字符 Widget，也不依赖浏览器服务。
+
 ## App
 
 `App.on_frame` 可设为轻量的 `callback(FrameTiming)`，采集真实循环各阶段耗时；

@@ -22,6 +22,8 @@ Linux WindowHost 和 WebView 图形运行路径已经暂停；旧 Linux GUI 验�
 | `python examples/embedded_canvas.py` | 一个 HWND 中的列表行、表格单元格、Text 混排、标签切换与弹窗画布；安装 `.[overlay]` |
 | `python examples/benchmark_overlay_layer.py` | 1/4/16 画布局部/全部更新的 Qt CPU 合成采样 |
 | `python examples/overlay_canvas.py` | Windows 透明原生画布、独立渲染进程、缓冲区、缩放与输入；先安装 `.[overlay]` |
+| `python -m examples.glass_workspace` | Windows 终端周围的自有原生玻璃卡片，四种空间布局、笔记与 CPU/GPU 画布；先构建 GPU 扩展，见[专用指南](glass_workspace/README.md) |
+| `python examples/verify_glass_windows.py --report .build/glass.json` | 自有原生窗口夹具，验证玻璃交互、帧呈现、移动、焦点和清理；需要真实桌面 |
 | `python examples/benchmark_overlay.py --qt` | 共享缓冲区与 Qt 离屏性能；不代表屏幕 FPS |
 | `python examples/verify_overlay_windows.py` | 创建专用 Windows Terminal，验证原生定位/层级/输入并退出 |
 | `python examples/benchmark.py --frames 300` | CPU 基准；不包含真实终端显示耗时 |

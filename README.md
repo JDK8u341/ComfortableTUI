@@ -11,6 +11,12 @@ Windows also has an optional **native overlay canvas**: external renderers write
 shared image buffers, displayed in transparent owned windows with scaling and
 mouse/keyboard/IME events. See the [canvas guide](docs/overlay-canvas.md).
 
+Development branch: [GlassWorkspace](docs/glass-workspace.md) adds optional Windows
+cards **around the terminal**, with native glass materials, spring-driven orbit/deck/
+ribbon/focus layouts and existing CPU/shared-GPU canvas sources. Its controls use
+our own C++/Direct2D UI; no WebView is started. See the [research and plan](docs/glass-research-plan.md)
+and [standalone example](examples/glass_workspace/README.md). This feature is not in 0.1.5.
+
 **Platform scope:** Linux graphical/WebView support is suspended. The former Qt
 `WindowHost` was a separate application window, not an overlay in an existing
 terminal. Linux terminal widgets and terminal-protocol pixel output remain available.

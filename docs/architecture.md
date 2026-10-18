@@ -128,3 +128,11 @@ C++独立线程等待帧事件和DXGI呈现容量，读取最新纹理、持有�
 DirectComposition。Python不进行逐帧序号检查或像素处理。配置/附着/解除订阅是
 有确认的控制快照，等待时释放GIL。旧CPU共享内存也有C++读取/上传适配器。
 详见 [数据平面调研](native-gpu-research.md)。
+
+## 可选终端周边 UI
+
+`GlassWorkspace` 复用帧协议与 Compositor，在真实终端周围管理多张 Win32 卡片。
+Direct2D/DirectWrite 在共享 BGRA 纹理绘制自有控件，外部 CPU/GPU 来源作为另一层
+合成。窗口、动画、命中、DPI、MSAA 与焦点背景由 C++ GlassHost 的 STA 负责，Python
+只提交有界场景、保留待确认来源和消费事件。原内嵌 OverlayCanvas 不改变布局语义。
+见[架构、API 与限制](glass-workspace.md)和[实施前调研](glass-research-plan.md)。

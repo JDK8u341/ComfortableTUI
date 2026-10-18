@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Glass Workspace development
+
+- Add an optional native Windows peripheral-card UI using existing FrameProvider/Compositor infrastructure, without WebView or per-frame Python drawing.
+- Add interruptible orbit/deck/ribbon/focus layouts, system Acrylic/Mica with solid fallback, focus-group backgrounds, nine native control kinds and an MSAA bridge.
+- Preserve canvas source references through attachment acknowledgements and protect native edits from stale scene updates; support real-terminal binding and explicit HWND hosts.
+- Add a standalone CPU/shared-GPU developer-workspace example, native signal provider, real-desktop verification, research plan and API documentation. Graphical support remains Windows-only.
+
 ## 0.1.5 — 2026-10-18
 
 - Follow Windows terminal movement through scoped location events and a translation-only overlay path, avoiding native scene handshakes on every move. Reject UIA geometry samples taken during movement; retain full resize/DPI/layout configuration.
