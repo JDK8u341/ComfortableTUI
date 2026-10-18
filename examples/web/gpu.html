@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>GPU texture WebView</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: rgb(17,34,51); color: white; font: 16px sans-serif; }
+  #swatch { position: absolute; left: 0; top: 0; width: 40%; height: 30%; background: rgb(255,64,0); }
+  #moving { position: absolute; left: 0; bottom: 0; width: 12%; height: 20%; background: #77e0c2; animation: travel 2s linear infinite alternate; }
+  @keyframes travel { to { transform: translateX(600%); } }
+  main { position: absolute; left: 8%; top: 38%; width: 84%; }
+  select, input, button { font: inherit; max-width: 100%; margin: 4px 0; }
+  #value { white-space: nowrap; }
+</style>
+<div id="swatch"></div><div id="moving"></div>
+<main>
+  <strong>CEF → shared D3D11 texture → TUI</strong><br>
+  <select id="choices"><option>Apple</option><option>Banana</option><option>Cherry</option></select>
+  <input id="entry" placeholder="Keyboard / IME input" aria-label="Text input">
+  <button id="send">Send message</button><div id="value">No selection yet</div>
+</main>
+<script>
+  const choices = document.getElementById('choices');
+  choices.onchange = () => document.getElementById('value').textContent = choices.value;
+  document.getElementById('send').onclick = () => comfortable.publish('gpu.demo', {value: document.getElementById('entry').value});
+</script>

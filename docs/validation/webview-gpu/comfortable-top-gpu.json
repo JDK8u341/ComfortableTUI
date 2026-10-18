@@ -1,0 +1,86 @@
+{
+  "mode": "hybrid",
+  "canvas": "gpu",
+  "platform": null,
+  "checks": [
+    "live_non_warmup_metrics",
+    "filter_and_pin_by_identity",
+    "pause_retains_snapshot",
+    "independent_browser_page_and_embedded_enter_escape",
+    "telemetry_message_published",
+    "settings_and_repeatable_help_modal",
+    "chinese_tui_and_all_pages_while_sampling_paused",
+    "browser_viewport_reflows_and_chart_fills_panel",
+    "browser_telemetry_received_and_selection_roundtrip",
+    "english_switch_preserves_native_browser_pages"
+  ],
+  "browser_viewports": {
+    "overview": {
+      "chartHeight": 57,
+      "chartWidth": 535,
+      "documentWidth": 547,
+      "height": 147,
+      "titleSize": 18,
+      "width": 547
+    },
+    "(12796, 1792216494.3955252)": {
+      "chartHeight": 39,
+      "chartWidth": 516,
+      "documentWidth": 528,
+      "height": 129,
+      "titleSize": 18,
+      "width": 528
+    }
+  },
+  "language": "en",
+  "samples": 15,
+  "processes": 339,
+  "sampler_errors": 0,
+  "native_frames": {
+    "selected": 304,
+    "cpu": 247,
+    "watch-0": 172
+  },
+  "native_errors": {},
+  "canvas_events": {
+    "selected": {
+      "attaching": 1,
+      "layer_status": 2,
+      "ready": 1,
+      "buffer_attached": 1,
+      "show": 2,
+      "transform": 29,
+      "move": 28,
+      "resize": 11,
+      "metrics": 16,
+      "hide": 1,
+      "detached": 1
+    },
+    "cpu": {
+      "attaching": 1,
+      "ready": 1,
+      "show": 1,
+      "buffer_attached": 1,
+      "transform": 16,
+      "move": 16,
+      "resize": 14,
+      "metrics": 11,
+      "hide": 1,
+      "detached": 1
+    },
+    "watch-0": {
+      "attaching": 1,
+      "ready": 1,
+      "show": 1,
+      "buffer_attached": 1,
+      "transform": 21,
+      "move": 21,
+      "resize": 2,
+      "metrics": 14,
+      "hide": 1,
+      "detached": 1
+    }
+  },
+  "browser_pages": 2,
+  "result": "passed"
+}

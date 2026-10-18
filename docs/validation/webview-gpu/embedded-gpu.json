@@ -1,0 +1,60 @@
+{
+  "result": "passed",
+  "checkpoints": {
+    "embedded": 9,
+    "hidden": 0,
+    "modal": 0
+  },
+  "pages": {
+    "first": {
+      "accelerated_paints": 1058.0,
+      "copy_wait_ms": 420.42830000000004,
+      "cpu_paints": 0,
+      "dropped_frames": 0.0,
+      "error": "",
+      "frame_backend": "native_gpu_d3d11",
+      "popup": {
+        "height": 0,
+        "visible": false,
+        "width": 0,
+        "x": 0,
+        "y": 0
+      },
+      "popup_paints": 0.0,
+      "published_frames": 1058.0
+    },
+    "second": {
+      "accelerated_paints": 1117.0,
+      "copy_wait_ms": 582.3225000000004,
+      "cpu_paints": 0,
+      "dropped_frames": 0.0,
+      "error": "",
+      "frame_backend": "native_gpu_d3d11",
+      "popup": {
+        "height": 0,
+        "visible": false,
+        "width": 0,
+        "x": 0,
+        "y": 0
+      },
+      "popup_paints": 0.0,
+      "published_frames": 1117.0
+    }
+  },
+  "event_counts": {
+    "attaching": 24,
+    "browser_service": 1,
+    "buffer_attached": 19,
+    "checkpoint": 3,
+    "detached": 24,
+    "frame_stats": 1,
+    "hide": 15,
+    "layer_status": 48,
+    "metrics": 164,
+    "move": 85,
+    "ready": 19,
+    "resize": 46,
+    "show": 25,
+    "transform": 85
+  }
+}

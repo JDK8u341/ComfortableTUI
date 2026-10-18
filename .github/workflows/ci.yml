@@ -85,16 +85,12 @@ jobs:
           python -m pytest tests/test_gpu.py tests/test_overlay_qt.py -q
         env:
           QT_QPA_PLATFORM: offscreen
-  native-linux-host-build:
+  portable-cpu-sdk-build:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install Qt development files
-        run: sudo apt-get update && sudo apt-get install -y qt6-base-dev qt6-wayland libgl1-mesa-dev libopengl-dev ninja-build
-      - name: Build portable frame SDK and optional native Linux window host
+      - name: Build portable CPU frame SDK (no Linux graphical support)
         run: |
-          cmake -S . -B build/linux-host -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOMFORTABLE_TUI_BUILD_LINUX_HOST=ON
-          cmake --build build/linux-host -j 2
-          cmake --install build/linux-host --prefix build/linux-sdk
-      # Real CEF and Wayland desktop checks remain explicit local verification;
-      # building this target does not establish a compositor or GPU capability.
+          cmake -S . -B build/cpu-sdk -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/cpu-sdk -j 2
+          cmake --install build/cpu-sdk --prefix build/portable-sdk

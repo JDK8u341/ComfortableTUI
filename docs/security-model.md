@@ -207,9 +207,9 @@ python examples/verify_browser_security.py --browser PATH/ctui_browser.exe --rep
 python examples/verify_webview.py --browser PATH/ctui_browser.exe --report OTHER-NEW.json
 ```
 
-Linux 对两个实际图形会话分别传 --platform x11 和 --platform wayland；不能用
-offscreen 代替。验证结果、性能对照和已知限制应随提交保存，不根据“编译通过”
-就声称某个 OS 沙箱已启用。
+旧 Linux 图形会话验证是历史自有窗口结果，当前图形支持已暂停，见
+[支持决策](linux-support-decision.md)。验证结果、性能对照和已知限制应随提交保存，
+不根据“编译通过”就声称某个 OS 沙箱已启用。
 
 ## 维护与发布约束
 

@@ -1,9 +1,10 @@
-# WebView 服务与 Linux 窗口宿主
+# Windows WebView 服务
 
 本模块是可选的上层服务。CEF 管理网页、Cookie 和 JS；普通图像 SDK 只认识帧。
-基础字符 TUI 不依赖 CEF 或 Qt。当前版本提供 Windows 与 Linux 的原生 CPU 共享帧
-闭环，不支持 macOS。GPU SDK 原有能力保留，但本次浏览器输出没有使用共享 GPU
-纹理；Linux 的 DMA-BUF 导入也未实现。
+基础字符 TUI 不依赖 CEF 或 Qt。当前图形运行时仅支持 Windows，默认 CPU 共享帧，
+可通过 `open(..., render_mode="gpu")` 选择 [GPU 纹理模式](webview-gpu.md)。
+Linux 图像混合模式已暂停，旧 WindowHost 不是外部终端附加层；macOS 图形后端未支持。
+Linux 仍可使用纯 TUI 和已有终端协议图像能力，见[支持决策](linux-support-decision.md)。
 
 ## 构建
 
@@ -12,7 +13,7 @@
 CEF 的发行包体积数百 MB，完整运行目录必须与辅助程序一起保留。
 
 Windows 需要 x64、VS 2022 C++ 工具链、CMake、Python 3.10+：
-CEF 152 宿主/wrapper 使用 C++20；通用 CPU 帧 SDK 与 Linux Qt 宿主保持 C++17。
+CEF 152 宿主/wrapper 使用 C++20；通用 CPU 帧 SDK 保持 C++17。
 
 ```powershell
 python -m pip install -e ".[dev,overlay]"
@@ -28,44 +29,18 @@ Windows 启动程序使用 CEF 的 `bootstrapc.exe` 与同名 `ctui_browser.dll`
 沙箱入口。不要仅复制 exe 或 libcef.dll。交付目录还包括 CEF 的资源、locale、
 快照、依赖 DLL 和许可证；构建会复制官方 Release/Resources 的完整内容。
 
-Ubuntu 22.04 / WSL2（CEF 用 GCC 11+；Qt 宿主用 Qt 6.2+）：
-
-```bash
-sudo apt-get update
-sudo apt-get install -y build-essential cmake ninja-build python3-venv python3-dev \
-  libgtk-3-dev libnss3 libgbm1 libasound2 libatk-bridge2.0-0 libxkbcommon-x11-0 \
-  qt6-base-dev qt6-wayland
-python3 -m venv .venv-linux
-.venv-linux/bin/python -m pip install -e '.[dev]'
-CEF_ROOT=$(.venv-linux/bin/python tools/fetch_cef.py --platform linux64)
-cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DCEF_ROOT="$CEF_ROOT" -DCOMFORTABLE_TUI_BUILD_BROWSER=ON \
-  -DCOMFORTABLE_TUI_BUILD_LINUX_HOST=ON
-cmake --build build/linux --target ctui_browser ctui_linux_canvas -j 4
-export COMFORTABLE_TUI_BROWSER_EXECUTABLE="$PWD/build/linux/native/browser/ctui_browser"
-export COMFORTABLE_TUI_LINUX_HOST_EXECUTABLE="$PWD/build/linux/native/host/ctui_linux_canvas"
-.venv-linux/bin/python examples/webview.py --platform x11
-.venv-linux/bin/python examples/webview.py --platform wayland
-```
-
-在 WSL 中建议把构建输出和 venv 放在 Linux 文件系统，源码可位于 `/mnt/c`。
-WSLg 下若默认的 `wayland-0` 链接缺失，辅助进程会在 WSL 环境中检查现存的
-`/mnt/wslg/runtime-dir/wayland-0` 并仅为该进程使用绝对 WAYLAND_DISPLAY；不修改
-XDG_RUNTIME_DIR、用户 shell 或 systemd，不替换用户指定的其他 compositor/socket。
-没有可用 socket 时仍报错，不静默改用 X11。
-运行需要真实的 X11/Wayland 会话；Qt 的 offscreen/minimal 不会被接受为验证通过。
-同一套源码支持 Python 3.10；部分较早的 3.10 发行版需更新到带 tarfile 安全过滤器的
-维护版本，或用较新的 Python 执行 SDK 下载脚本。
+Linux CEF/WindowHost 构建与运行指引已撤下。当前 CMake 拒绝这些图形构建选项。
+旧 WSLg 自有窗口记录仅用于历史研究，不构成对 Linux 终端附加层的支持承诺。
 
 沙箱要求保持启用。安全分支中 `BrowserService(allow_no_sandbox=True)` 会拒绝启动，
 主 helper 仅接受固定启动参数，旧 helper 缺少安全协议时也拒绝使用。
 权限与原生校验边界详见[安全模型](security-model.md)。图像和浏览器是各自的独立进程，Python 不持有
-逐帧像素租约；Linux Qt 宿主也在 C++ 中读取、缩放与绘制共享缓冲区。
+逐帧像素租约。
 
 ## 最小使用
 
 ```python
-from comfortable_tui import App, BrowserService, Panel, WebView, WindowHost
+from comfortable_tui import App, BrowserService, Panel, WebView
 
 with BrowserService("com.example.notes") as browser:
     account = browser.profile("account-a", persistent=True)
@@ -74,9 +49,6 @@ with BrowserService("com.example.notes") as browser:
     with App(Panel(WebView(page), "Notes")) as app:
         # Windows terminal:
         app.run()
-        # Linux, instead of app.run():
-        # with WindowHost(app, display_platform="wayland") as host:
-        #     host.run()
 ```
 
 运行本机完整示例 `examples/webview.py` 可看到两个独立 profile、消息联动，以及
@@ -105,7 +77,7 @@ display_platform=None, allow_no_sandbox=False, timeout=30, policy=None, limits=N
 | application_id | 由应用指定的稳定身份；不根据 python.exe 推导。省略时创建临时私有根 |
 | data_root | 自定义应用根的父目录，实际目录再加 application_id 的哈希；要求 application_id |
 | executable | CEF 原生宿主完整路径；其次读取 COMFORTABLE_TUI_BROWSER_EXECUTABLE，最后尝试仓库默认构建目录 |
-| display_platform | Linux 的 x11 / wayland，传给 Chromium Ozone；Windows 省略 |
+| display_platform | 历史 Linux Ozone 参数；当前支持的 Windows 运行时省略 |
 | timeout | 进程首次握手超时，单位秒 |
 | policy | 页面默认 BrowserPolicy；open(policy=...) 整体覆盖；默认固定初始导航/资源 origin，JS 求值关闭 |
 | limits | BrowserLimits；页面、单缓冲及总缓冲预算，均在创建/调整尺寸时检查 |
@@ -202,29 +174,19 @@ Python host 的 publish 是可信应用控制接口；网页不能自行指定 a
 1 MiB、256 个 Python 待回复、1024 条事件（满时丢弃最旧事件）。不提供持久化可靠
 队列或业务 ACK 重试；高频消息应合并/限流，图像字节不进入消息 IPC。
 
-## WindowHost 的能力边界
+## 平台边界
 
-`WindowHost(app, executable=None, display_platform=None, test_controls=False)` 创建
-一个拥有完整文本区的 Linux 窗口。`run()` 驱动 App；`step(dt)` 便于嵌入自己的控制
-循环；`metrics()` 返回原生绘制计数/源数/视图数；`close()` 先停止原生读取再解除绑定。
-共享源的多个视图在一个 C++ 画布窗口中绘制，按控件布局裁剪和命中；没有逐画布
-原生窗口。`test_controls=True` 仅开放向自己控件发送测试事件和读取自己 backing
-store 的检查操作，默认关闭。
-
-| 模式 | 本轮状态 |
+| 模式 | 当前支持 |
 | --- | --- |
-| Windows 原生显示与输入闭环 | 受控真实 DComp 层通过 8 项测试，含 DWM 测试色、中文输入和 GIL 独立性；frame_backend 为 native_cpu |
-| Windows 外部终端附加层 | Windows Terminal 实测通过所有权、层级、移动缩放、输入、透明洞、Tabs/modal 隐藏恢复；失去前台焦点时保留附加层，置于终端上方和其他前台应用下方 |
-| Linux X11 window_host | WSLg Qt xcb 窗口实测通过，见验证脚本和记录 |
-| Linux Wayland window_host | WSLg Qt wayland 窗口单独实测通过；没有使用 Xwayland 替代 |
-| Linux 外部终端附加层 | 尚未实现；App.run() 继续明确报不支持，使用 WindowHost |
-| 任意 Wayland 终端透明附加层 | 无通用宿主定位/层级权限；需要具体终端/合成器协作，不做伪置顶覆盖 |
-| Kitty 图像输出 / DMA-BUF / CEF GPU adapter | 后续工作，本次浏览器后端不会报告 GPU zero-copy |
-| macOS | 按用户要求本轮不支持 |
+| Windows 外部终端附加层 | Windows Terminal 已实测；其他终端依赖宿主适配 |
+| Windows CEF CPU / GPU | 支持独立输出选择；GPU 要求匹配的新 helper 和扩展 |
+| Linux 自有 WindowHost | 已撤下，旧名字只抛出明确错误 |
+| Linux 外部终端附加层 / WebView 图形运行时 | 暂停；尚无实际终端集成 |
+| Linux 纯 TUI / PixelCanvas | 保留，图像输出取决于终端协议能力 |
+| macOS 图形后端 | 不支持 |
 
-WSL2/WSLg 通过证明这组系统版本可运行，不替代每个 Linux 桌面/WM/GPU 的验收。
-原生 Qt paint_calls/source_paints、CEF rAF 和 DComp Present 计数均不代表屏幕实际 FPS，
-frame_age 也不等于输入到屏幕的延迟。
+历史 WSLg 测试仅说明当时的自有 Qt 窗口可以运行，不能代替终端兼容性验收。
+完整依据和恢复条件见 [Exa 调研决策](linux-support-decision.md)。
 
 ## 首次运行不再反复弹条款窗口
 
@@ -237,12 +199,7 @@ frame_age 也不等于输入到屏幕的延迟。
 
 ## 验证与诊断
 
-```bash
-python examples/verify_webview.py --platform x11 --report build/service-x11.json
-python examples/verify_webview.py --platform wayland --report build/service-wayland.json
-python examples/verify_window_host.py --platform x11 --report build/window-x11.json
-python examples/verify_window_host.py --platform wayland --report build/window-wayland.json
-```
+Linux GUI 验证脚本与旧报告保留为历史资料，不再作为当前可运行指南。
 
 Windows 服务测试省略 --platform；完整终端组合测试为
 `python examples/verify_overlay_windows.py --webview --report build/windows-overlay.json`。

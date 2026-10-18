@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3 — 2026-10-18
+
+- Suspend Linux graphical/WebView support: withdraw the separate Qt WindowHost, reject Linux GUI build options, and retain terminal-mode/core and portable CPU SDK checks. Existing WSL window tests are historical evidence, not external-terminal compatibility.
+
+- Add explicit Windows WebView GPU output with CEF accelerated paint, GPU-only copies/composition and existing D3D11 shared-frame transport; keep CPU as the default.
+- Preserve GPU channels across resize/page close until consumer acknowledgement; budget live and retired surfaces, reuse the service device and cache shader bytecode.
+- Add strict capability negotiation, native frame diagnostics, embedded examples and real GPU/DWM verification with matched CPU/GPU sampling.
+
 ## 0.1.2 — 2026-10-18
 
 - Simplify browser policies to service defaults plus one final per-page configuration; make CEF the only URL/origin parser (security protocol 2).

@@ -21,7 +21,10 @@ nav:
   - C++ GPU: native-gpu.md
   - GPU Research: native-gpu-research.md
   - C++ CPU 共享帧: native-cpu-frames.md
-  - WebView 服务与 Linux 窗口: webview.md
+  - Windows WebView 服务: webview.md
+  - Linux 图像支持暂停决策: linux-support-decision.md
+  - WebView Windows GPU 模式: webview-gpu.md
+  - WebView GPU 调研与验证: webview-gpu-research.md
   - WebView 验证记录: validation/webview/README.md
   - WebView 与跨平台附加层计划: webview-research.md
   - API: api.md

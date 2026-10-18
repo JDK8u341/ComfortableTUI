@@ -13,6 +13,7 @@ import weakref
 from ._native_process import NativeProcess
 from ._display_environment import display_environment
 from ._shared_frame import FrameBuffer
+from .gpu import GpuFrameSource, gpu_available
 from .security import BrowserLimits, BrowserPolicy, SECURITY_PROTOCOL, origin_names, topic_names, url_text
 
 
@@ -49,6 +50,19 @@ class BrowserProfile:
     persistent: bool = False
     persist_session_cookies: bool = False
     _owner: str = ""
+
+
+class _BrowserGpuSource(GpuFrameSource):
+    """Keep the native provider alive until all display consumers acknowledge it."""
+    def __init__(self, service, view, name):
+        attached = GpuFrameSource.attach(name)
+        super().__init__(attached.info)
+        self._service, self._view = service, view
+
+    def close(self):
+        if not self._closed and not self._service._closed:
+            self._service._rpc.request("release_gpu_frame", view=self._view, name=self.info.name)
+        super().close()
 
 
 class BrowserService:
@@ -140,35 +154,59 @@ class BrowserService:
         return profile
 
     def open(self, url, *, profile=None, width=960, height=540, fps=60, origins=(),
-             publish_topics=(), subscribe_topics=(), message_group=None, policy=None):
+             publish_topics=(), subscribe_topics=(), message_group=None, policy=None, render_mode="cpu"):
         if self._closed:
             raise RuntimeError("BrowserService is closed")
         if len(self._pages) >= self.limits.max_pages:
             raise PermissionError("Browser page budget exhausted (includes pinned retired pages)")
+        if render_mode not in ("cpu", "gpu"):
+            raise ValueError("render_mode must be cpu or gpu")
+        if render_mode == "gpu" and (not gpu_available() or self.capabilities.get("gpu_texture_transport") != 1):
+            raise RuntimeError("WebView GPU mode requires Windows GPU extension and a matching GPU-capable CEF helper")
         policy = self.policy if policy is None else policy
         if not isinstance(policy, BrowserPolicy):
             raise TypeError("Expected BrowserPolicy")
         url, origins = url_text(url), origin_names(origins)
         wire = dict(asdict(policy), protocol=SECURITY_PROTOCOL)
         publish_topics, subscribe_topics = topic_names(publish_topics), topic_names(subscribe_topics)
-        self._check_frame_budget(width, height)
+        self._check_frame_budget(width, height, render_mode)
         if type(fps) is not int or not 1 <= fps <= 240:
             raise ValueError("fps must be 1..240")
         profile = self._profile(profile)
-        source = FrameBuffer(width, height, pixel_format="bgra8_premultiplied")
+        source = FrameBuffer(width, height, pixel_format="bgra8_premultiplied") if render_mode == "cpu" else None
         page = BrowserPage(self, profile, source, message_group)
-        page.policy = policy
+        page.policy, page.render_mode = policy, render_mode
         try:
             page.info = self._rpc.request("open", view=page.id, profile=_key(profile.name),
                 persistent=profile.persistent, persist_session_cookies=profile.persist_session_cookies,
-                scope=page.scope, source=asdict(source.info), fps=fps, url=str(url), origins=list(origins),
+                scope=page.scope, source=(asdict(source.info) if source else
+                    dict(width=width, height=height, stride=width * 4, pixel_format="bgra8_premultiplied")),
+                render_mode=render_mode, fps=fps, url=str(url), origins=list(origins),
                 publish_topics=list(publish_topics), subscribe_topics=list(subscribe_topics), security=wire,
                 limits=asdict(self.limits))
             page._security = page.info["security"]
+            if render_mode == "gpu":
+                if page.info.get("frame_backend") != "native_gpu_d3d11":
+                    raise RuntimeError("CEF helper did not negotiate strict GPU texture transport")
+                source = _BrowserGpuSource(self, page.id, page.info["source"]["name"])
+                page.source = source
+                page._buffers.append(source)
             self._pages[page.id] = page
             return page
         except BaseException:
-            source.close()
+            if render_mode == "gpu":
+                try:
+                    self._rpc.request("close", view=page.id)
+                except Exception:
+                    pass  # Preserve the original negotiation/attachment error.
+                try:
+                    self._rpc.request("release_gpu_page", view=page.id)
+                except Exception:
+                    pass
+                if source:
+                    source._closed = True  # Native close/release above owns rollback.
+            elif source:
+                source.close()
             raise
 
     def publish(self, topic, payload, *, profile=None, message_group=None, target=""):
@@ -177,9 +215,14 @@ class BrowserService:
         scope = self._scope(profile, message_group)
         return self._rpc.request("publish", scope=scope, topic=str(topic), payload=payload, target=target)
 
-    def _check_frame_budget(self, width, height):
+    def _check_frame_budget(self, width, height, render_mode="cpu"):
         requested = self.limits.frame_bytes(width, height)
-        current = sum(64 + b.info.frame_bytes * 3 for p in self._pages.values()
+        if render_mode == "gpu":
+            requested = 64 + width * height * 4 * 5
+            if requested > self.limits.max_frame_bytes:
+                raise PermissionError("Browser GPU surfaces exceed the per-page buffer budget")
+        current = sum(64 + b.info.width * b.info.height * 4 *
+                      (5 if isinstance(b, GpuFrameSource) else 3) for p in self._pages.values()
                       for b in p._buffers if not b._closed)
         if current + requested > self.limits.max_total_frame_bytes:
             raise PermissionError("Browser total buffer budget exhausted (includes retired frames)")
@@ -252,7 +295,7 @@ class BrowserPage:
     def __init__(self, service, profile, source, group):
         self.service, self.profile, self.source = service, profile, source
         self.id, self.scope = uuid.uuid4().hex, service._scope(profile, group)
-        self._buffers, self._widgets, self._listeners = [source], weakref.WeakSet(), []
+        self._buffers, self._widgets, self._listeners = ([source] if source else []), weakref.WeakSet(), []
         self._attachments = {}  # Consumer token -> acknowledged descriptor, or None while attaching.
         self._closed = False
         self.loaded, self.url, self.title, self.info = False, "", "", {}
@@ -311,13 +354,30 @@ class BrowserPage:
         """Explicit host audio control; ordinary Chromium playback rules still apply."""
         return self._request("muted", muted=bool(muted))
 
+    def frame_stats(self):
+        """Native frame counters; diagnostic RPC, never needed for frame delivery."""
+        return self._request("frame_stats")
+
     def resize(self, width, height):
         if self._closed:
             raise RuntimeError("BrowserPage is closed")
-        self.service._check_frame_budget(width, height)
-        source = FrameBuffer(width, height, pixel_format="bgra8_premultiplied")
+        self.service._check_frame_budget(width, height, self.render_mode)
+        if self.render_mode == "gpu":
+            result = self._request("resize", source=dict(width=width, height=height, stride=width * 4,
+                                                        pixel_format="bgra8_premultiplied"))
+            try:
+                source = _BrowserGpuSource(self.service, self.id, result["source"]["name"])
+            except BaseException:
+                # The helper has committed a new channel. Stop this page before
+                # releasing that unattachable channel; old displayed frames stay pinned.
+                self.close()
+                self.service._rpc.request("release_gpu_frame", view=self.id, name=result["source"]["name"])
+                raise
+        else:
+            source = FrameBuffer(width, height, pixel_format="bgra8_premultiplied")
         try:
-            self._request("resize", source=asdict(source.info))
+            if self.render_mode == "cpu":
+                self._request("resize", source=asdict(source.info))
         except BaseException:
             source.close()
             raise

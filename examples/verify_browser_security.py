@@ -29,8 +29,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser", type=Path)
     parser.add_argument("--platform", choices=("x11", "wayland"))
+    parser.add_argument("--render-mode", choices=("cpu", "gpu"), default="cpu")
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
+    class RenderService(BrowserService):
+        def open(self, *values, **options):
+            options.setdefault("render_mode", args.render_mode)
+            return super().open(*values, **options)
+
+    def frame_sequence(page):
+        return page.frame_stats()["published_frames"] if args.render_mode == "gpu" else page.source.sequence
     if args.report.exists():
         parser.error("choose a new report path")
     requests = []
@@ -60,10 +68,10 @@ def main():
     for server in servers:
         threading.Thread(target=server.serve_forever, daemon=True).start()
     origin_a, origin_b = [f"http://127.0.0.1:{s.server_port}" for s in servers]
-    result = {"checks": [], "result": "failed"}
+    result = {"checks": [], "result": "failed", "render_mode": args.render_mode}
     try:
         # Evaluation is an explicit host-only diagnostic grant, not a webpage API.
-        with BrowserService(executable=args.browser, display_platform=args.platform,
+        with RenderService(executable=args.browser, display_platform=args.platform,
                             policy=BrowserPolicy(allow_evaluate=True, resource_origins=(origin_a, origin_b))) as service:
             page = service.open(origin_a, origins=[origin_a], publish_topics=["probe"], subscribe_topics=["probe"],
                                 policy=BrowserPolicy(allow_evaluate=True, resource_origins=(origin_a,)))
@@ -180,10 +188,10 @@ def main():
             result["checks"].append("native_content_permissions_printing_password_and_dialogs_deny")
 
             def click(code):
-                previous = page.source.sequence
+                previous = frame_sequence(page)
                 page.evaluate("document.body.innerHTML='<button style=\"position:absolute;left:0;top:0;width:100px;height:50px\">Test</button><input type=file hidden>';"
                               "document.querySelector('button').onclick=()=>{" + code + "};true")
-                wait(service, lambda: page.source.sequence > previous)
+                wait(service, lambda: frame_sequence(page) > previous)
                 page.input("focus_in")
                 page.input("mouse_down", x=20, y=20, buttons=1, button="left")
                 page.input("mouse_up", x=20, y=20, buttons=0, button="left")
@@ -246,7 +254,7 @@ def main():
             with tempfile.TemporaryDirectory(prefix="ctui-saved-permissions-") as folder:
                 options = dict(application_id="verify.security.saved", data_root=folder, executable=service.executable,
                                display_platform=args.platform, policy=BrowserPolicy(allow_evaluate=True))
-                with BrowserService(**options) as seed:
+                with RenderService(**options) as seed:
                     saved = seed.open(origin_a, profile=seed.profile("account", persistent=True), origins=[origin_a])
                     wait(seed, lambda: saved.loaded)
                     preferences = Path(saved.info["cache_path"]) / "Preferences"
@@ -257,7 +265,7 @@ def main():
                     for entry in exceptions[category].values():
                         entry["setting"] = 1  # Simulate a prior runtime's saved ALLOW; no OS grant is requested.
                 preferences.write_text(json.dumps(content), encoding="utf-8")
-                with BrowserService(**options) as restored:
+                with RenderService(**options) as restored:
                     saved = restored.open(origin_a, profile=restored.profile("account", persistent=True), origins=[origin_a])
                     wait(restored, lambda: saved.loaded)
                     assert saved.evaluate("Notification.permission") == "denied"

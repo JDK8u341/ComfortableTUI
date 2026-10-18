@@ -1,5 +1,7 @@
 # 公共 API 参考
 
+当前图形后端仅支持 Windows。`WindowHost` 为已撤下的兼容错误入口；Linux 纯 TUI 保留。见[平台决策](linux-support-decision.md)。
+
 浏览器默认拒绝范围、`BrowserPolicy` / `BrowserLimits` 启动描述及原生校验边界见
 [安全模型](security-model.md)。权限判断不进入 GPU 传输或 Python 逐帧绘制路径。
 
@@ -200,6 +202,10 @@ TerminalHost 须一致；详见 [画布接口](overlay-canvas.md)。
 `Label`、`Paragraph` 和 `TextArea` 的原有字符串接口不变。
 
 ## 原生 C++ / GPU
+
+WebView 的 `BrowserService.open(..., render_mode="cpu" | "gpu")` 默认 CPU；GPU 仅支持
+Windows 的匹配 helper 与原生扩展。`BrowserPage.frame_stats()` 提供低频原生帧诊断。
+GPU 页的 source 是 GpuFrameSource，画布事件和内嵌接口不变；详见 [WebView GPU](webview-gpu.md)。
 
 `GpuFrameInfo` 与 `GpuFrameSource.attach(channel_name)` 只用于握手，GpuFrameSource
 可直接传入 OverlayCanvas；它没有Python逐帧read/write/sequence接口。

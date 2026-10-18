@@ -9,6 +9,11 @@ Windows also has an optional **native overlay canvas**: external renderers write
 shared image buffers, displayed in transparent owned windows with scaling and
 mouse/keyboard/IME events. See the [canvas guide](docs/overlay-canvas.md).
 
+**Platform scope:** Linux graphical/WebView support is suspended. The former Qt
+`WindowHost` was a separate application window, not an overlay in an existing
+terminal. Linux terminal widgets and terminal-protocol pixel output remain available.
+See the [Exa research and decision](docs/linux-support-decision.md).
+
 ![Motion preview from actual cell frames](docs/images/motion.gif)
 
 The preview is an offline cell-frame illustration, not a terminal FPS recording.
@@ -18,7 +23,7 @@ dangerous web permissions. Host Python, native extensions and frame providers re
 trusted; importing a plugin is not a sandbox. See the [security model](docs/security-model.md)
 and [reporting policy](SECURITY.md). A matching rebuilt browser helper is required.
 
-**状态：0.1.2 alpha。** 面向开发者的通用 TUI 库，Python 3.10+，支持 Windows、Linux、macOS
+**状态：0.1.3 alpha。** 面向开发者的通用 TUI 库，Python 3.10+，支持 Windows、Linux、macOS
 的 VT 终端。字符文字仍然受终端网格限制；像素画布在支持 Kitty graphics 的终端中可按像素移动。
 
 ```sh
@@ -49,7 +54,8 @@ the selected page. The focused menu title shows a `›` marker and underline.
 - [Exa 调研：焦点与菜单动画优化](docs/motion-research.md)
 - [Windows 原生缓冲区画布](docs/overlay-canvas.md)
 - [Exa 调研：覆盖窗口与性能](docs/overlay-research.md)
-- [WebView 服务与 Linux X11/Wayland 自有窗口](docs/webview.md)（可选 CEF 原生 CPU 基线）
+- [Windows WebView 服务](docs/webview.md)（默认 CPU，可选 [GPU 纹理输出](docs/webview-gpu.md)）
+- [Linux 图像混合模式暂停：调研与恢复条件](docs/linux-support-decision.md)
 - [Exa 完整报告与计划：WebView 和跨平台附加层](docs/webview-research.md)
 - [架构与动画](docs/architecture.md)
 - [全部控件与交互](docs/widgets.md)

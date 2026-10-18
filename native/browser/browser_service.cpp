@@ -35,6 +35,7 @@
 #include <vector>
 #ifdef _WIN32
 #include "include/cef_sandbox_win.h"
+#include "browser_gpu.hpp"
 #endif
 
 namespace {
@@ -347,8 +348,22 @@ public:
   }
   void OnPaint(CefRefPtr<CefBrowser>, PaintElementType type, const RectList &,
                const void *pixels, int w, int h) override;
+#ifdef _WIN32
+  void OnAcceleratedPaint(CefRefPtr<CefBrowser>, PaintElementType type, const RectList &,
+                          const CefAcceleratedPaintInfo &info) override;
+#endif
   void OnPopupShow(CefRefPtr<CefBrowser>, bool show) override {
     popup_visible_ = show;
+#ifdef _WIN32
+    if (gpu_) {
+      try { gpu_->popup_visible(show); }
+      catch (const std::exception &e) {
+        gpu_error_ = e.what(); gpu_->fail();
+        auto d = dict(); d->SetString("message", gpu_error_); event("error", id_, d);
+      }
+      return;
+    }
+#endif
     if (!show) {
       popup_.clear();
       publish();
@@ -471,6 +486,7 @@ private:
     --tokens_; return true;
   }
   void publish();
+  Dict source_descriptor() const;
   void cancel_evaluations(const char *reason) {
     for (const int request : evaluations_)
       reply(request, nullptr, reason);
@@ -493,6 +509,12 @@ private:
   CefRefPtr<CefRequestContext> context_;
   CefRefPtr<CefMessageRouterBrowserSide> router_;
   std::unique_ptr<comfortable::CpuFrameChannel> frames_;
+  bool gpu_mode_{};
+  std::string gpu_error_;
+  unsigned cpu_paints_{};
+#ifdef _WIN32
+  std::shared_ptr<browser_gpu::Frames> gpu_;
+#endif
   int width_{}, height_{}, request_{}, document_{};
   std::vector<std::uint8_t> base_, popup_, composed_;
   CefRect popup_rect_;
@@ -543,6 +565,11 @@ public:
     d->SetBool("permissions_default_deny", true);
     d->SetString("cef_version", CEF_VERSION);
     d->SetString("frame_backend", "native_cpu");
+#ifdef _WIN32
+    d->SetInt("gpu_texture_transport", 1);
+#else
+    d->SetInt("gpu_texture_transport", 0);
+#endif
     d->SetBool(
         "startup_ui_suppressed",
         CefCommandLine::GetGlobalCommandLine()->HasSwitch("no-first-run"));
@@ -626,8 +653,22 @@ public:
     if (!views_.count(id) && views_.size() >= static_cast<std::size_t>(pages))
       throw std::runtime_error("Browser page budget exceeded");
     for (const auto &[key, view] : views_) if (key != id) bytes += view->allocation();
+#ifdef _WIN32
+    // GPU allocations, including retired channels, live until consumer ACKs.
+    for (const auto &[name, entry] : gpu_frames_) bytes += entry.bytes;
+#endif
     if (bytes > static_cast<std::size_t>(total)) throw std::runtime_error("Browser frame budget exceeded");
   }
+#ifdef _WIN32
+  std::shared_ptr<browser_gpu::Frames> create_gpu(const std::string &id, unsigned w, unsigned h, std::size_t bytes) {
+    // CEF paint/control callbacks share its UI thread. Reuse one device and
+    // immediate context across pages/resizes; never recreate it every frame.
+    auto frames = std::make_shared<browser_gpu::Frames>(w, h, gpu_device_.Get());
+    if (!gpu_device_) gpu_device_ = frames->output.device();
+    gpu_frames_.emplace(frames->output.descriptor().name, GpuEntry{id, frames, bytes});
+    return frames;
+  }
+#endif
   void prepare_profile(const std::string &key, const std::set<std::string> &origins) {
     CEF_REQUIRE_UI_THREAD();
     auto &profile = profiles_.at(key);
@@ -714,6 +755,35 @@ private:
     }
     if (closing_)
       throw std::runtime_error("Service is closing");
+#ifdef _WIN32
+    if (op == "frame_resources") {
+      auto result = dict();
+      result->SetInt("gpu_channels", static_cast<int>(gpu_frames_.size()));
+      std::size_t bytes = 0;
+      for (const auto &[name, entry] : gpu_frames_) bytes += entry.bytes;
+      result->SetDouble("gpu_reserved_bytes", static_cast<double>(bytes));
+      reply(request, result); return;
+    }
+    if (op == "release_gpu_page") {
+      if (views_.count(id)) throw std::runtime_error("GPU page is still active");
+      for (auto i = gpu_frames_.begin(); i != gpu_frames_.end();)
+        if (i->second.view == id) i = gpu_frames_.erase(i); else ++i;
+      reply(request); return;
+    }
+    if (op == "release_gpu_frame") {
+      const auto name = text(d, "name");
+      auto found = gpu_frames_.find(name);
+      if (found == gpu_frames_.end() || found->second.view != id)
+        throw std::invalid_argument("Unknown GPU frame owner");
+      if (found->second.frames.use_count() > 1)
+        throw std::runtime_error("Cannot release the active GPU frame source");
+      // Active channels are owned by their View as well; normal callers release
+      // only after resize ACK or page close plus final display detach.
+      gpu_frames_.erase(found);
+      reply(request);
+      return;
+    }
+#endif
     if (op == "open") {
       const auto security = d->GetDictionary("security");
       if (!security || security->GetInt("protocol") != 2)
@@ -748,8 +818,16 @@ private:
               "Profile settings cannot change during a session");
         context = it->second.context;
       }
-      auto view = CefRefPtr<View>(new View(this, d, context, request));
-      views_[id] = view;
+      try {
+        auto view = CefRefPtr<View>(new View(this, d, context, request));
+        views_[id] = view;
+      } catch (...) {
+#ifdef _WIN32
+        for (auto i = gpu_frames_.begin(); i != gpu_frames_.end();)
+          if (i->second.view == id) i = gpu_frames_.erase(i); else ++i;
+#endif
+        throw;
+      }
       return;
     }
     if (op == "publish") {
@@ -787,6 +865,11 @@ private:
   std::filesystem::path root_;
   std::map<std::string, Profile> profiles_;
   std::map<std::string, CefRefPtr<View>> views_;
+#ifdef _WIN32
+  struct GpuEntry { std::string view; std::shared_ptr<browser_gpu::Frames> frames; std::size_t bytes; };
+  std::map<std::string, GpuEntry> gpu_frames_;
+  browser_gpu::ComPtr<ID3D11Device> gpu_device_;
+#endif
   CefRefPtr<CefMessageRouterRendererSide> renderer_router_;
   std::thread reader_;
   bool closing_{};
@@ -824,17 +907,32 @@ View::View(Service *owner, Dict c, CefRefPtr<CefRequestContext> context,
     throw std::invalid_argument("Too many topic grants");
   for (const auto &topic : publish_topics_) if (!identifier(topic)) throw std::invalid_argument("Invalid topic");
   for (const auto &topic : subscribe_topics_) if (!identifier(topic)) throw std::invalid_argument("Invalid topic");
+  const auto mode = text(c, "render_mode");
+  if (!mode.empty() && mode != "cpu" && mode != "gpu") throw std::invalid_argument("Unknown browser render mode");
+  gpu_mode_ = mode == "gpu";
   const auto info = frame_info(c->GetDictionary("source"));
   if (info.pixel_format != "bgra8_premultiplied")
     throw std::invalid_argument("Browser output requires premultiplied BGRA");
-  allocation_ = check_frame(info);
-  frames_ = std::make_unique<comfortable::CpuFrameChannel>(info);
+  const auto bytes = check_frame(info);
+  if (gpu_mode_) {
+#ifdef _WIN32
+    gpu_ = owner_->create_gpu(id_, info.width, info.height, bytes);
+#else
+    throw std::runtime_error("Browser GPU transport currently requires Windows");
+#endif
+  } else {
+    frames_ = std::make_unique<comfortable::CpuFrameChannel>(info);
+    allocation_ = bytes;
+  }
   width_ = info.width;
   height_ = info.height;
   router_ = CefMessageRouterBrowserSide::Create(CefMessageRouterConfig());
   router_->AddHandler(this, false);
   CefWindowInfo window;
   window.SetAsWindowless(0);
+#ifdef _WIN32
+  window.shared_texture_enabled = gpu_mode_;
+#endif
   CefBrowserSettings settings;
   settings.windowless_frame_rate = std::clamp(c->GetInt("fps"), 1, 240);
   settings.background_color = CefColorSetARGB(255, 17, 21, 34);
@@ -854,7 +952,8 @@ void View::OnAfterCreated(CefRefPtr<CefBrowser> b) {
   }
   auto d = dict();
   d->SetString("view", id_);
-  d->SetString("frame_backend", "native_cpu");
+  d->SetString("frame_backend", gpu_mode_ ? "native_gpu_d3d11" : "native_cpu");
+  if (gpu_mode_) d->SetDictionary("source", source_descriptor());
   d->SetString("cache_path", context_->GetCachePath());
   d->SetDictionary("security", config_->GetDictionary("security"));
   reply(request_, d);
@@ -864,13 +963,26 @@ std::size_t View::check_frame(const comfortable::CpuFrameInfo &info) {
   auto limits = config_->GetDictionary("limits");
   if (!limits) throw std::invalid_argument("Missing browser limits");
   const int maximum = limits->GetInt("max_frame_bytes");
-  const auto bytes = 64ull + std::uint64_t(info.stride) * info.height * 3;
+  // GPU: 3 transport slots + owned view + bounded popup (5 BGRA surfaces).
+  const auto bytes = 64ull + std::uint64_t(info.stride) * info.height * (gpu_mode_ ? 5 : 3);
   if (!info.width || !info.height || info.width > 4096 || info.height > 4096 ||
-      info.pixel_format != "bgra8_premultiplied" || maximum < 1 ||
+      info.pixel_format != "bgra8_premultiplied" || info.stride != info.width * 4ull || maximum < 1 ||
       static_cast<std::size_t>(maximum) > frame_limit || bytes > static_cast<std::size_t>(maximum))
     throw std::invalid_argument("Browser frame exceeds limits");
   owner_->admit_frame(id_, bytes, limits);
   return bytes;
+}
+Dict View::source_descriptor() const {
+  auto d = dict();
+#ifdef _WIN32
+  if (gpu_) {
+    const auto &s = gpu_->output.descriptor();
+    d->SetString("name", s.name); d->SetInt("width", s.width); d->SetInt("height", s.height);
+    d->SetDouble("adapter_low", s.adapter_low); d->SetInt("adapter_high", s.adapter_high);
+    d->SetInt("version", s.version); d->SetString("pixel_format", "bgra8_premultiplied");
+  }
+#endif
+  return d;
 }
 void View::OnBeforeClose(CefRefPtr<CefBrowser> b) {
   cancel_evaluations("Browser closed");
@@ -880,6 +992,9 @@ void View::OnBeforeClose(CefRefPtr<CefBrowser> b) {
   subscriptions_.clear();
   browser_ = nullptr;
   frames_.reset();
+#ifdef _WIN32
+  gpu_.reset(); // Service retains channels until the display consumer releases them.
+#endif
   context_ = nullptr;
   if (close_request)
     reply(close_request);
@@ -889,6 +1004,14 @@ void View::OnBeforeClose(CefRefPtr<CefBrowser> b) {
 void View::OnPaint(CefRefPtr<CefBrowser>, PaintElementType type,
                    const RectList &, const void *pixels, int w, int h) {
   try {
+    ++cpu_paints_;
+    if (gpu_mode_) {
+      gpu_error_ = "CEF returned CPU pixels in strict GPU mode";
+#ifdef _WIN32
+      gpu_->fail();
+#endif
+      throw std::runtime_error(gpu_error_);
+    }
     if (type == PET_VIEW) {
       if (w != width_ || h != height_)
         return;
@@ -933,6 +1056,18 @@ void View::publish() {
     }
   frames_->submit(composed_.data(), width_ * 4);
 }
+#ifdef _WIN32
+void View::OnAcceleratedPaint(CefRefPtr<CefBrowser>, PaintElementType type,
+                              const RectList &, const CefAcceleratedPaintInfo &info) {
+  if (!gpu_ || !gpu_error_.empty()) return;
+  try { gpu_->paint(type == PET_POPUP, info, popup_rect_); }
+  catch (const std::exception &e) {
+    gpu_error_ = e.what();
+    gpu_->fail();
+    auto d = dict(); d->SetString("message", e.what()); event("error", id_, d);
+  }
+}
+#endif
 int View::deliver(const std::string &topic, CefRefPtr<CefValue> payload,
                   const std::string &sender) {
   if (!browser_ || !bridge_authorized(browser_->GetMainFrame())) return 0;
@@ -1011,6 +1146,27 @@ void View::command(Dict d) {
   if (!browser_)
     throw std::runtime_error("Browser is not ready");
   auto host = browser_->GetHost();
+  if (op == "frame_stats") {
+    auto result = dict();
+    result->SetString("frame_backend", gpu_mode_ ? "native_gpu_d3d11" : "native_cpu");
+    result->SetInt("cpu_paints", cpu_paints_);
+    result->SetString("error", gpu_error_);
+    auto popup = dict();
+    popup->SetInt("x", popup_rect_.x); popup->SetInt("y", popup_rect_.y);
+    popup->SetInt("width", popup_rect_.width); popup->SetInt("height", popup_rect_.height);
+    popup->SetBool("visible", popup_visible_);
+    result->SetDictionary("popup", popup);
+#ifdef _WIN32
+    if (gpu_) {
+      result->SetDouble("accelerated_paints", static_cast<double>(gpu_->accelerated_paints));
+      result->SetDouble("published_frames", static_cast<double>(gpu_->published_frames));
+      result->SetDouble("popup_paints", static_cast<double>(gpu_->popup_paints));
+      result->SetDouble("dropped_frames", static_cast<double>(gpu_->dropped_frames));
+      result->SetDouble("copy_wait_ms", gpu_->copy_wait_ms);
+    }
+#endif
+    reply(request, result); return;
+  }
   if (op == "security_state") {
     auto result = dict();
     result->SetInt("denied_resources", denied_resources_.load());
@@ -1044,14 +1200,22 @@ void View::command(Dict d) {
   else if (op == "resize") {
     auto info = frame_info(d->GetDictionary("source"));
     const auto bytes = check_frame(info);
-    auto replacement = std::make_unique<comfortable::CpuFrameChannel>(info);
-    frames_ = std::move(replacement);
-    allocation_ = bytes;
+    if (gpu_mode_) {
+#ifdef _WIN32
+      gpu_ = owner_->create_gpu(id_, info.width, info.height, bytes);
+#endif
+    } else {
+      auto replacement = std::make_unique<comfortable::CpuFrameChannel>(info);
+      frames_ = std::move(replacement);
+      allocation_ = bytes;
+    }
     width_ = info.width;
     height_ = info.height;
     base_.clear();
     popup_.clear();
+    popup_visible_ = false;
     host->WasResized();
+    if (gpu_mode_) { auto result = dict(); result->SetDictionary("source", source_descriptor()); reply(request, result); return; }
   } else if (op == "cancel_eval") {
     evaluations_.erase(d->GetInt("request"));
   } else if (op == "eval") {
