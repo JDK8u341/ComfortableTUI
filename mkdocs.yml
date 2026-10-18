@@ -10,6 +10,7 @@ nav:
   - 弹性动效调研与验证: expressive-motion-research.md
   - 帧调度与卡顿排查: frame-pacing.md
   - 原生缓冲区画布: overlay-canvas.md
+  - 叠加层移动同步: overlay-tracking.md
   - 覆盖画布调研: overlay-research.md
   - 共享附加层调研: shared-overlay-research.md
   - 架构: architecture.md

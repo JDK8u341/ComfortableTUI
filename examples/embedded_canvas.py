@@ -24,16 +24,39 @@ def main():
     args = parser.parse_args()
     context = mp.get_context("spawn")
     stop, controls = context.Event(), context.Queue(maxsize=64)
-    diagnostics = []
+    diagnostics, latest = [], {}
+    report_dirty = False
 
     def serialize(value):
         return asdict(value) if is_dataclass(value) else str(value)
 
     def record(kind, data):
-        diagnostics.append({"kind": kind, "data": data})
-        if args.report:
+        nonlocal report_dirty
+        if not args.report:
+            return
+        entry = {"kind": kind, "data": data}
+        if kind in ("transform", "move", "resize", "metrics"):
+            key = kind, data.get("canvas_token"), data.get("view")
+            if key in latest:
+                diagnostics[latest[key]] = entry
+            else:
+                latest[key] = len(diagnostics)
+                diagnostics.append(entry)
+        else:
+            diagnostics.append(entry)
+        report_dirty = True
+
+    def flush_report():
+        nonlocal report_dirty
+        if args.report and report_dirty:
             args.report.parent.mkdir(parents=True, exist_ok=True)
-            args.report.write_text(json.dumps(diagnostics, default=serialize, indent=2), encoding="utf-8")
+            temporary = args.report.with_suffix(".tmp")
+            temporary.write_text(json.dumps(diagnostics, default=serialize), encoding="utf-8")
+            try:
+                temporary.replace(args.report)
+            except PermissionError:
+                return  # A Windows reader can briefly hold the old report; retry next tick.
+            report_dirty = False
 
     with FrameBuffer(320, 180, pixel_format="bgra8_premultiplied") as frames:
         status = Label("Tab / F6: focus · scroll rows · click an image · Ctrl+Q: exit", height=1)
@@ -79,6 +102,8 @@ def main():
         try:
             producer.start()
             with App(root) as app:
+                if args.report:
+                    app.call_later(.1, flush_report, repeat=True)
                 if args.smoke_seconds:
                     # Exercise row disposal, clipping, page suspension and modal occlusion.
                     app.call_later(3, lambda: listing.select(40))
@@ -102,6 +127,7 @@ def main():
                 producer.join(timeout=3)
             controls.close()
             controls.cancel_join_thread()
+            flush_report()
 
 
 if __name__ == "__main__":

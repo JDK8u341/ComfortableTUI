@@ -123,6 +123,36 @@ def layer_state(buffers, placements=None):
          "fps": 60} for i, buffer in enumerate(buffers)]}
 
 
+def test_translation_keeps_scene_child_geometry_and_input_mapping(qt_app, monkeypatch):
+    observed = []
+    with FrameBuffer(4, 2) as buffer:
+        layer = _make_layer_class()(observed.append)
+        try:
+            state = layer_state([buffer, buffer])
+            layer.apply(state, PixelRect(100, 200, 400, 200))
+            layer.show()
+            qt_app.processEvents()
+            item = layer.items[0]
+            geometry, transform = item.geometry(), item.transform
+            # Even the native path must never configure/ack a scene for a move.
+            layer.native_renderer = True
+            monkeypatch.setattr(layer, "_configure_native", lambda state: pytest.fail("scene rebuilt during move"))
+            assert layer.relocate(PixelRect(150, 170, 400, 200))
+            assert item.geometry() == geometry
+            assert item.transform == transform
+            QTest.mouseClick(item, Qt.MouseButton.LeftButton, pos=QPoint(20, 20))
+            click = next(e for e in reversed(observed) if e.kind == "mouse_down")
+            assert click.data["source_position"] == (0.5, 0.5)
+            assert click.data["screen_position"] == (190, 210)
+            assert click.data["layer_rect"] == PixelRect(150, 170, 400, 200)
+            assert not layer.relocate(PixelRect(150, 170, 500, 200))
+            layer._placement_dpi *= 2
+            assert not layer.relocate(PixelRect(150, 170, 400, 200))
+        finally:
+            layer.shutdown()
+            qt_app.processEvents()
+
+
 def test_layer_has_one_native_window_routes_input_and_clears_old_pixels(qt_app):
     from comfortable_tui import Rect
     observed = []

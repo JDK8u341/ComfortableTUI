@@ -1,0 +1,449 @@
+{
+  "date": "2026-10-18",
+  "platform": "Windows / Windows Terminal / 125% DPI",
+  "top_version": "0.1.5",
+  "library_baseline_commit": "a43da465525414fde0b39c51fd4651ecebc47451",
+  "measurement": "HWND coordinates, not display-to-photon latency; old unresolved samples were capped",
+  "top_before": {
+    "steps": 150,
+    "elapsed_seconds": 3.898495899993577,
+    "settled_within_sample": 103,
+    "tracking_settle_ms": {
+      "p50": 3.794099990045652,
+      "p95": 16.768399989814498
+    },
+    "error_px": {
+      "p95": 11,
+      "maximum": 20
+    },
+    "note": "Native HWND alignment timing, not display-to-photon latency. Unsettled samples are capped.",
+    "raw_samples": "top_before.csv"
+  },
+  "top_after": {
+    "steps": 150,
+    "elapsed_seconds": 3.702172499994049,
+    "settled_within_sample": 150,
+    "tracking_settle_ms": {
+      "p50": 2.5514000008115545,
+      "p95": 7.76659999974072
+    },
+    "error_px": {
+      "p95": 9,
+      "maximum": 11
+    },
+    "note": "Native HWND alignment timing, not display-to-photon latency. Unsettled samples are capped.",
+    "raw_samples": "top_after.csv"
+  },
+  "desktop_checks": {
+    "native": {
+      "result": "passed",
+      "host": {
+        "hwnd": 4133290,
+        "pid": 53356,
+        "host_hwnd": 1315790,
+        "shared_layer": true,
+        "platform": "windows",
+        "renderer": "d3d11",
+        "host_class": "CASCADIA_HOSTING_WINDOW_CLASS",
+        "canvas_id": 2594339434432,
+        "canvas_token": "8aefab275197420f824c23a2ccda52f7",
+        "layer_rect": {
+          "x": 42.0,
+          "y": 93.0,
+          "width": 1440.0,
+          "height": 759.0
+        }
+      },
+      "checks": [
+        "owner",
+        "z_order_after_host_raise",
+        "move_resize_physical_alignment",
+        "native_mouse_keyboard",
+        "shared_frames_painted",
+        "transparent_input_hole",
+        "no_native_children",
+        "continuous_owner_tracking",
+        "background_terminal_layer_visible",
+        "owned_occluder_background_z_order",
+        "background_does_not_steal_focus"
+      ],
+      "transform": {
+        "transform": {
+          "source_size": [
+            640,
+            360
+          ],
+          "viewport_size": [
+            1332,
+            483
+          ],
+          "destination": {
+            "x": 236.66666666666669,
+            "y": 2.842170943040401e-14,
+            "width": 858.6666666666666,
+            "height": 482.99999999999994
+          },
+          "dpi_scale": 1.25
+        },
+        "previous": {
+          "source_size": [
+            640,
+            360
+          ],
+          "viewport_size": [
+            1414,
+            498
+          ],
+          "destination": {
+            "x": 264.33333333333337,
+            "y": 0.0,
+            "width": 885.3333333333333,
+            "height": 498.0
+          },
+          "dpi_scale": 1.25
+        },
+        "screen_rect": {
+          "x": 74,
+          "y": 241,
+          "width": 1332,
+          "height": 483
+        },
+        "clip_rect": {
+          "x": 74,
+          "y": 241,
+          "width": 1332,
+          "height": 483
+        },
+        "canvas_id": 2594339434432,
+        "canvas_token": "8aefab275197420f824c23a2ccda52f7",
+        "layer_rect": {
+          "x": 62.0,
+          "y": 103.0,
+          "width": 1356.0,
+          "height": 736.0
+        }
+      },
+      "metrics": {
+        "sequence": 339,
+        "skipped_frames": 0,
+        "frame_age_ms": 4.026499998872168,
+        "ready_age_ms": null,
+        "acquire_ms": 0.0731,
+        "closed": false,
+        "gpu_shared": false,
+        "painted_fps": 58.75957930532546,
+        "source_fps": 58.75957930532546,
+        "draw_ms": 0.1478,
+        "presents": 272,
+        "renderer": "d3d11",
+        "canvas_id": 2594339434432,
+        "canvas_token": "8aefab275197420f824c23a2ccda52f7",
+        "layer_rect": {
+          "x": 62.0,
+          "y": 103.0,
+          "width": 1356.0,
+          "height": 736.0
+        }
+      },
+      "background_visibility_observed": true,
+      "tracking": {
+        "steps": 150,
+        "settled_within_sample": 143,
+        "aligned_samples_ms": {
+          "p50": 2.3234000109368935,
+          "p95": 5.132100006449036
+        },
+        "error_px": {
+          "p95": 4,
+          "maximum": 6
+        },
+        "measurement": "Native HWND alignment; unaligned steps excluded from timing percentiles; not display latency"
+      }
+    },
+    "qt": {
+      "result": "passed",
+      "host": {
+        "hwnd": 7017042,
+        "pid": 44324,
+        "host_hwnd": 1184326,
+        "shared_layer": true,
+        "platform": "windows",
+        "renderer": "qt-raster",
+        "host_class": "CASCADIA_HOSTING_WINDOW_CLASS",
+        "canvas_id": 1825596809216,
+        "canvas_token": "8155da44732647148f008ea40fe01301",
+        "layer_rect": {
+          "x": 202.0,
+          "y": 253.0,
+          "width": 1440.0,
+          "height": 759.0
+        }
+      },
+      "checks": [
+        "owner",
+        "z_order_after_host_raise",
+        "move_resize_physical_alignment",
+        "native_mouse_keyboard",
+        "shared_frames_painted",
+        "transparent_input_hole",
+        "no_native_children",
+        "continuous_owner_tracking",
+        "background_terminal_layer_visible",
+        "owned_occluder_background_z_order",
+        "background_does_not_steal_focus"
+      ],
+      "transform": {
+        "transform": {
+          "source_size": [
+            640,
+            360
+          ],
+          "viewport_size": [
+            1332,
+            483
+          ],
+          "destination": {
+            "x": 236.66666666666669,
+            "y": 2.842170943040401e-14,
+            "width": 858.6666666666666,
+            "height": 482.99999999999994
+          },
+          "dpi_scale": 1.25
+        },
+        "previous": {
+          "source_size": [
+            640,
+            360
+          ],
+          "viewport_size": [
+            1414,
+            498
+          ],
+          "destination": {
+            "x": 264.33333333333337,
+            "y": 0.0,
+            "width": 885.3333333333333,
+            "height": 498.0
+          },
+          "dpi_scale": 1.25
+        },
+        "screen_rect": {
+          "x": 234,
+          "y": 401,
+          "width": 1332,
+          "height": 483
+        },
+        "clip_rect": {
+          "x": 234,
+          "y": 401,
+          "width": 1332,
+          "height": 483
+        },
+        "canvas_id": 1825596809216,
+        "canvas_token": "8155da44732647148f008ea40fe01301",
+        "layer_rect": {
+          "x": 222.0,
+          "y": 263.0,
+          "width": 1356.0,
+          "height": 736.0
+        }
+      },
+      "metrics": {
+        "painted_fps": 48.92270701539654,
+        "skipped_frames": 11,
+        "sequence": 281,
+        "draw_ms": 0.6447999912779778,
+        "frame_age_ms": 15.4435000004014,
+        "canvas_id": 1825596809216,
+        "canvas_token": "8155da44732647148f008ea40fe01301",
+        "layer_rect": {
+          "x": 222.0,
+          "y": 263.0,
+          "width": 1356.0,
+          "height": 736.0
+        }
+      },
+      "background_visibility_observed": true,
+      "tracking": {
+        "steps": 150,
+        "settled_within_sample": 150,
+        "aligned_samples_ms": {
+          "p50": 2.3327000089921057,
+          "p95": 5.02260000212118
+        },
+        "error_px": {
+          "p95": 4,
+          "maximum": 6
+        },
+        "measurement": "Native HWND alignment; unaligned steps excluded from timing percentiles; not display latency"
+      }
+    },
+    "embedded": {
+      "result": "passed",
+      "host": {
+        "hwnd": 1381552,
+        "pid": 29060,
+        "host_hwnd": 2428448,
+        "shared_layer": true,
+        "platform": "windows",
+        "renderer": "d3d11",
+        "host_class": "CASCADIA_HOSTING_WINDOW_CLASS",
+        "canvas_id": 2127999023680,
+        "canvas_token": "9718dd83a64a477a8c8308a3ef35d7e1",
+        "layer_rect": {
+          "x": 42.0,
+          "y": 93.0,
+          "width": 1440.0,
+          "height": 759.0
+        },
+        "view": "list:0"
+      },
+      "checks": [
+        "owner",
+        "z_order_after_host_raise",
+        "move_resize_physical_alignment",
+        "native_mouse_keyboard",
+        "shared_frames_painted",
+        "transparent_input_hole",
+        "no_native_children",
+        "many_canvases_one_hwnd",
+        "virtual_row_disposal",
+        "tab_hide",
+        "modal_hide",
+        "resume",
+        "continuous_owner_tracking",
+        "background_terminal_layer_visible",
+        "owned_occluder_background_z_order",
+        "background_does_not_steal_focus"
+      ],
+      "transform": {
+        "transform": {
+          "source_size": [
+            320,
+            180
+          ],
+          "viewport_size": [
+            432,
+            115
+          ],
+          "destination": {
+            "x": 113.77777777777779,
+            "y": 7.105427357601002e-15,
+            "width": 204.44444444444443,
+            "height": 114.99999999999999
+          },
+          "dpi_scale": 1.25
+        },
+        "previous": {
+          "source_size": [
+            320,
+            180
+          ],
+          "viewport_size": [
+            432,
+            115
+          ],
+          "destination": {
+            "x": 113.77777777777779,
+            "y": 7.105427357601002e-15,
+            "width": 204.44444444444443,
+            "height": 114.99999999999999
+          },
+          "dpi_scale": 1.25
+        },
+        "screen_rect": {
+          "x": 354.0,
+          "y": 450.0,
+          "width": 432,
+          "height": 115
+        },
+        "clip_rect": {
+          "x": 354.0,
+          "y": 450.0,
+          "width": 432,
+          "height": 115
+        },
+        "canvas_id": 2128016802208,
+        "canvas_token": "8fd2bdda3b9a48fdb7aa43ad950daaca",
+        "layer_rect": {
+          "x": 150.0,
+          "y": 128.0,
+          "width": 1356.0,
+          "height": 736.0
+        },
+        "view": "list:40"
+      },
+      "metrics": {
+        "sequence": 790,
+        "skipped_frames": 236,
+        "frame_age_ms": 3.6761999945156276,
+        "ready_age_ms": null,
+        "acquire_ms": 0.0466,
+        "closed": false,
+        "gpu_shared": false,
+        "painted_fps": 58.67014471248722,
+        "source_fps": 58.67014471248722,
+        "draw_ms": 0.2359,
+        "presents": 531,
+        "renderer": "d3d11",
+        "canvas_id": 2128016802208,
+        "canvas_token": "8fd2bdda3b9a48fdb7aa43ad950daaca",
+        "layer_rect": {
+          "x": 102.0,
+          "y": 84.0,
+          "width": 1356.0,
+          "height": 736.0
+        },
+        "view": "list:40"
+      },
+      "checkpoints": [
+        {
+          "phase": "scrolled",
+          "items": 8
+        },
+        {
+          "phase": "hidden",
+          "items": 0
+        },
+        {
+          "phase": "modal",
+          "items": 0
+        }
+      ],
+      "logical_canvases_created": 41,
+      "background_visibility_observed": true,
+      "tracking": {
+        "steps": 150,
+        "settled_within_sample": 143,
+        "aligned_samples_ms": {
+          "p50": 2.3274999985005707,
+          "p95": 4.8745000094641
+        },
+        "error_px": {
+          "p95": 4,
+          "maximum": 6
+        },
+        "measurement": "Native HWND alignment; unaligned steps excluded from timing percentiles; not display latency"
+      }
+    }
+  },
+  "installed_top_checks": {
+    "result": "passed",
+    "checks": [
+      "live_non_warmup_metrics",
+      "filter_and_pin_by_identity",
+      "pause_retains_snapshot",
+      "independent_browser_page_and_embedded_enter_escape",
+      "telemetry_message_published",
+      "settings_and_repeatable_help_modal",
+      "chinese_tui_and_all_pages_while_sampling_paused",
+      "browser_viewport_reflows_and_chart_fills_panel",
+      "browser_telemetry_received_and_selection_roundtrip",
+      "english_switch_preserves_native_browser_pages"
+    ],
+    "native_errors": {},
+    "sampler_errors": 0,
+    "web_gpu_only": true,
+    "source_files_hash_matched_installed_wheel": true
+  }
+}

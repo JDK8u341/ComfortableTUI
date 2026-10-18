@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5 — 2026-10-18
+
+- Follow Windows terminal movement through scoped location events and a translation-only overlay path, avoiding native scene handshakes on every move. Reject UIA geometry samples taken during movement; retain full resize/DPI/layout configuration.
+- Add continuous native-window tracking verification and batch embedded example diagnostics. Retain test report directories on failure until the example can finish writing.
+
 ## 0.1.4 — 2026-10-18
 
 - Add an optional fixed maximum to BarChart so percentage charts can use an absolute 0..100 scale while default charts keep relative scaling.
