@@ -1,7 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include "comfortable/compositor.hpp"
-#include "../glass/bindings.hpp"
 namespace py = pybind11;
 using namespace comfortable;
 using namespace pybind11::literals;
@@ -11,7 +10,6 @@ static py::dict descriptor_dict(const FrameDescriptor &d) {
                     "version"_a = d.version);
 }
 PYBIND11_MODULE(_native_gpu, m) {
-    bind_glass(m);
     m.attr("protocol_version") = 1;
     m.def("describe", [](const std::string &name) {
         FrameDescriptor d;

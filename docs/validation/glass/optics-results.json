@@ -1,0 +1,301 @@
+{
+  "date": "2026-10-19",
+  "branch": "codex/liquid-glass-cards",
+  "environment": {
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.14",
+    "dpi_scale": 1.25,
+    "terminal": "Windows Terminal",
+    "compiler": "MSVC 2022"
+  },
+  "unit_tests": {
+    "passed": 280,
+    "skipped": 1,
+    "pure_python": "280 passed, 1 skipped",
+    "ruff": "passed"
+  },
+  "native_build": {
+    "pybind11": "passed",
+    "frame_protocol": 1,
+    "glass_protocol": 2,
+    "separate_modules": "passed",
+    "cmake_sdk_install": "passed",
+    "external_glass_sdk_client_link_and_run": "passed",
+    "ctest": "passed",
+    "sdist": "passed",
+    "windows_native_wheel": "passed",
+    "source_manifest": "passed"
+  },
+  "sources": {
+    "cpu": {
+      "result": "passed",
+      "source": "cpu_framebuffer",
+      "checks": [
+        "native_ui_and_external_frames_presented",
+        "settled_ui_does_not_redraw_continuously",
+        "capture_release_preserves_exactly_one_click",
+        "native_control_change_reaches_python",
+        "stale_scene_cannot_erase_unacknowledged_native_edit",
+        "canvas_source_coordinates_and_mouse_pair",
+        "native_motion_continues_while_python_holds_gil",
+        "interruptible_orbit_focus_ribbon_deck_layouts",
+        "opaque_and_reduced_motion_preferences",
+        "canvas_replacement_ack_preserves_native_window",
+        "native_owner_translation_follows_without_python_geometry",
+        "maximized_owner_uses_bounded_compact_deck",
+        "background_follows_focus_group_cards_survive_inactivity_and_escape",
+        "dismiss_and_recall",
+        "owner_minimize_restore",
+        "owner_destroy_closes_windows_and_consumers"
+      ],
+      "idle_ui_draws_in_300ms": 0,
+      "gil_held_seconds": 0.45,
+      "motion_during_gil_pixels": 608.0,
+      "translation_error_pixels": [
+        0.0,
+        0.0
+      ]
+    },
+    "gpu": {
+      "result": "passed",
+      "source": "shared_gpu",
+      "checks": [
+        "native_ui_and_external_frames_presented",
+        "settled_ui_does_not_redraw_continuously",
+        "capture_release_preserves_exactly_one_click",
+        "native_control_change_reaches_python",
+        "stale_scene_cannot_erase_unacknowledged_native_edit",
+        "canvas_source_coordinates_and_mouse_pair",
+        "native_motion_continues_while_python_holds_gil",
+        "interruptible_orbit_focus_ribbon_deck_layouts",
+        "opaque_and_reduced_motion_preferences",
+        "canvas_replacement_ack_preserves_native_window",
+        "native_owner_translation_follows_without_python_geometry",
+        "maximized_owner_uses_bounded_compact_deck",
+        "background_follows_focus_group_cards_survive_inactivity_and_escape",
+        "dismiss_and_recall",
+        "owner_minimize_restore",
+        "owner_destroy_closes_windows_and_consumers"
+      ],
+      "idle_ui_draws_in_300ms": 0,
+      "gil_held_seconds": 0.45,
+      "motion_during_gil_pixels": 608.0,
+      "translation_error_pixels": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "optics": {
+    "result": "passed",
+    "checks": [
+      "per_card_liquid_frosted_solid_rendering",
+      "native_row_group_layout",
+      "self_capture_echo_does_not_sustain_optical_repainting",
+      "card_draggable_false_prevents_default_behavior",
+      "group_preview_consumption_prevents_drag",
+      "card_handler_consumption_prevents_drag",
+      "element_owned_drag_survives_scene_updates",
+      "explicit_reflow_restores_container_layout",
+      "group_visibility_is_inherited_without_hiding_other_roots",
+      "group_disabled_prevents_child_pointer_behavior",
+      "in_flight_drag_cancels_on_disable_hide_or_policy_change",
+      "one_card_background_changes_independently",
+      "workspace_frosted_background_uses_optical_blur",
+      "dim_is_reported_as_dimming_not_frosted"
+    ],
+    "idle_700ms": {
+      "frames": 0,
+      "optical_frames": 0,
+      "capture_frames": 25,
+      "unchanged_capture_frames": 17
+    },
+    "metrics": {
+      "applied": 16,
+      "frames": 75,
+      "tick_ms": 0.553100006072782,
+      "dropped_events": 0,
+      "active": true,
+      "compact": false,
+      "backdrop_visible": true,
+      "high_contrast": false,
+      "system_animation": true,
+      "material": "mixed",
+      "error": "",
+      "windows": [
+        {
+          "id": "clear",
+          "rect": [
+            1024.0,
+            270.0,
+            325.0,
+            210.0
+          ],
+          "material": "liquid",
+          "pinned": false,
+          "draggable": true
+        },
+        {
+          "id": "frost",
+          "rect": [
+            1369.0,
+            270.0,
+            325.0,
+            203.0
+          ],
+          "material": "frosted",
+          "pinned": false,
+          "draggable": true
+        },
+        {
+          "id": "fixed",
+          "rect": [
+            289.0,
+            270.0,
+            313.0,
+            203.0
+          ],
+          "material": "solid",
+          "pinned": false,
+          "draggable": false
+        }
+      ],
+      "closed": false,
+      "presents": 151,
+      "canvas_frames": 0,
+      "capture_active": true,
+      "capture_frames": 1023,
+      "optical_frames": 91,
+      "copied_pixels": 7852723200,
+      "optics_error": "",
+      "unchanged_capture_frames": 1741,
+      "backdrop_material": "dim",
+      "pane_available": true,
+      "pane_error": ""
+    }
+  },
+  "real_terminal": {
+    "result": "passed",
+    "duration_seconds": 20,
+    "entry": "examples.glass_workspace --groups --gpu-provider",
+    "last_live_metrics": {
+      "applied": 40,
+      "frames": 156,
+      "tick_ms": 0.2849000011337921,
+      "dropped_events": 0,
+      "active": true,
+      "compact": true,
+      "backdrop_visible": false,
+      "high_contrast": false,
+      "system_animation": true,
+      "material": "mixed",
+      "error": "",
+      "windows": [
+        {
+          "id": "session",
+          "rect": [
+            664.0,
+            115.0,
+            388.0,
+            375.0
+          ],
+          "material": "liquid",
+          "pinned": false,
+          "draggable": true
+        },
+        {
+          "id": "signal",
+          "rect": [
+            1072.0,
+            115.0,
+            413.0,
+            385.0
+          ],
+          "material": "liquid",
+          "pinned": false,
+          "draggable": true
+        },
+        {
+          "id": "health",
+          "rect": [
+            720.0,
+            145.0,
+            350.0,
+            330.0
+          ],
+          "material": "frosted",
+          "pinned": false,
+          "draggable": false
+        },
+        {
+          "id": "appearance",
+          "rect": [
+            1090.0,
+            145.0,
+            413.0,
+            498.0
+          ],
+          "material": "liquid",
+          "pinned": false,
+          "draggable": true
+        }
+      ],
+      "closed": false,
+      "presents": 1436,
+      "canvas_frames": 1095,
+      "capture_active": true,
+      "capture_frames": 168,
+      "optical_frames": 216,
+      "copied_pixels": 2652134400,
+      "optics_error": "",
+      "unchanged_capture_frames": 943,
+      "backdrop_material": "none",
+      "pane_available": true,
+      "pane_error": ""
+    },
+    "final_metrics": {
+      "applied": 41,
+      "frames": 160,
+      "tick_ms": 0.2699000033317134,
+      "dropped_events": 0,
+      "active": false,
+      "compact": true,
+      "backdrop_visible": false,
+      "high_contrast": false,
+      "system_animation": true,
+      "material": "mixed",
+      "error": "",
+      "windows": [],
+      "closed": true,
+      "presents": 1436,
+      "canvas_frames": 1095,
+      "capture_active": false,
+      "capture_frames": 173,
+      "optical_frames": 219,
+      "copied_pixels": 2677017600,
+      "optics_error": "",
+      "unchanged_capture_frames": 945,
+      "backdrop_material": "none",
+      "pane_available": true,
+      "pane_error": ""
+    }
+  },
+  "computer_use": {
+    "result": "passed",
+    "mode": "own independent inspection fixture only",
+    "checks": [
+      "transparent grid and separate Gaussian material visible",
+      "physical header drag",
+      "focus input and type Unicode",
+      "MSAA value agrees with visible Chinese text"
+    ]
+  },
+  "limits": [
+    "Short samples, not photon latency or worst-case performance guarantees",
+    "Taskbar clicks were not automated; production ownership and focus/minimize/restore were tested",
+    "Windows 10, HDR, rotated/mixed-GPU/multi-monitor DPI, other terminals and screen readers unverified",
+    "Desktop pixels remain on GPU; 16-byte changed-region bounds read back asynchronously",
+    "No background screenshots, paths or transient HWNDs saved"
+  ],
+  "docs_strict": "passed"
+}

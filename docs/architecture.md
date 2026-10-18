@@ -134,5 +134,9 @@ DirectComposition。Python不进行逐帧序号检查或像素处理。配置/�
 `GlassWorkspace` 复用帧协议与 Compositor，在真实终端周围管理多张 Win32 卡片。
 Direct2D/DirectWrite 在共享 BGRA 纹理绘制自有控件，外部 CPU/GPU 来源作为另一层
 合成。窗口、动画、命中、DPI、MSAA 与焦点背景由 C++ GlassHost 的 STA 负责，Python
-只提交有界场景、保留待确认来源和消费事件。原内嵌 OverlayCanvas 不改变布局语义。
-见[架构、API 与限制](glass-workspace.md)和[实施前调研](glass-research-plan.md)。
+只提交有界场景、保留待确认来源和消费事件。它属于与 BrowserService 同级的上层服务，
+使用独立 `_native_glass` 模块与 ComfortableGlass SDK；Canvas SDK/帧协议不含卡片语义。
+Card 决定未消费指针事件的默认行为，CardGroup 提供祖先 preview/bubble 和容器布局。
+私有 DDA/D3D11 光学层在 GPU 采样桌面，执行边缘位移、色散及高斯模糊，与文字表面
+分离；只异步回读16字节变化包围盒以排除自身呈现回声。原内嵌 OverlayCanvas 不改变布局语义。
+见[架构、API 与限制](glass-workspace.md)和[光学与事件调研](glass-optics-research.md)。

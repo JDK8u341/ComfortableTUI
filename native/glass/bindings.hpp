@@ -3,21 +3,41 @@
 namespace comfortable {
 inline void bind_glass(pybind11::module_ &m) {
     namespace py=pybind11;
-    m.attr("glass_protocol_version")=1;
+    m.attr("glass_protocol_version")=2;
     py::class_<GlassHost>(m,"GlassHost")
         .def(py::init([](std::uintptr_t hwnd,bool inspectable){py::gil_scoped_release release;return std::make_unique<GlassHost>(hwnd,inspectable);}),py::arg("hwnd"),py::arg("inspectable_windows")=false)
         .def("configure",[](GlassHost &host,py::dict input){
             GlassScene s;
+            s.roots=py::cast<std::vector<std::string>>(input["roots"]);
             s.layout=py::cast<std::string>(input["layout"]);s.material=py::cast<std::string>(input["material"]);
             s.backdrop=py::cast<std::string>(input["backdrop"]);s.selected=py::cast<std::string>(input["selected"]);
             s.accent=py::cast<std::uint32_t>(input["accent"]);s.visible=py::cast<bool>(input["visible"]);
             s.pane_visible=py::cast<bool>(input["pane_visible"]);s.reduced_motion=py::cast<bool>(input["reduced_motion"]);
             s.reduced_transparency=py::cast<bool>(input["reduced_transparency"]);
+            for(auto item:py::cast<py::list>(input["groups"])) {
+                auto d=py::cast<py::dict>(item);GlassGroup group;
+                group.id=py::cast<std::string>(d["id"]);group.parent=py::cast<std::string>(d["parent"]);
+                group.layout=py::cast<std::string>(d["layout"]);group.children=py::cast<std::vector<std::string>>(d["children"]);
+                group.gap=py::cast<float>(d["gap"]);group.padding=py::cast<float>(d["padding"]);
+                group.visible=py::cast<bool>(d["visible"]);group.enabled=py::cast<bool>(d["enabled"]);s.groups.push_back(std::move(group));
+            }
             for(auto v:py::cast<py::list>(input["cards"])) {
                 auto d=py::cast<py::dict>(v);GlassCard card;
                 card.id=py::cast<std::string>(d["id"]);card.title=py::cast<std::string>(d["title"]);
                 card.subtitle=py::cast<std::string>(d["subtitle"]);card.eyebrow=py::cast<std::string>(d["eyebrow"]);
                 card.width=py::cast<float>(d["width"]);
+                card.group=py::cast<std::string>(d["group"]);
+                card.draggable=py::cast<bool>(d["draggable"]);
+                if(!d["background"].is_none()) {
+                    card.has_background=true;auto b=py::cast<py::dict>(d["background"]);
+                    card.background.kind=py::cast<std::string>(b["kind"]);
+                    card.background.tint=py::cast<std::uint32_t>(b["tint"]);
+                    card.background.opacity=py::cast<float>(b["opacity"]);
+                    card.background.blur=py::cast<float>(b["blur"]);
+                    card.background.refraction=py::cast<float>(b["refraction"]);
+                    card.background.dispersion=py::cast<float>(b["dispersion"]);
+                    card.background.corner_radius=py::cast<float>(b["corner_radius"]);
+                }
                 for(auto cv:py::cast<py::list>(d["controls"])) {
                     auto c=py::cast<py::dict>(cv);GlassControl control;
                     control.id=py::cast<std::string>(c["id"]);control.kind=py::cast<std::string>(c["kind"]);
@@ -42,6 +62,7 @@ inline void bind_glass(pybind11::module_ &m) {
             py::gil_scoped_release release;return host.configure(std::move(s));
         })
         .def("command",&GlassHost::command,py::arg("action"),py::arg("value")="",py::call_guard<py::gil_scoped_release>())
+        .def("begin_drag",&GlassHost::begin_drag,py::call_guard<py::gil_scoped_release>())
         .def("close",&GlassHost::close,py::call_guard<py::gil_scoped_release>())
         .def("metrics",[](GlassHost &h){
             GlassMetrics s;{py::gil_scoped_release release;s=h.metrics();}
@@ -49,12 +70,16 @@ inline void bind_glass(pybind11::module_ &m) {
             for(std::size_t i=0;i<s.windows.size();i++) {
                 auto r=s.rects[i];py::dict w;w["id"]=s.ids[i];w["hwnd"]=s.windows[i];
                 w["rect"]=py::make_tuple(r.x,r.y,r.width,r.height);windows.append(w);
+                w["material"]=s.materials[i];w["pinned"]=static_cast<bool>(s.pinned[i]);w["draggable"]=static_cast<bool>(s.draggable[i]);
             }
             py::dict d;d["applied"]=s.applied;d["frames"]=s.frames;d["tick_ms"]=s.tick_ms;
             d["dropped_events"]=s.dropped_events;d["active"]=s.active;d["compact"]=s.compact;
             d["backdrop_visible"]=s.backdrop_visible;d["high_contrast"]=s.high_contrast;
             d["system_animation"]=s.system_animation;d["material"]=s.material;d["error"]=s.error;
-            d["windows"]=windows;d["closed"]=s.closed;d["presents"]=s.presents;d["canvas_frames"]=s.canvas_frames;return d;
+            d["windows"]=windows;d["closed"]=s.closed;d["presents"]=s.presents;d["canvas_frames"]=s.canvas_frames;
+            d["capture_active"]=s.capture_active;d["capture_frames"]=s.capture_frames;d["optical_frames"]=s.optical_frames;
+            d["copied_pixels"]=s.copied_pixels;d["optics_error"]=s.optics_error;
+            d["unchanged_capture_frames"]=s.unchanged_capture_frames;d["backdrop_material"]=s.backdrop_material;return d;
         })
         .def("events",[](GlassHost &h){
             std::vector<GlassEvent> events;{py::gil_scoped_release release;events=h.events();}

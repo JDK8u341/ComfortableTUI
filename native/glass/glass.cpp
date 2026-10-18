@@ -1,5 +1,6 @@
 #include "comfortable/glass.hpp"
 #include "../canvas/internal.hpp"
+#include "optics.hpp"
 #include <d2d1_1.h>
 #include <dwrite.h>
 #include <dwmapi.h>
@@ -12,6 +13,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <set>
@@ -86,6 +88,7 @@ struct UiSurface {
     std::map<std::string, ComPtr<IDWriteTextLayout>> text_cache;
     IDWriteFactory *write{};
     float dpi{1};
+    bool glyph_shadow{};
     UiSurface(unsigned w, unsigned h, ID2D1Factory1 *factory, IDWriteFactory *fonts, float scale,
               std::uint32_t low = 0, std::int32_t high = 0)
         : UiSurface(w, h, factory, fonts, scale, create_device(low, high)) {}
@@ -148,6 +151,11 @@ struct UiSurface {
             text_cache[key]=layout;
         }
         brush->SetColor(color(rgb,alpha));
+        if(glyph_shadow) {
+            brush->SetColor(color(0x02050a,.72f*alpha));
+            dc->DrawTextLayout(D2D1::Point2F(x,y+1),text_cache.at(key).Get(),brush.Get(),D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            brush->SetColor(color(rgb,alpha));
+        }
         dc->DrawTextLayout(D2D1::Point2F(x,y),text_cache.at(key).Get(),brush.Get(),D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
 };
@@ -166,7 +174,8 @@ struct GlassHost::Impl {
     bool ready{}, stopping{};
     GlassScene requested, scene;
     std::uint64_t submitted{}, applied{}, event_serial{};
-    std::deque<std::pair<std::string,std::string>> commands;
+    struct Action {std::string kind,id;std::uint64_t token{};};
+    std::deque<Action> commands;
     std::deque<GlassEvent> output;
     GlassMetrics report;
     std::vector<std::unique_ptr<Card>> cards;
@@ -181,6 +190,10 @@ struct GlassHost::Impl {
     HWND background{};
     std::unique_ptr<UiSurface> background_ui;
     std::unique_ptr<Compositor> background_compositor;
+    std::unique_ptr<glass_detail::OpticalScene> optics;
+    std::unique_ptr<glass_detail::OpticalPanel> background_optical;
+    bool sampling_allowed{true};
+    HMONITOR optical_monitor{};
     static thread_local Impl *current;
 
     explicit Impl(std::uintptr_t h,bool inspectable) : owner(reinterpret_cast<HWND>(h)),inspectable_windows(inspectable) {
@@ -212,7 +225,7 @@ struct GlassHost::Impl {
     std::uint64_t emit(GlassEvent e) {
         std::lock_guard<std::mutex> lock(mutex);
         auto serial=e.sequence=++event_serial;
-        if (e.kind=="mouse_move" && !output.empty() && output.back().kind==e.kind &&
+        if ((e.kind=="mouse_move"||e.kind=="pointer_move"||e.kind=="drag") && !output.empty() && output.back().kind==e.kind &&
             output.back().card==e.card && output.back().control==e.control) output.back()=std::move(e);
         else {
             if (output.size()>=1024) {output.pop_front();report.dropped_events++;}
@@ -253,12 +266,14 @@ struct GlassHost::Impl {
         DwmSetWindowAttribute(hwnd,20,&dark,sizeof(dark));
         DwmSetWindowAttribute(hwnd,33,&corner,sizeof(corner));
         DwmSetWindowAttribute(hwnd,34,&border,sizeof(border));
-        DWORD kind=style=="mica"?2:style=="solid"?1:3;
+        DWORD kind=style=="mica"?2:style=="acrylic"?3:1;
         return SUCCEEDED(DwmSetWindowAttribute(hwnd,38,&kind,sizeof(kind))) && style!="solid";
     }
     void update_background(bool visible) {
         if (!visible || scene.backdrop=="none" || backdrop_dismissed) {
-            if (background) ShowWindow(background,SW_HIDE);
+            if (background) {ShowWindow(background,SW_HIDE);background_compositor->visible(false);}
+            if(background_optical){background_compositor->configure({},1,1);background_optical.reset();}
+            {std::lock_guard<std::mutex> lock(mutex);report.backdrop_material="none";}
             return;
         }
         if (!background) {
@@ -269,24 +284,29 @@ struct GlassHost::Impl {
                 L"ComfortableGlassBackdrop",L"Comfortable Glass / focus backdrop",WS_POPUP,
                 0,0,1,1,nullptr,nullptr,GetModuleHandleW(nullptr),this);
             if (!background) throw std::runtime_error("Cannot create glass backdrop");
+            if(!glass_detail::OpticalScene::exclude(background))sampling_allowed=false;
             background_ui=std::make_unique<UiSurface>(1u,1u,factory.Get(),write.Get(),1.f);
             auto d=background_ui->provider.descriptor();
             background_compositor=std::make_unique<Compositor>(reinterpret_cast<std::uintptr_t>(background),d.adapter_low,d.adapter_high);
         }
-        bool frosted=material(background,contrast||scene.backdrop=="dim"?"solid":scene.backdrop);
+        bool blur=scene.backdrop=="frosted"&&!contrast&&!scene.reduced_transparency&&optics&&sampling_allowed&&optics->stats().image_ready;
+        bool mica=material(background,scene.backdrop=="mica"&&!contrast&&!scene.reduced_transparency?"mica":"solid");
         auto f=background_ui->begin();
-        if (f) {background_ui->dc->Clear(D2D1::ColorF(.025f,.035f,.06f,frosted?.34f:.82f));background_ui->end(f);}
+        if (f) {background_ui->dc->Clear(D2D1::ColorF(.025f,.035f,.06f,blur?0.f:mica?.10f:.36f));background_ui->end(f);}
         RECT r{};GetWindowRect(background,&r);
-        if (r.left!=work.left||r.top!=work.top||r.right!=work.right||r.bottom!=work.bottom) {
+        bool size_change=r.left!=work.left||r.top!=work.top||r.right!=work.right||r.bottom!=work.bottom;
+        if (size_change) {
             SetWindowPos(background,owner,work.left,work.top,work.right-work.left,work.bottom-work.top,
                          SWP_NOACTIVATE|SWP_NOOWNERZORDER);
-            NativeView view;view.id=1;view.source=background_ui->provider.descriptor();view.fit="stretch";
-            view.full=view.clip={0,0,static_cast<float>(work.right-work.left),static_cast<float>(work.bottom-work.top)};
-            background_compositor->configure({view},work.right-work.left,work.bottom-work.top);
         }
+        if(blur&&(!background_optical||size_change))background_optical=optics->panel(work.right-work.left,work.bottom-work.top);
+        NativeView view;view.id=1;view.source=blur?background_optical->descriptor():background_ui->provider.descriptor();view.fit="stretch";
+        view.full=view.clip={0,0,static_cast<float>(work.right-work.left),static_cast<float>(work.bottom-work.top)};
+        background_compositor->configure({view},work.right-work.left,work.bottom-work.top);
         // Background is independent (owned windows must always be ABOVE owner).
         SetWindowPos(background,owner,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);
         background_compositor->visible(true);
+        {std::lock_guard<std::mutex> lock(mutex);report.backdrop_material=blur?"frosted":mica?"mica":"dim";}
     }
     struct Card {
         Impl *host;
@@ -294,10 +314,18 @@ struct GlassHost::Impl {
         HWND hwnd{};
         std::unique_ptr<UiSurface> ui;
         std::unique_ptr<Compositor> compositor;
+        std::unique_ptr<glass_detail::OpticalPanel> optical;
+        GlassBackground background;
+        std::string actual_material;
         Spring x,y;
         float width{},height{}, hover_x{},hover_y{}, reveal{};
         int hovered{-1}, focused{-1}, pressed{-1};
         bool dirty{true}, dragging{}, shown{}, native_material{};
+        bool moving{}, pinned{}, group_visible{true}, group_enabled{true}, before_pinned{};
+        double offset_x{},offset_y{},before_offset_x{},before_offset_y{},drag_start_x{},drag_start_y{};
+        POINT grab{},last_pointer{};
+        std::uint64_t pointer_sequence{};
+        bool optical_dirty{true};
         std::string canvas_signature, material_key;
         int native_x{-100000},native_y{-100000};
         std::shared_ptr<Card *> accessibility=std::make_shared<Card *>(this);
@@ -309,8 +337,10 @@ struct GlassHost::Impl {
                 0,0,static_cast<int>(std::round(width*h->dpi)),static_cast<int>(std::round(height*h->dpi)),
                 h->inspectable_windows?nullptr:h->owner,nullptr,GetModuleHandleW(nullptr),this);
             if (!hwnd) throw std::runtime_error("Cannot create glass card");
+            if(!glass_detail::OpticalScene::exclude(hwnd))h->sampling_allowed=false;
             try {
                 std::uint32_t low=0;std::int32_t high=0;
+                if(h->optics){auto adapter=h->optics->adapter();low=adapter.LowPart;high=adapter.HighPart;}
                 for (const auto &c:s.controls) if(c.kind=="canvas"&&c.canvas.gpu) {
                     low=c.canvas.source.adapter_low;high=c.canvas.source.adapter_high;
                 }
@@ -318,31 +348,55 @@ struct GlassHost::Impl {
                     static_cast<unsigned>(std::round(height*h->dpi)),h->factory.Get(),h->write.Get(),h->dpi,low,high);
                 auto d=ui->provider.descriptor();
                 compositor=std::make_unique<Compositor>(reinterpret_cast<std::uintptr_t>(hwnd),d.adapter_low,d.adapter_high);
-                configure_canvas();
                 x.x=x.target=(h->owner_rect.left+h->owner_rect.right)/2.f-width*h->dpi/2;
                 y.x=y.target=h->owner_rect.top+42*h->dpi;
                 apply_material();
+                configure_canvas();
                 host->emit({"ready",spec.id,"",std::to_string(reinterpret_cast<std::uintptr_t>(hwnd))});
             } catch (...) {DestroyWindow(hwnd);hwnd=nullptr;throw;}
         }
         ~Card() {
             *accessibility=nullptr;
             if (compositor) compositor->close();
+            optical.reset();
             ui.reset();
             if (hwnd) DestroyWindow(hwnd);
         }
         void apply_material() {
-            std::string key=host->scene.material+(host->contrast?"hc":"")+(host->scene.reduced_transparency?"opaque":"");
-            if(key==material_key)return;
-            material_key=key;
-            native_material=host->material(hwnd,host->contrast||host->scene.reduced_transparency?"solid":host->scene.material);
-            host->effective_material=native_material?host->scene.material:"solid";
-            dirty=true;
+            background=spec.background;
+            if(!spec.has_background) {
+                background.kind=host->scene.material=="glass"?"liquid":host->scene.material;
+                if(background.kind=="frosted"){background.blur=18;background.opacity=.12f;}
+                if(background.kind=="solid"){background.tint=0x192130;background.opacity=1;}
+            }
+            if(host->contrast||host->scene.reduced_transparency){background.kind="solid";background.tint=0x192130;background.opacity=1;}
+            actual_material=background.kind;
+            bool wants_optical=background.kind=="liquid"||background.kind=="frosted";
+            if(wants_optical&&host->optics&&host->sampling_allowed) {
+                auto d=ui->provider.descriptor();auto adapter=host->optics->adapter();
+                if(d.adapter_low==adapter.LowPart&&d.adapter_high==adapter.HighPart) {
+                    if(!optical)optical=host->optics->panel(d.width,d.height);
+                } else actual_material="solid";
+            } else if(wants_optical)actual_material="solid";
+            bool use_optical=wants_optical&&actual_material!="solid";
+            if(actual_material=="solid"&&background.kind!="solid"){background.tint=0x192130;background.opacity=1;}
+            if(!use_optical&&optical){optical.reset();canvas_signature.clear();}
+            native_material=host->material(hwnd,actual_material=="mica"?"mica":"solid");
+            if(actual_material=="mica"&&!native_material)actual_material="solid";
+            host->effective_material=actual_material;
+            // The shader owns the shape. Its region also owns hit testing.
+            int radius=static_cast<int>(std::round(background.corner_radius*host->dpi*2));
+            auto region=CreateRoundRectRgn(0,0,static_cast<int>(std::round(width*host->dpi))+1,
+                static_cast<int>(std::round(height*host->dpi))+1,radius,radius);
+            if(region&&!SetWindowRgn(hwnd,region,TRUE))DeleteObject(region);
+            dirty=optical_dirty=true;
         }
         void configure_canvas() {
             NativeView ink;ink.id=1;ink.source=ui->provider.descriptor();ink.fit="stretch";
             ink.full=ink.clip={0,0,width*host->dpi,height*host->dpi};
-            std::vector<NativeView> views{ink};
+            std::vector<NativeView> views;
+            if(optical){auto lens=ink;lens.id=3;lens.source=optical->descriptor();views.push_back(lens);}
+            views.push_back(ink);
             float row=102;
             canvas_signature.clear();
             for (const auto &c:spec.controls) {
@@ -355,7 +409,36 @@ struct GlassHost::Impl {
                 row+=row_height(c.kind);
             }
             compositor->configure(views,ink.source.width,ink.source.height);
-            canvas_signature=source_signature(spec);
+            canvas_signature=source_signature(spec)+(optical?":optical":"");
+        }
+        void pointer(const std::string &kind,float px,float py) {
+            POINT point{static_cast<LONG>(std::round(px*host->dpi)),static_cast<LONG>(std::round(py*host->dpi))};
+            ClientToScreen(hwnd,&point);last_pointer=point;
+            auto token=host->emit({kind,spec.id,"",py<96?"header":"",0,px,py});
+            if(kind=="pointer_down"){pointer_sequence=token;grab={static_cast<LONG>(std::round(px*host->dpi)),static_cast<LONG>(std::round(py*host->dpi))};}
+        }
+        void move_drag() {
+            if(!moving)return;
+            float cw=width*host->dpi,ch=height*host->dpi;
+            double nx=std::clamp<double>(last_pointer.x-grab.x,host->work.left+4*host->dpi,std::max<double>(host->work.left,host->work.right-cw-4*host->dpi));
+            double ny=std::clamp<double>(last_pointer.y-grab.y,host->work.top+4*host->dpi,std::max<double>(host->work.top,host->work.bottom-ch-4*host->dpi));
+            x.x=x.target=nx;y.x=y.target=ny;x.v=y.v=0;
+            pinned=true;offset_x=nx-host->owner_rect.left;offset_y=ny-host->owner_rect.top;
+            host->emit({"drag",spec.id,"","",0,offset_x/host->dpi,offset_y/host->dpi});optical_dirty=true;
+        }
+        void begin_drag(std::uint64_t token) {
+            if(!spec.draggable||!group_enabled||!group_visible||!dragging||pressed>=0||token!=pointer_sequence||GetCapture()!=hwnd)return;
+            moving=true;before_pinned=pinned;before_offset_x=offset_x;before_offset_y=offset_y;
+            drag_start_x=x.x;drag_start_y=y.x;
+            host->emit({"drag_start",spec.id,"","",0,(x.x-host->owner_rect.left)/host->dpi,(y.x-host->owner_rect.top)/host->dpi});
+            move_drag();
+        }
+        void stop_drag(bool cancel) {
+            if(moving) {
+                if(cancel){x.x=x.target=drag_start_x;y.x=y.target=drag_start_y;pinned=before_pinned;offset_x=before_offset_x;offset_y=before_offset_y;}
+                host->emit({cancel?"drag_cancel":"drag_end",spec.id,"","",0,(x.x-host->owner_rect.left)/host->dpi,(y.x-host->owner_rect.top)/host->dpi});
+            }
+            moving=false;pointer_sequence=0;optical_dirty=true;
         }
         int hit(float px,float py) {
             if (px<20||px>width-20) return -1;
@@ -414,6 +497,7 @@ struct GlassHost::Impl {
         }
         LRESULT message(UINT msg,WPARAM w,LPARAM l) {
             float px=GET_X_LPARAM(l)/host->dpi,py=GET_Y_LPARAM(l)/host->dpi;
+            if(!group_enabled&&(msg==WM_LBUTTONDOWN||msg==WM_LBUTTONUP||msg==WM_MOUSEMOVE||msg==WM_MOUSEWHEEL||msg==WM_KEYDOWN||msg==WM_CHAR))return 0;
             switch(msg) {
             case WM_GETOBJECT:
                 if(static_cast<LONG>(l)==OBJID_CLIENT){auto object=new GlassAccessibility<Card>(accessibility);auto result=LresultFromObject(IID_IAccessible,w,object);object->Release();return result;}
@@ -426,6 +510,8 @@ struct GlassHost::Impl {
             case WM_MOUSEMOVE: {
                 if(hover_x==px&&hover_y==py)return 0;
                 hover_x=px;hover_y=py;hovered=hit(px,py);dirty=true;
+                if(dragging&&pressed<0&&(w&MK_LBUTTON)){pointer("pointer_move",px,py);move_drag();}
+                optical_dirty=true;
                 TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,hwnd,0};TrackMouseEvent(&track);
                 if(dragging&&pressed>=0&&spec.controls[pressed].kind=="slider")activate(pressed,px,py);
                 if(hovered>=0&&spec.controls[hovered].enabled&&spec.controls[hovered].kind=="canvas")canvas_event("mouse_move",hovered,px,py);
@@ -434,18 +520,22 @@ struct GlassHost::Impl {
             case WM_MOUSELEAVE:hovered=-1;hover_x=hover_y=0;dirty=true;return 0;
             case WM_LBUTTONDOWN:
                 SetFocus(hwnd);host->select(spec.id);pressed=hit(px,py);dragging=true;SetCapture(hwnd);
-                if(py<38 && px>width-46){host->dismiss();return 0;}
+                if(py<38 && px>width-46){dragging=false;ReleaseCapture();host->dismiss();return 0;}
+                if(pressed<0&&py<96)pointer("pointer_down",px,py);
                 if(pressed>=0&&(spec.controls[pressed].kind=="slider"||spec.controls[pressed].kind=="canvas"))activate(pressed,px,py);
                 dirty=true;return 0;
             case WM_LBUTTONUP: {
                 // ReleaseCapture synchronously sends WM_CAPTURECHANGED, which
                 // clears pressed. Save the click before releasing capture.
+                if(pointer_sequence){pointer("pointer_up",px,py);stop_drag(false);}
                 int clicked=pressed;pressed=-1;dragging=false;ReleaseCapture();
                 if(clicked>=0 && spec.controls[clicked].kind=="canvas"&&spec.controls[clicked].enabled)canvas_event("mouse_up",clicked,px,py);
                 else if(clicked==hit(px,py)&&clicked>=0&&spec.controls[clicked].kind!="slider")activate(clicked,px,py);
                 dirty=true;return 0;
             }
-            case WM_CAPTURECHANGED:dragging=false;pressed=-1;return 0;
+            case WM_CAPTURECHANGED:
+                if(pointer_sequence){host->emit({"pointer_cancel",spec.id});stop_drag(true);}
+                dragging=false;pressed=-1;return 0;
             case WM_MOUSEWHEEL:
                 if(hovered>=0&&spec.controls[hovered].kind=="canvas") {
                     if(spec.controls[hovered].enabled)host->emit({"wheel",spec.id,spec.controls[hovered].id,"",GET_WHEEL_DELTA_WPARAM(w)/120.});
@@ -453,7 +543,7 @@ struct GlassHost::Impl {
                 else host->cycle(GET_WHEEL_DELTA_WPARAM(w)>0?-1:1);
                 return 0;
             case WM_KEYDOWN: {
-                if(w==VK_ESCAPE){SetForegroundWindow(host->owner);host->emit({"escape",spec.id});return 0;}
+                if(w==VK_ESCAPE){if(moving){stop_drag(true);dragging=false;ReleaseCapture();return 0;}SetForegroundWindow(host->owner);host->emit({"escape",spec.id});return 0;}
                 if(w=='Q'&&(GetKeyState(VK_CONTROL)&0x8000)){host->emit({"close_request",spec.id});return 0;}
                 if(w==VK_TAB) {
                     int direction=(GetKeyState(VK_SHIFT)&0x8000)?-1:1;
@@ -515,20 +605,23 @@ struct GlassHost::Impl {
         void draw() {
             auto f=ui->begin();if(!f)return;
             auto &p=*ui;bool selected=host->scene.selected==spec.id;
-            bool solid=!native_material||host->contrast||host->scene.reduced_transparency;
-            float alpha=solid?1:host->scene.material=="frosted"?.88f:.68f;
+            bool solid=actual_material=="solid";
+            float alpha=solid?1:actual_material=="mica"?.06f:0;
             // Match the system-rounded surface: a larger ink radius would
             // expose an untinted Acrylic wedge outside the self-drawn rim.
-            constexpr float radius=8;
-            p.fill(D2D1::RectF(0,0,width,height),0x121a2a,alpha,radius);
+            float radius=background.corner_radius;
+            p.glyph_shadow=!solid;
+            p.fill(D2D1::RectF(0,0,width,height),solid?(background.kind=="solid"?background.tint:0x192130):0x121a2a,alpha,radius);
+            // Local readability treatment; the card centre stays clear.
+            if(!solid){p.fill(D2D1::RectF(18,40,width-18,95),0x08101b,.18f,14);}
             // Wide grazing highlight, concentrated rim and a quiet accent pool.
-            D2D1_GRADIENT_STOP stops[]={{0,color(0xffffff,.14f)},{.4f,color(0xffffff,.025f)},{1,color(0x86a3e9,.03f)}};
+            D2D1_GRADIENT_STOP stops[]={{0,color(0xffffff,.065f)},{.4f,color(0xffffff,0)},{1,color(0xffffff,.018f)}};
             ComPtr<ID2D1GradientStopCollection> collection;
             check(p.dc->CreateGradientStopCollection(stops,3,&collection),"Glass highlight stops");
             ComPtr<ID2D1LinearGradientBrush> gradient;
             check(p.dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(D2D1::Point2F(0,0),D2D1::Point2F(width*.6f,height)),collection.Get(),&gradient),"Glass highlight");
             p.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(1,1,width-1,height-1),radius-1,radius-1),gradient.Get());
-            p.brush->SetColor(color(0xffffff,selected?.38f:.17f));
+            p.brush->SetColor(color(0xffffff,selected?.42f:.24f));
             p.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(.8f,.8f,width-.8f,height-.8f),radius-.8f,radius-.8f),p.brush.Get(),1);
             if(hover_x>0) {
                 p.brush->SetColor(color(host->scene.accent,.17f));
@@ -543,7 +636,7 @@ struct GlassHost::Impl {
             for(std::size_t i=0;i<spec.controls.size();i++) {
                 const auto &c=spec.controls[i];float h=row_height(c.kind);
                 bool over=hovered==static_cast<int>(i), focus=focused==static_cast<int>(i)&&GetFocus()==hwnd;
-                float a=c.enabled?1.f:.42f;
+                float a=c.enabled&&group_enabled?1.f:.42f;
                 auto box=D2D1::RectF(20,row+2,width-20,row+h-6);
                 if(over||focus)p.fill(box,host->scene.accent,(pressed==static_cast<int>(i)?.19f:.09f)*a,10);
                 if(focus){p.brush->SetColor(color(host->scene.accent,.7f));p.dc->DrawRoundedRectangle(D2D1::RoundedRect(box,10,10),p.brush.Get(),1);}
@@ -593,6 +686,8 @@ struct GlassHost::Impl {
     };
     void select(const std::string &id) {
         if(scene.selected==id)return;
+        auto target=std::find_if(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==id;});
+        if(target==cards.end()||!(*target)->group_visible||!(*target)->group_enabled)return;
         scene.selected=id;
         for(auto &c:cards)c->dirty=true;
         emit({"selected",id});
@@ -601,7 +696,10 @@ struct GlassHost::Impl {
         if(cards.empty())return;
         auto found=std::find_if(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==scene.selected;});
         int at=found==cards.end()?0:static_cast<int>(found-cards.begin());
-        select(cards[(at+delta+cards.size())%cards.size()]->spec.id);
+        for(std::size_t n=1;n<=cards.size();n++) {
+            auto index=(at+delta*static_cast<int>(n)+static_cast<int>(cards.size()))%static_cast<int>(cards.size());
+            if(cards[index]->group_visible&&cards[index]->group_enabled){select(cards[index]->spec.id);return;}
+        }
     }
     void dismiss() {
         scene.visible=false;
@@ -623,7 +721,12 @@ struct GlassHost::Impl {
     }
     void apply(GlassScene next,std::uint64_t serial) {
         if(scene.backdrop!=next.backdrop||(!scene.visible&&next.visible))backdrop_dismissed=false;
+        bool reflow=next.layout!=scene.layout;
         scene=std::move(next);
+        if(!optics) {
+            try{optics=std::make_unique<glass_detail::OpticalScene>(owner);optical_monitor=MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST);}
+            catch(const std::exception &e){std::lock_guard<std::mutex> lock(mutex);report.optics_error=e.what();}
+        }
         float scale=GetDpiForWindow(owner)/96.f;
         if(std::abs(scale-dpi)>.01f) {cards.clear();dpi=scale;}
         double bytes=0;
@@ -666,6 +769,9 @@ struct GlassHost::Impl {
                     if(spec.controls[i].id==pressed_id)card.pressed=static_cast<int>(i);
                 }
                 card.dirty=true;card.apply_material();
+                if(reflow)card.pinned=false;
+                if(!card.spec.draggable&&card.dragging){card.stop_drag(true);card.dragging=false;if(GetCapture()==card.hwnd)ReleaseCapture();}
+                signature+=card.optical?":optical":"";
                 if(signature!=card.canvas_signature)card.configure_canvas();
             }
         }
@@ -679,56 +785,113 @@ struct GlassHost::Impl {
         applied=serial;
         emit({"scene_applied","","",std::to_string(serial)});
     }
+    struct Unit {
+        float width{},height{};
+        std::vector<std::pair<Card *,D2D1_POINT_2F>> cards;
+    };
+    Unit measure(const std::string &id,bool visible=true,bool enabled=true) {
+        auto leaf=std::find_if(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==id;});
+        if(leaf!=cards.end()) {
+            auto &c=**leaf;c.group_visible=visible;
+            if(c.group_enabled!=enabled){
+                if(!enabled&&c.dragging){c.stop_drag(true);c.dragging=false;if(GetCapture()==c.hwnd)ReleaseCapture();}
+                c.group_enabled=enabled;EnableWindow(c.hwnd,enabled);c.dirty=true;
+            }
+            return {c.width,c.height,{{&c,D2D1::Point2F(0,0)}}};
+        }
+        auto at=std::find_if(scene.groups.begin(),scene.groups.end(),[&](const auto &g){return g.id==id;});
+        if(at==scene.groups.end())return {};
+        const auto &group=*at;Unit result;float x=group.padding,y=group.padding,line_height=0;
+        std::vector<Unit> children;
+        float available=(work.right-work.left)/dpi-24;
+        for(const auto &child:group.children) {
+            auto u=measure(child,visible&&group.visible,enabled&&group.enabled);
+            if(group.layout=="row"&&x>group.padding&&x+u.width+group.padding>available){x=group.padding;y+=line_height+group.gap;line_height=0;}
+            for(auto entry:u.cards){entry.second.x+=x;entry.second.y+=y;result.cards.push_back(entry);}
+            result.width=std::max(result.width,x+u.width+group.padding);result.height=std::max(result.height,y+u.height+group.padding);
+            if(group.layout=="row"){x+=u.width+group.gap;line_height=std::max(line_height,u.height);}
+            else if(group.layout=="column")y+=u.height+group.gap;
+            children.push_back(std::move(u));
+        }
+        float ah=(work.bottom-work.top)/dpi-24;
+        if((result.width>available||result.height>ah)&&!children.empty()) {
+            result={};float mw=0,mh=0;for(const auto &u:children){mw=std::max(mw,u.width);mh=std::max(mh,u.height);}
+            float count=static_cast<float>(std::max<std::size_t>(1,children.size()-1));
+            float dx=std::clamp((available-mw)/count,0.f,16.f),dy=std::clamp((ah-mh)/count,0.f,24.f);
+            for(std::size_t i=0;i<children.size();i++) {
+                for(auto entry:children[i].cards){entry.second.x+=i*dx;entry.second.y+=i*dy;result.cards.push_back(entry);}
+                result.width=std::max(result.width,children[i].width+i*dx);result.height=std::max(result.height,children[i].height+i*dy);
+            }
+        }
+        return result;
+    }
     void layout(double dt,bool show) {
         bounds();
-        float gap=18*dpi, ww=static_cast<float>(work.right-work.left), wh=static_cast<float>(work.bottom-work.top);
-        float maxw=0;for(const auto &c:cards)maxw=std::max(maxw,c->width*dpi);
+        std::vector<Unit> units;
+        if(scene.roots.empty()){for(const auto &c:cards)if(c->spec.group.empty())units.push_back(measure(c->spec.id));}
+        else for(const auto &id:scene.roots)units.push_back(measure(id));
+        std::map<Card *,std::pair<std::size_t,D2D1_POINT_2F>> slots;
+        for(std::size_t i=0;i<units.size();i++)for(auto entry:units[i].cards)slots[entry.first]={i,entry.second};
+        float gap=18*dpi;
+        float maxw=0;for(const auto &u:units)maxw=std::max(maxw,u.width*dpi);
         compact=owner_rect.right+maxw+gap>work.right && owner_rect.left-maxw-gap<work.left;
         std::string mode=compact?"deck":scene.layout;
-        int selected=0;for(std::size_t i=0;i<cards.size();i++)if(cards[i]->spec.id==scene.selected)selected=static_cast<int>(i);
+        int selected=0;for(const auto &c:cards)if(c->spec.id==scene.selected&&slots.count(c.get()))selected=static_cast<int>(slots[c.get()].first);
         bool reduced=scene.reduced_motion||!system_animation;
         bool visibility_changed=false;
         for(std::size_t i=0;i<cards.size();i++) {
             auto &c=*cards[i];float cw=c.width*dpi,ch=c.height*dpi;
-            int relative=(static_cast<int>(i)-selected+static_cast<int>(cards.size()))%std::max(1,static_cast<int>(cards.size()));
+            auto slot=slots[&c];auto unit=slot.first<units.size()?&units[slot.first]:nullptr;
+            float uw=unit?unit->width*dpi:cw,uh=unit?unit->height*dpi:ch;
+            std::size_t index=slot.first;
+            int relative=(static_cast<int>(index)-selected+static_cast<int>(units.size()))%std::max(1,static_cast<int>(units.size()));
             float tx=0,ty=0;
             if(mode=="orbit") {
-                bool right=(i%2)==0;
-                if(owner_rect.left-cw-gap<work.left)right=true;
-                if(owner_rect.right+cw+gap>work.right)right=false;
-                tx=right?owner_rect.right+gap:owner_rect.left-cw-gap;
-                ty=i<2?owner_rect.top-64*dpi:owner_rect.bottom-110*dpi+(static_cast<float>(i/2)-1)*36*dpi;
+                bool right=(index%2)==0;
+                if(owner_rect.left-uw-gap<work.left)right=true;
+                if(owner_rect.right+uw+gap>work.right)right=false;
+                tx=right?owner_rect.right+gap:owner_rect.left-uw-gap;
+                ty=index<2?owner_rect.top-64*dpi:owner_rect.bottom-110*dpi+(static_cast<float>(index/2)-1)*36*dpi;
             } else if(mode=="ribbon") {
                 bool right=owner_rect.right+maxw+gap<=work.right;
-                tx=right?owner_rect.right+gap:owner_rect.left-cw-gap;
-                ty=(work.top+work.bottom)/2.f-ch/2+(static_cast<int>(i)-selected)*64*dpi;
+                tx=right?owner_rect.right+gap:owner_rect.left-uw-gap;
+                ty=(work.top+work.bottom)/2.f-uh/2+(static_cast<int>(index)-selected)*64*dpi;
             } else if(mode=="focus") {
-                tx=relative==0?(owner_rect.left+owner_rect.right)/2.f-cw/2:owner_rect.right-cw+relative*16*dpi;
+                tx=relative==0?(owner_rect.left+owner_rect.right)/2.f-uw/2:owner_rect.right-uw+relative*16*dpi;
                 ty=owner_rect.top+(relative==0?64:36+relative*28)*dpi;
             } else {
-                tx=compact?owner_rect.right-cw-24*dpi:owner_rect.right+gap;
+                tx=compact?owner_rect.right-uw-24*dpi:owner_rect.right+gap;
                 tx+=relative*15*dpi;ty=owner_rect.top+(66+relative*24)*dpi;
             }
-            tx=std::clamp(tx,work.left+12*dpi,std::max(work.left+12*dpi,work.right-cw-12*dpi));
-            ty=std::clamp(ty,work.top+12*dpi,std::max(work.top+12*dpi,work.bottom-ch-12*dpi));
-            if(!show) {
+            tx=std::clamp(tx,work.left+12*dpi,std::max(work.left+12*dpi,work.right-uw-12*dpi))+slot.second.x*dpi;
+            ty=std::clamp(ty,work.top+12*dpi,std::max(work.top+12*dpi,work.bottom-uh-12*dpi))+slot.second.y*dpi;
+            if(c.pinned){tx=static_cast<float>(owner_rect.left+c.offset_x);ty=static_cast<float>(owner_rect.top+c.offset_y);}
+            tx=std::clamp(tx,work.left+4*dpi,std::max(work.left+4*dpi,work.right-cw-4*dpi));
+            ty=std::clamp(ty,work.top+4*dpi,std::max(work.top+4*dpi,work.bottom-ch-4*dpi));
+            bool card_show=show&&c.group_visible;
+            if(!card_show) {
+                if(c.dragging){c.stop_drag(true);c.dragging=false;if(GetCapture()==c.hwnd)ReleaseCapture();}
                 tx=(owner_rect.left+owner_rect.right)/2.f-cw/2;ty=owner_rect.top+24*dpi;
             }
             c.x.target=tx;c.y.target=ty;
             bool motion=c.x.step(dt,reduced)|c.y.step(dt,reduced);
             // Keep a visible card moving back to its origin during dismissal.
-            if(show||c.shown) {
+            if(card_show||c.shown) {
                 int nx=static_cast<int>(std::round(c.x.x)),ny=static_cast<int>(std::round(c.y.x));
                 if(nx!=c.native_x||ny!=c.native_y) {
                     SetWindowPos(c.hwnd,nullptr,nx,ny,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOOWNERZORDER);
                     c.native_x=nx;c.native_y=ny;
                 }
             }
-            if(show&&!c.shown){ShowWindow(c.hwnd,SW_SHOWNOACTIVATE);c.compositor->visible(true);c.shown=true;c.dirty=true;visibility_changed=true;}
-            else if(!show&&c.shown && (!motion || !scene.pane_visible || !active || IsIconic(owner))) {
+            if(card_show&&!c.shown){ShowWindow(c.hwnd,SW_SHOWNOACTIVATE);c.compositor->visible(true);c.shown=true;c.dirty=true;visibility_changed=true;}
+            else if(!card_show&&c.shown && (!motion || !c.group_visible || !scene.pane_visible || !active || IsIconic(owner))) {
                 ShowWindow(c.hwnd,SW_HIDE);c.compositor->visible(false);c.shown=false;
             }
             if(c.shown&&c.dirty)c.draw();
+            if(c.shown&&c.optical&&optics) {
+                RECT rect{c.native_x,c.native_y,c.native_x+static_cast<LONG>(std::round(cw)),c.native_y+static_cast<LONG>(std::round(ch))};
+                optics->render(*c.optical,rect,c.background,dpi,c.hover_x,c.hover_y,c.moving,c.optical_dirty);c.optical_dirty=false;
+            }
         }
         if(show&&!cards.empty()) {
             if(inspectable_windows&&active) {
@@ -748,16 +911,21 @@ struct GlassHost::Impl {
             }
             if(above==last_external&&last_selected==scene.selected&&!visibility_changed)return;
             last_external=above;last_selected=scene.selected;
-            for(std::size_t n=cards.size();n>0;n--) {
-                std::size_t index=(selected+n)%cards.size();
-                auto h=cards[index]->hwnd;
+            // Keep the active container together in the normal window band.
+            std::vector<Card *> order;
+            for(auto &c:cards)if(c->spec.id==scene.selected)order.push_back(c.get());
+            for(std::size_t n=0;n<units.size();n++) {
+                auto index=(selected+n)%units.size();
+                for(auto entry:units[index].cards)if(entry.first->spec.id!=scene.selected)order.push_back(entry.first);
+            }
+            for(auto it=order.rbegin();it!=order.rend();++it) {
+                auto h=(*it)->hwnd;
                 if(h==above)above=GetWindow(h,GW_HWNDPREV);
                 if(above&&(GetWindowLongPtrW(above,GWL_EXSTYLE)&WS_EX_TOPMOST))above=HWND_TOP;
                 SetWindowPos(h,above,0,0,0,0,SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE|SWP_NOOWNERZORDER);
                 above=h;
             }
         }
-        (void)ww;(void)wh;
     }
     void run() {
         HWINEVENTHOOK hook{};
@@ -786,17 +954,25 @@ struct GlassHost::Impl {
             bool last_active=false;
             for(;;) {
                 while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}
-                GlassScene next;std::uint64_t serial{};std::deque<std::pair<std::string,std::string>> actions;
+                GlassScene next;std::uint64_t serial{};std::deque<Action> actions;
                 {std::lock_guard<std::mutex> lock(mutex);if(stopping)break;
                     if(submitted>applied){next=requested;serial=submitted;}actions.swap(commands);}
                 if(!IsWindow(owner))break;
+                if(optics&&MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST)!=optical_monitor) {
+                    cards.clear();background_compositor.reset();background_optical.reset();background_ui.reset();
+                    if(background){DestroyWindow(background);background=nullptr;}optics.reset();last_background.clear();
+                    bounds();
+                    if(!serial){next=scene;serial=applied;}
+                }
                 if(serial)apply(std::move(next),serial);
                 for(const auto &a:actions) {
-                    if(a.first=="next")cycle(1);else if(a.first=="previous")cycle(-1);
-                    else if(a.first=="select")select(a.second);
-                    else if(a.first=="focus_terminal")SetForegroundWindow(owner);
-                    else if(a.first=="focus_card")for(auto &c:cards)if(c->spec.id==scene.selected)SetForegroundWindow(c->hwnd);
-                    else if(a.first=="dismiss")dismiss();
+                    if(a.kind=="next")cycle(1);else if(a.kind=="previous")cycle(-1);
+                    else if(a.kind=="select")select(a.id);
+                    else if(a.kind=="focus_terminal")SetForegroundWindow(owner);
+                    else if(a.kind=="focus_card"){for(auto &c:cards)if(c->spec.id==scene.selected&&c->shown&&c->group_enabled)SetForegroundWindow(c->hwnd);}
+                    else if(a.kind=="dismiss")dismiss();
+                    else if(a.kind=="reflow"){for(auto &c:cards)c->pinned=false;}
+                    else if(a.kind=="begin_drag"){for(auto &c:cards)if(c->spec.id==a.id)c->begin_drag(a.token);}
                 }
                 double now=clock_ticks()/clock_frequency();
                 if(now>=deadline||serial) {
@@ -805,11 +981,26 @@ struct GlassHost::Impl {
                     bool visible=scene.visible&&scene.pane_visible&&IsWindowVisible(owner)&&!IsIconic(owner)&&!cloaked;
                     if(!active&&last_active)backdrop_dismissed=false;
                     bounds();
+                    bool sample=visible&&sampling_allowed&&(std::any_of(cards.begin(),cards.end(),[](const auto &c){return c->optical&&c->group_visible;})||
+                        (active&&scene.backdrop=="frosted"&&!backdrop_dismissed));
+                    if(optics)optics->update(sample);
+                    if(optics) {
+                        auto state=optics->stats();bool optical_ready=state.active&&state.image_ready;
+                        for(auto &card:cards)if(card->optical) {
+                            auto actual=optical_ready?card->background.kind:"solid";
+                            if(actual!=card->actual_material){card->actual_material=actual;card->dirty=true;}
+                        }
+                    }
                     std::string bg=visible&&active&&!backdrop_dismissed?scene.backdrop:"none";
-                    bg+=std::to_string(work.left)+","+std::to_string(work.top)+","+std::to_string(work.right)+","+std::to_string(work.bottom);
+                    bg+=std::to_string(work.left)+","+std::to_string(work.top)+","+std::to_string(work.right)+","+std::to_string(work.bottom)+(scene.reduced_transparency?"opaque":"");
+                    if(optics&&optics->stats().image_ready)bg+="ready";
                     if(bg!=last_background){update_background(visible&&active);last_background=bg;}
                     if(active!=last_active){emit({"activation","","",active?"active":"inactive"});last_active=active;}
                     layout(std::min(.1,std::max(0.,now-last)),visible);last=now;
+                    if(optics&&background_optical&&background&&IsWindowVisible(background)&&scene.backdrop=="frosted") {
+                        GlassBackground frosted;frosted.kind="frosted";frosted.blur=22;frosted.opacity=.12f;frosted.corner_radius=0;
+                        optics->render(*background_optical,work,frosted,1,0,0,false);
+                    }
                     if(now-metrics_time>=.5) {
                         std::uint64_t presents=0,frames=0;
                         for(const auto &c:cards){auto stats=c->compositor->metrics();if(!stats.error.empty())throw std::runtime_error(stats.error);
@@ -821,10 +1012,15 @@ struct GlassHost::Impl {
                     {
                         std::lock_guard<std::mutex> lock(mutex);
                         report.applied=applied;report.active=active;report.compact=compact;report.high_contrast=contrast;
+                        if(!cards.empty()){effective_material=cards.front()->actual_material;for(const auto &c:cards)if(c->actual_material!=effective_material){effective_material="mixed";break;}}
                         report.system_animation=system_animation;report.material=effective_material;
                         report.backdrop_visible=background&&IsWindowVisible(background);
-                        report.windows.clear();report.ids.clear();report.rects.clear();
-                        for(const auto &c:cards){RECT r{};GetWindowRect(c->hwnd,&r);report.windows.push_back(reinterpret_cast<std::uintptr_t>(c->hwnd));report.ids.push_back(c->spec.id);report.rects.push_back({static_cast<float>(r.left),static_cast<float>(r.top),static_cast<float>(r.right-r.left),static_cast<float>(r.bottom-r.top)});}
+                        report.windows.clear();report.ids.clear();report.rects.clear();report.materials.clear();report.pinned.clear();report.draggable.clear();
+                        for(const auto &c:cards){RECT r{};GetWindowRect(c->hwnd,&r);report.windows.push_back(reinterpret_cast<std::uintptr_t>(c->hwnd));report.ids.push_back(c->spec.id);report.rects.push_back({static_cast<float>(r.left),static_cast<float>(r.top),static_cast<float>(r.right-r.left),static_cast<float>(r.bottom-r.top)});
+                            report.materials.push_back(c->actual_material);report.pinned.push_back(c->pinned);report.draggable.push_back(c->spec.draggable);}
+                        if(optics){auto s=optics->stats();report.capture_active=s.active;report.capture_frames=s.captures;report.optical_frames=s.rendered;report.copied_pixels=s.copied_pixels;
+                            report.unchanged_capture_frames=s.unchanged;
+                            report.optics_error=sampling_allowed?s.error:"DDA-only self-exclusion unavailable; optical sampling disabled";}
                         report.tick_ms=(clock_ticks()/clock_frequency()-start)*1000;
                     }
                     deadline=now+1./60;
@@ -840,9 +1036,9 @@ struct GlassHost::Impl {
             std::lock_guard<std::mutex> lock(mutex);if(IsWindow(owner))report.error=e.what();ready=true;started.notify_all();
         }
         if(hook)UnhookWinEvent(hook);
-        cards.clear();background_compositor.reset();background_ui.reset();if(background)DestroyWindow(background);
+        cards.clear();background_compositor.reset();background_optical.reset();background_ui.reset();optics.reset();if(background)DestroyWindow(background);
         {std::lock_guard<std::mutex> lock(mutex);stopping=true;report.closed=true;report.active=false;report.backdrop_visible=false;
-            report.windows.clear();report.rects.clear();report.ids.clear();}
+            report.windows.clear();report.rects.clear();report.ids.clear();report.materials.clear();report.pinned.clear();report.draggable.clear();report.capture_active=false;}
         current=nullptr;CoUninitialize();SetEvent(finished.value);
     }
 };
@@ -850,7 +1046,7 @@ thread_local GlassHost::Impl *GlassHost::Impl::current=nullptr;
 GlassHost::GlassHost(std::uintptr_t owner,bool inspectable):impl_(std::make_unique<Impl>(owner,inspectable)){}
 GlassHost::~GlassHost(){close();}
 std::uint64_t GlassHost::configure(GlassScene scene) {
-    static const std::set<std::string> layouts{"orbit","deck","ribbon","focus"},materials{"glass","frosted","mica","solid"},backdrops{"none","dim","frosted","mica"};
+    static const std::set<std::string> layouts{"orbit","deck","ribbon","focus"},materials{"glass","liquid","frosted","mica","solid","transparent"},backdrops{"none","dim","frosted","mica"};
     static const std::set<std::string> kinds{"text","button","toggle","slider","input","choice","progress","sparkline","canvas"};
     if(scene.cards.size()>12||scene.accent>0xffffff||!layouts.count(scene.layout)||!materials.count(scene.material)||!backdrops.count(scene.backdrop))throw std::invalid_argument("invalid glass scene or resource limit");
     std::set<std::string> ids,channels;
@@ -859,6 +1055,11 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
            !std::isfinite(card.width)||card.width<220||card.width>1600||card_height(card)>1200||
            card.title.size()>4096||card.subtitle.size()>4096||card.eyebrow.size()>256)throw std::invalid_argument("invalid glass card");
         std::set<std::string> controls;int canvases=0;
+        const auto &b=card.background;
+        if(card.has_background&&(!materials.count(b.kind)||b.kind=="glass"||b.tint>0xffffff||
+            !std::isfinite(b.opacity)||b.opacity<0||b.opacity>1||!std::isfinite(b.blur)||b.blur<0||b.blur>40||
+            !std::isfinite(b.refraction)||b.refraction<0||b.refraction>48||!std::isfinite(b.dispersion)||b.dispersion<0||b.dispersion>3||
+            !std::isfinite(b.corner_radius)||b.corner_radius<0||b.corner_radius>64))throw std::invalid_argument("invalid card background");
         for(const auto &c:card.controls) {
             if(!kinds.count(c.kind)||c.id.empty()||c.id.size()>128||!controls.insert(c.id).second||c.text.size()>8192||c.label.size()>4096||
                !std::isfinite(c.value)||c.series.size()>256||c.options.size()>16)throw std::invalid_argument("invalid glass control");
@@ -874,17 +1075,46 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
             }
         }
     }
+    if(scene.groups.size()>24)throw std::invalid_argument("too many card groups");
+    for(const auto &g:scene.groups) {
+        if(g.id.empty()||g.id.size()>128||!ids.insert(g.id).second||g.children.size()>36||
+            (g.layout!="row"&&g.layout!="column"&&g.layout!="stack")||!std::isfinite(g.gap)||g.gap<0||g.gap>128||
+            !std::isfinite(g.padding)||g.padding<0||g.padding>128)throw std::invalid_argument("invalid card group");
+    }
+    if(scene.roots.empty()) {
+        for(const auto &c:scene.cards)if(c.group.empty())scene.roots.push_back(c.id);
+        for(const auto &g:scene.groups)if(g.parent.empty())scene.roots.push_back(g.id);
+    }
+    std::set<std::string> visited;
+    std::function<void(const std::string &,const std::string &,int)> visit;
+    visit=[&](const std::string &id,const std::string &parent,int depth) {
+        if(depth>8||!ids.count(id)||!visited.insert(id).second)throw std::invalid_argument("invalid card group tree");
+        auto card=std::find_if(scene.cards.begin(),scene.cards.end(),[&](const auto &c){return c.id==id;});
+        if(card!=scene.cards.end()){if(card->group!=parent)throw std::invalid_argument("card group parent mismatch");return;}
+        auto group=std::find_if(scene.groups.begin(),scene.groups.end(),[&](const auto &g){return g.id==id;});
+        if(group->parent!=parent)throw std::invalid_argument("group parent mismatch");
+        for(const auto &child:group->children)visit(child,id,depth+1);
+    };
+    for(const auto &id:scene.roots)visit(id,"",0);
+    if(visited.size()!=ids.size())throw std::invalid_argument("unreachable card/group node");
     std::lock_guard<std::mutex> lock(impl_->mutex);
     if(impl_->stopping||!impl_->report.error.empty())throw std::runtime_error("GlassHost is closed or failed");
     impl_->requested=std::move(scene);auto serial=++impl_->submitted;SetEvent(impl_->changed.value);return serial;
 }
 void GlassHost::command(const std::string &action,const std::string &value) {
-    static const std::set<std::string> allowed{"next","previous","select","focus_terminal","focus_card","dismiss"};
+    static const std::set<std::string> allowed{"next","previous","select","focus_terminal","focus_card","dismiss","reflow"};
     if(!allowed.count(action)||value.size()>128)throw std::invalid_argument("invalid glass command");
     std::lock_guard<std::mutex> lock(impl_->mutex);
     if(impl_->stopping)throw std::runtime_error("GlassHost is closed");
     if(impl_->commands.size()>=64)throw std::runtime_error("glass command queue full");
-    impl_->commands.emplace_back(action,value);SetEvent(impl_->changed.value);
+    impl_->commands.push_back({action,value});SetEvent(impl_->changed.value);
+}
+void GlassHost::begin_drag(const std::string &card,std::uint64_t sequence) {
+    if(card.empty()||card.size()>128||!sequence)throw std::invalid_argument("invalid card pointer handshake");
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    if(impl_->stopping)throw std::runtime_error("GlassHost is closed");
+    if(impl_->commands.size()>=64)throw std::runtime_error("glass command queue full");
+    impl_->commands.push_back({"begin_drag",card,sequence});SetEvent(impl_->changed.value);
 }
 std::vector<GlassEvent> GlassHost::events(){std::lock_guard<std::mutex> lock(impl_->mutex);std::vector<GlassEvent> r(impl_->output.begin(),impl_->output.end());impl_->output.clear();return r;}
 GlassMetrics GlassHost::metrics()const{std::lock_guard<std::mutex> lock(impl_->mutex);return impl_->report;}

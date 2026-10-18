@@ -79,9 +79,10 @@ jobs:
         run: python -m pip install --no-build-isolation -e .
         env:
           COMFORTABLE_TUI_BUILD_GPU: '1'
+          COMFORTABLE_TUI_BUILD_GLASS: '1'
       - name: Check import and control plane without hardware
         run: |
-          python -c "from comfortable_tui import _native_gpu; assert _native_gpu.protocol_version == 1; assert _native_gpu.glass_protocol_version == 1"
+          python -c "from comfortable_tui import _native_gpu, _native_glass; assert _native_gpu.protocol_version == 1; assert _native_glass.glass_protocol_version == 2; assert not hasattr(_native_gpu, 'GlassHost')"
           python -m pytest tests/test_gpu.py tests/test_glass.py tests/test_overlay_qt.py -q
         env:
           QT_QPA_PLATFORM: offscreen

@@ -1,5 +1,53 @@
 # 玻璃工作区验证
 
+## 当前回归（2026-10-19，光学与 CardGroup）
+
+第二轮摘要见 [optics-results.json](optics-results.json)。下方的 [results.json](results.json)
+为首轮 Acrylic 方案的历史记录，“未实现折射”等旧说明已被新方案取代。
+
+- 完整测试与强制纯 Python 模式均为280 passed、1 skipped；Ruff、严格 MkDocs 通过。
+- `_native_glass` / `_native_gpu` 分别为玻璃协议2、帧协议1；底层模块不再导出 GlassHost。
+  CMake 安装、外部 ComfortableGlass 客户端链接、CTest、源码包/原生 wheel 构建通过。
+- CPU FrameBuffer 和共享 D3D11 路径各通过16项真实桌面检查，覆盖原有输入、旧场景、
+  来源替换、四种布局、GIL 阻塞时运动、移动/最大化、焦点、隐藏/恢复和销毁。
+  还确认正式卡片的 GW_OWNER 为宿主，最小化/恢复及焦点组行为正常。
+- 新增14项光学/CardGroup 检查通过：每卡材质、容器布局、无持续光学自反馈、拖动
+  策略、Group preview/Card 消费、自由位置/reflow、子树隐藏/禁用、拖动中取消、独立
+  材质修改、真实 frosted 与 dim 区分。具体名称见第二轮 JSON。
+- 电脑插件观察了自有彩色网格后的透色/边缘及独立模糊，实际拖动卡片，聚焦输入框，
+  输入“中文回归 Glass”，MSAA 值与画面一致。未使用电脑插件操作终端。
+- 真实 Windows Terminal 的20秒运行使用 CardGroup 和共享 GPU 来源，退出前记录156次
+  UI 绘制、1436次合成呈现、1095个外部 GPU 帧；正常退出，采样会话已关闭，
+  不只检查隐藏窗口创建。
+
+光学700毫秒样本中 UI 和光学重绘均为0，同时有25次桌面镜像更新、17次无变化检测。
+实际变化包围盒使远处背景变化不再带动无关卡片重绘；GPU 只异步回读16字节边界，
+不回读背景像素。这是短样本，不是屏幕 FPS、GPU 耗时或显示到光子的延迟保证。
+背景比较增加约一个原生 tick 的更新延迟。
+
+任务栏说明：`inspectable_windows=True` 是电脑检查用的独立窗口模式，卡片可能单独
+占任务栏，不用于验收正式窗口组。`--preview` 现默认使用正式 owned-window，仅显式
+加 `--inspectable-windows` 才拆分。归属、最小化/恢复及焦点由自有桌面夹具验证，未声称
+自动点击过系统任务栏的所有恢复路径。
+
+新增检查命令（先按指南设置 `COMFORTABLE_TUI_BUILD_GLASS=1` 构建）：
+
+```powershell
+python examples/verify_glass_optics.py --manual-start --focus-timeout 180 --report .build/glass-optics.json
+python -m examples.glass_workspace --groups --gpu-provider .build/glass-native/Release/ctui_glass_signal.exe --smoke-seconds 20 --report .build/glass-terminal.json
+```
+
+光学检查先激活测试自己的彩色背景，再激活 Routing verification owner，点击 Start
+checks。卡片后方应无其他动画，采样中不操作鼠标；其他区域变化可以继续。
+Windows 拒绝前台请求时，FOCUS 日志表示等待激活自有夹具。`--hold 30` 可保留成功
+场景供目视检查。测试按钮避免桌面准备与采样竞争，不绕过 Windows 前台限制。
+
+桌面采样在 GPU 内使用，不生成背景截图文件，不向 Python 或网络传像素。验证摘要
+不保存桌面截图、临时 HWND 或用户路径。旋转显示器不启用采样；Windows 10、HDR、
+跨显卡、其他终端、远程会话、多显示器跨 DPI 和屏幕阅读器仍未完成真实兼容性验证。
+
+## 首轮历史基线（Acrylic 方案）
+
 2026-10-18，本机 Windows 11、125% DPI、Windows Terminal、Python 3.12、MSVC 2022。
 完整结果摘要见 [results.json](results.json)。这是桌面原生呈现与窗口行为验证，不是
 离屏模拟。研发功能尚未发布；Windows 10、其他终端、屏幕阅读器和多显示器跨 DPI

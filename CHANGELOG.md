@@ -3,7 +3,10 @@
 ## Unreleased — Glass Workspace development
 
 - Add an optional native Windows peripheral-card UI using existing FrameProvider/Compositor infrastructure, without WebView or per-frame Python drawing.
-- Add interruptible orbit/deck/ribbon/focus layouts, system Acrylic/Mica with solid fallback, focus-group backgrounds, nine native control kinds and an MSAA bridge.
+- Add interruptible orbit/deck/ribbon/focus layouts, independent per-card optical/blur/Mica/solid backgrounds, focus-group backgrounds, nine native control kinds and an MSAA bridge.
+- Add native DDA/D3D11 SDF lensing and Gaussian blur, GPU change detection to stop self-capture repaint feedback, and observable solid fallback. Desktop pixels remain on the GPU; only 16 bytes of changed-region bounds are read back asynchronously.
+- Give Card ownership of routed default drag behavior; add nested CardGroup layouts, preview/bubble consumption, inherited visibility/enabled state and cancelable per-card drag policy.
+- Keep this upper-level service in a separate `_native_glass` module and ComfortableGlass SDK, leaving the Canvas transport protocol unchanged.
 - Preserve canvas source references through attachment acknowledgements and protect native edits from stale scene updates; support real-terminal binding and explicit HWND hosts.
 - Add a standalone CPU/shared-GPU developer-workspace example, native signal provider, real-desktop verification, research plan and API documentation. Graphical support remains Windows-only.
 

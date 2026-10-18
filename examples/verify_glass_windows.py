@@ -79,6 +79,8 @@ def main():
                 raise TimeoutError(f"glass verification condition timed out: foreground={api.user.GetForegroundWindow()}, metrics={workspace.metrics()}")
 
             wait(lambda: workspace.metrics().get("applied", 0) >= 1 and len(workspace.metrics()["windows"]) == 2)
+            for window in workspace.metrics()["windows"]:
+                assert api.user.GetWindow(window["hwnd"], 4) == int(owner.winId())  # GW_OWNER, production taskbar grouping
             wait(lambda: workspace.metrics().get("canvas_frames", 0) >= (3 if args.gpu_provider else 1))
             check("native_ui_and_external_frames_presented")
             pump(.6)

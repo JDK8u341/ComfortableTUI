@@ -5,14 +5,15 @@
 运行的内存中保存，计时与原生性能数据是真实采样。
 
 完整安装/API/限制见[玻璃工作区文档](../../docs/glass-workspace.md)，
-设计和计划见[调研报告](../../docs/glass-research-plan.md)。本功能尚未发布。
+设计和计划见[光学与事件调研](../../docs/glass-optics-research.md)。本功能尚未发布。
 
-在已构建 GPU 扩展的仓库根目录运行：
+先按完整文档设置 `COMFORTABLE_TUI_BUILD_GLASS=1` 构建独立玻璃扩展，再在仓库根目录运行：
 
 ```powershell
 python -m examples.glass_workspace
 python -m examples.glass_workspace --layout deck --material frosted --backdrop dim
 python -m examples.glass_workspace --reduced-motion --material solid
+python -m examples.glass_workspace --groups --material liquid
 ```
 
 推荐让终端保持中等大小以查看环绕；最大化会改为屏幕内紧凑叠牌。
@@ -22,6 +23,10 @@ python -m examples.glass_workspace --reduced-motion --material solid
 - 信号幅度滑块控制提供者，CPU 信号画布支持点击放置标记。
 - 暂停开关暂停专注计时，保存按钮把笔记放入终端日志。
 - 聚焦背景仅在终端/卡片焦点组活动时出现；点背景空白处解除。
+- 标题区事件交给 Card，未消费才执行默认拖动；健康卡默认不可拖，其余卡可独立切换。
+- 外观卡先选目标卡，再选该卡材质与拖动开关，互不影响。恢复位置按钮解除手动位置。
+- `--groups` 演示 CardGroup 内部排列；组支持 preview/bubble、继承隐藏与禁用。
+- liquid 为通透边缘折射，frosted 为 GPU 高斯模糊；dim 只压暗，Mica 是壁纸材质。
 
 共享 GPU 版本：
 
@@ -41,8 +46,13 @@ GPU 提供者没有实现点击标记回传，事件仍会送给 Python，不能
 python -m examples.glass_workspace --smoke-seconds 15 --report .build/glass-run.json
 python examples/verify_glass_windows.py --report .build/glass-cpu.json
 python examples/verify_glass_windows.py --gpu-provider .build/glass-native/Release/ctui_glass_signal.exe --report .build/glass-gpu.json
+python examples/verify_glass_optics.py --report .build/glass-optics.json --hold 30
 ```
 
 需要桌面交互。`--preview` 另建一个明确标注的 Qt **视觉测试宿主**，用于电脑插件检查
-卡片；它不是终端，普通入口不会使用它。`--smoke-seconds` 默认为0，不自动退出。
+卡片，并提供彩色网格背景以观察透色/模糊/边缘；它不是终端，普通入口不会使用它。
+`--smoke-seconds` 默认为0，不自动退出。
+预览默认也使用正式 owned-window 模式，卡片不单独占任务栏。
+仅电脑插件需要分别选中卡片时加 `--inspectable-windows`；该检查模式会把卡片拆成
+独立任务栏窗口，不用于验收正式模式的任务栏联动。
 本目录中的 `__main__.py` 是 `python -m examples.glass_workspace` 入口。

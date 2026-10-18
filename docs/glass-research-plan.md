@@ -1,5 +1,9 @@
 # 终端周边液态玻璃：调研与研发计划
 
+> 本文保留首轮方案的决策过程。后续已改为独立上层 SDK、GPU 桌面光学采样、Card
+> 默认事件与 CardGroup 容器；本文的“不采样桌面”、Acrylic 及圆角决策已被取代。
+> 当前方案见[光学与事件调研](glass-optics-research.md)和[使用指南](glass-workspace.md)。
+
 2026-10-18，研发分支 `codex/liquid-glass-cards`。本计划在实现之前制定。
 这是可选的 Windows 原生 UI 扩展；现有内嵌 OverlayCanvas、TUI 布局和帧协议继续独立使用。
 

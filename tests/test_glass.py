@@ -2,7 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from comfortable_tui import App, FrameBuffer, GlassCard, GlassControl, GlassTheme, GlassWorkspace, Label
+from comfortable_tui import (App, FrameBuffer, GlassBackground, GlassCard, GlassCardGroup,
+                             GlassControl, GlassTheme, GlassWorkspace, Label)
 
 
 def test_glass_models_are_headless_and_bounded():
@@ -44,6 +45,10 @@ class Host:
     def __init__(self):
         self.applied, self.serial, self.closed = 0, 0, False
         self.inbox, self.scenes = [], []
+        self.drags = []
+
+    def begin_drag(self, card, sequence):
+        self.drags.append((card, sequence))
 
     def configure(self, scene):
         self.scenes.append(scene)
@@ -117,6 +122,7 @@ def test_invalid_configuration_is_transactional_and_app_owns_cleanup():
         host = workspace._native = Host()
         workspace._metrics = SimpleNamespace()
     assert host.closed and workspace._closed and not app._glass_workspaces
+    assert workspace.metrics()["capture_active"] is False
 
 
 def test_first_binding_discovers_host_without_an_existing_overlay(monkeypatch):
@@ -144,3 +150,69 @@ def test_first_binding_discovers_host_without_an_existing_overlay(monkeypatch):
         assert calls == [42]
         workspace.poll()
         assert workspace._pane_visible and workspace._native.scenes
+
+
+def test_per_card_background_and_drag_policy_are_independent():
+    clear = GlassCard("clear", "Clear", background=GlassBackground(opacity=.02), draggable=True)
+    frost = GlassCard("frost", "Frosted", background=GlassBackground("frosted", blur=20), draggable=False)
+    workspace = GlassWorkspace([clear, frost])
+    clear.background.refraction = 30
+    snapshot = workspace.snapshot()["cards"]
+    assert snapshot[0]["background"]["kind"] == "liquid"
+    assert snapshot[1]["background"]["blur"] == 20 and not snapshot[1]["draggable"]
+    for values in (dict(blur=-1), dict(opacity=2), dict(refraction=float("inf")), dict(kind="dim")):
+        with pytest.raises(ValueError):
+            GlassBackground(**values).snapshot()
+
+
+def test_groups_have_bounded_trees_and_explicit_layout_metadata():
+    card = GlassCard("leaf", "Card")
+    inner = GlassCardGroup("inner", [card], layout="column", enabled=False)
+    outer = GlassCardGroup("outer", [inner], visible=False)
+    workspace = GlassWorkspace([outer])
+    assert workspace.cards == [card] and workspace.selected == "leaf"
+    snapshot = workspace.snapshot()
+    assert snapshot["roots"] == ["outer"] and snapshot["cards"][0]["group"] == "inner"
+    assert snapshot["groups"][1]["parent"] == "outer" and not snapshot["groups"][1]["enabled"]
+    inner.children.append(outer)
+    with pytest.raises(ValueError, match="cycles"):
+        workspace.update()
+    inner.children.pop()
+    with pytest.raises(ValueError):
+        workspace.set_cards([outer, card])
+    assert workspace.children == [outer]
+
+
+def test_card_owns_drag_default_after_preview_and_bubbling():
+    order = []
+    card = GlassCard("card", "Card", on_event=lambda e: order.append("card"))
+    inner = GlassCardGroup("inner", [card], on_preview_event=lambda e: order.append("inner preview"),
+                          on_event=lambda e: order.append("inner bubble"))
+    outer = GlassCardGroup("outer", [inner], on_preview_event=lambda e: order.append("outer preview"),
+                          on_event=lambda e: order.append("outer bubble"))
+    workspace = GlassWorkspace([outer], on_event=lambda e: order.append("workspace"))
+    host = workspace._native = Host()
+    down = dict(kind="pointer_down", card="card", text="header", sequence=9)
+    host.inbox = [down]
+    workspace.poll()
+    assert order == ["outer preview", "inner preview", "card", "inner bubble", "outer bubble", "workspace"]
+    assert host.drags == [("card", 9)]
+    inner.on_preview_event = lambda e: True
+    host.inbox = [down]
+    workspace.poll()
+    assert len(host.drags) == 1
+    inner.on_preview_event = None
+    card.draggable = False
+    host.inbox = [down]
+    workspace.poll()
+    assert len(host.drags) == 1
+    card.draggable = True
+    card.on_event = lambda e: True
+    host.inbox = [down]
+    workspace.poll()
+    assert len(host.drags) == 1
+    card.on_event = None
+    host.inbox = [dict(down, control="input")]
+    workspace.poll()
+    assert len(host.drags) == 1
+    workspace.close()

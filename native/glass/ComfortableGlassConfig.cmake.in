@@ -1,0 +1,5 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(ComfortableFrames CONFIG)
+include("${CMAKE_CURRENT_LIST_DIR}/ComfortableGlassTargets.cmake")
+check_required_components(ComfortableGlass)
