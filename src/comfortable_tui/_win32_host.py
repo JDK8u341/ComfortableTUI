@@ -257,6 +257,8 @@ class HostTracker:
         client = wintypes.RECT()
         self.api.user.GetClientRect(host.hwnd, ctypes.byref(client))
         self._client_size = (client.right, client.bottom)
+        self._geometry = None
+        self._geometry_time = time.perf_counter()
         self._thread = None
         if host.viewport is None:
             self._thread = threading.Thread(target=self._track, name="tui-viewport-uia", daemon=True)
@@ -311,6 +313,14 @@ class HostTracker:
                     if element.CurrentIsOffscreen:
                         snapshot = HostSnapshot(None, False)
                     else:
+                        geometry = self._sample_geometry()
+                        # UIA returns screen coordinates via several independent
+                        # RPCs. Never turn a moving/stale screen sample into a
+                        # client offset. Keep following the last calibrated offset.
+                        if not self._geometry_settled(geometry):
+                            self._stop.wait(0.02)
+                            continue
+                        grid = self.grid
                         ranges = pattern.GetVisibleRanges()
                         if not ranges.Length:
                             raise RuntimeError("terminal has no visible text range")
@@ -325,15 +335,17 @@ class HostTracker:
                             raise RuntimeError("cannot measure terminal cells; supply an explicit viewport")
                         # A terminal range starts at the visible row's first column.
                         # A wide first glyph spans two columns: bound by the row width.
-                        columns, rows = self.grid
+                        columns, rows = grid
                         cell_width = min(cell[2], rectangles[2] / max(1, columns))
-                        ox, oy = self.api.origin(self.host.hwnd)
+                        ox, oy = geometry[:2]
                         viewport = PixelRect(rectangles[0] - ox, rectangles[1] - oy,
                                              cell_width * columns, cell[3] * rows)
                         bounds = element.CurrentBoundingRectangle
                         if viewport.width > bounds.right - bounds.left + cell_width or (
                                 viewport.height > bounds.bottom - bounds.top + cell[3]):
                             raise RuntimeError("terminal grid is resizing; waiting for matching text geometry")
+                        if grid != self.grid or not self._geometry_settled(geometry):
+                            continue  # The host moved/resized while COM was reading.
                         snapshot = HostSnapshot(viewport, True)
                     with self._lock:
                         self._snapshot = snapshot
@@ -348,12 +360,28 @@ class HostTracker:
             if initialized:
                 comtypes.CoUninitialize()
 
+    def _sample_geometry(self):
+        x, y = self.api.origin(self.host.hwnd)
+        client = wintypes.RECT()
+        self.api.user.GetClientRect(self.host.hwnd, ctypes.byref(client))
+        geometry = (x, y, client.right, client.bottom, self.api.user.GetDpiForWindow(self.host.hwnd))
+        with self._lock:
+            if geometry != self._geometry:
+                self._geometry = geometry
+                self._geometry_time = time.perf_counter()
+        return geometry
+
+    def _geometry_settled(self, expected):
+        current = self._sample_geometry()
+        with self._lock:
+            return current == expected and time.perf_counter() - self._geometry_time >= 0.15
+
     def snapshot(self):
+        x, y, *_ = self._sample_geometry()
         with self._lock:
             snapshot = self._snapshot
         if snapshot.viewport is None:
             return snapshot
-        x, y = self.api.origin(self.host.hwnd)
         rect = snapshot.viewport
         if self.host.viewport is not None and self.host.follow_resize:
             client = wintypes.RECT()
@@ -372,3 +400,40 @@ class HostTracker:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=0.5)
+
+
+class HostLocationHook:
+    """Owner-only asynchronous WinEvent hook, dispatched by Qt's message loop.
+
+    The callback only relocates an already configured layer. No COM, scene
+    handshake, injection, global mouse hook, or additional worker is involved.
+    The existing timer remains a fallback if registration is unavailable.
+    """
+
+    def __init__(self, api, hwnd, changed):
+        self.user = api.user
+        callback_type = ctypes.WINFUNCTYPE(None, wintypes.HANDLE, wintypes.DWORD, wintypes.HWND,
+                                           wintypes.LONG, wintypes.LONG, wintypes.DWORD, wintypes.DWORD)
+
+        def dispatch(hook, event, window, object_id, child_id, thread, timestamp):
+            if window == hwnd and object_id == 0 and child_id == 0:
+                changed()
+
+        self._callback = callback_type(dispatch)  # Retain until UnhookWinEvent.
+        self.user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        self.user.GetWindowThreadProcessId.restype = wintypes.DWORD
+        self.user.SetWinEventHook.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.HMODULE,
+                                             callback_type, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD]
+        self.user.SetWinEventHook.restype = wintypes.HANDLE
+        self.user.UnhookWinEvent.argtypes = [wintypes.HANDLE]
+        self.user.UnhookWinEvent.restype = wintypes.BOOL
+        pid = wintypes.DWORD()
+        self.user.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        # Never subscribe desktop-wide if the owner has already disappeared.
+        self.handle = self.user.SetWinEventHook(0x800B, 0x800B, None, self._callback,
+                                                pid.value, 0, 0) if pid.value else None
+
+    def close(self):
+        if self.handle:
+            self.user.UnhookWinEvent(self.handle)
+            self.handle = None

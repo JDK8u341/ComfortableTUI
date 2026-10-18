@@ -588,10 +588,31 @@ def _make_layer_class():
                 item.setVisible(visible)
             if self.native_renderer:
                 self._configure_native(state)
+            self._placement_dpi = self.devicePixelRatioF()
+            self._owner_dpi = self.api.user.GetDpiForWindow(self.owner) if self.api else None
             for item in attached:
                 item.emit(CanvasEvent("buffer_attached", {"buffer": item.buffer.info}))
             for retired in state.get("retired", ()):
                 self.emit(CanvasEvent("detached", {"canvas_id": retired["id"], "canvas_token": retired["token"]}))
+
+        def relocate(self, viewport):
+            """Translate the HWND and event coordinates without rebuilding the scene."""
+            if ((viewport.width, viewport.height) != (self.clipped.width, self.clipped.height) or
+                    self.devicePixelRatioF() != getattr(self, "_placement_dpi", None) or
+                    (self.api and self.api.user.GetDpiForWindow(self.owner) != self._owner_dpi)):
+                return False  # Resize/DPI changes still need a complete layout.
+            dx, dy = viewport.x - self.clipped.x, viewport.y - self.clipped.y
+            if not dx and not dy:
+                return True
+            self.place(viewport, viewport)  # Qt retains ownership of logical geometry.
+            if self.devicePixelRatioF() != self._placement_dpi:
+                return False
+            for item in self.items.values():
+                def translated(rect):
+                    return PixelRect(rect.x + dx, rect.y + dy, rect.width, rect.height)
+                item.full, item.clipped = translated(item.full), translated(item.clipped)
+                item._transform()  # Source mapping stays valid; screen positions change.
+            return True
 
         def _configure_native(self, state):
             from . import _native_gpu
@@ -733,9 +754,9 @@ def _make_layer_class():
 def run_overlay(host, commands, events, stop, parent_pid):
     """One Qt main thread, one owned HWND, many logical surfaces."""
     sink = _EventSink(events)
-    tracker, window = None, None
+    tracker, window, location_hook = None, None, None
     try:
-        from ._win32_host import HostTracker, Win32
+        from ._win32_host import HostLocationHook, HostTracker, Win32
         import ctypes
         api = Win32()
         api.user.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -754,11 +775,27 @@ def run_overlay(host, commands, events, stop, parent_pid):
         state, applied, last_error = None, None, ""
         started = time.perf_counter()
         calibrated, closing, decision = False, False, None
+        updating = False
+
+        def sync_position():
+            nonlocal applied, updating
+            if updating or closing or tracker is None or applied is None:
+                return
+            updating = True
+            try:
+                snapshot = tracker.snapshot()
+                if snapshot.available and snapshot.viewport is not None and window.relocate(snapshot.viewport):
+                    applied = (applied[0], snapshot.viewport)
+            except (OSError, RuntimeError):
+                pass  # The normal tick handles disappearing HWNDs and reports failures.
+            finally:
+                updating = False
 
         def tick():
-            nonlocal state, applied, tracker, last_error, closing, calibrated, decision
-            if closing:
+            nonlocal state, applied, tracker, last_error, closing, calibrated, decision, location_hook, updating
+            if closing or updating:
                 return
+            updating = True
             try:
                 if stop.is_set() or os.getppid() != parent_pid or not api.user.IsWindow(host.hwnd):
                     closing = True
@@ -774,6 +811,7 @@ def run_overlay(host, commands, events, stop, parent_pid):
                     return
                 if tracker is None:
                     tracker = HostTracker(host, state["grid"])
+                    location_hook = HostLocationHook(api, host.hwnd, sync_position)
                 tracker.grid = state["grid"]
                 snapshot = tracker.snapshot()
                 if snapshot.error != last_error:
@@ -783,7 +821,8 @@ def run_overlay(host, commands, events, stop, parent_pid):
                            tracker.visible(int(window.winId())) and any(s["placement"] for s in state["items"]))
                 if snapshot.available and snapshot.viewport is not None:
                     if applied != (state, snapshot.viewport):
-                        window.apply(state, snapshot.viewport)
+                        if applied is None or applied[0] != state or not window.relocate(snapshot.viewport):
+                            window.apply(state, snapshot.viewport)
                         applied = (state, snapshot.viewport)
                     calibrated = True
                 window.setVisible(bool(visible))
@@ -807,6 +846,8 @@ def run_overlay(host, commands, events, stop, parent_pid):
                 sink.flush()
                 closing = True
                 application.quit()
+            finally:
+                updating = False
 
         timer = QTimer()
         timer.setTimerType(Qt.TimerType.PreciseTimer)
@@ -818,6 +859,8 @@ def run_overlay(host, commands, events, stop, parent_pid):
         sink.emit(CanvasEvent("error", {"message": str(exc), "traceback": traceback.format_exc(), "fatal": True}))
         sink.flush()
     finally:
+        if location_hook:
+            location_hook.close()
         if window:
             window.shutdown()
         if tracker:

@@ -9,6 +9,7 @@ import argparse
 import ctypes
 from ctypes import wintypes
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -52,11 +53,50 @@ def activate_test_terminal(api, hwnd):
             api.user.AttachThreadInput(own_thread, foreground_thread, False)
 
 
+def measure_tracking(api, host, layer, steps=150):
+    """Move only our test terminal; measure native alignment, not photon latency."""
+    original = wintypes.RECT()
+    api.user.GetWindowRect(host, ctypes.byref(original))
+    base = api.origin(host)
+    rect = wintypes.RECT()
+    api.user.GetWindowRect(layer, ctypes.byref(rect))
+    offset = rect.left - base[0], rect.top - base[1]
+    samples, settled, first_aligned = [], 0, []
+    try:
+        for index in range(steps):
+            dx, dy = round(100 * math.sin(index * .05)), round(40 * math.sin(index * .09))
+            assert api.user.SetWindowPos(host, None, original.left + dx, original.top + dy,
+                                         0, 0, 0x0001 | 0x0010 | 0x0200)
+            start = time.perf_counter()
+            row = []
+            for _ in range(7):
+                x, y = api.origin(host)
+                api.user.GetWindowRect(layer, ctypes.byref(rect))
+                row.append(((time.perf_counter() - start) * 1000,
+                            rect.left - x - offset[0], rect.top - y - offset[1]))
+                time.sleep(.002)
+            aligned = next((t for t, x, y in row if max(abs(x), abs(y)) <= 1), None)
+            if aligned is not None:
+                settled += 1
+                first_aligned.append(aligned)
+            samples.append(row)
+    finally:
+        api.user.SetWindowPos(host, None, original.left, original.top, 0, 0, 0x0001 | 0x0010 | 0x0200)
+    errors = sorted(max(abs(x), abs(y)) for row in samples for _, x, y in row)
+    times = sorted(first_aligned)
+    return {"steps": steps, "settled_within_sample": settled, "samples": samples,
+            "aligned_samples_ms": {"p50": times[len(times) // 2] if times else None,
+                                   "p95": times[int(len(times) * .95)] if times else None},
+            "error_px": {"p95": errors[int(len(errors) * .95)], "maximum": max(errors)},
+            "measurement": "Native HWND alignment; unaligned steps excluded from timing percentiles; not display latency"}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, help="keep a JSON result report")
     parser.add_argument("--embedded", action="store_true", help="test many canvases, virtual rows, tabs and modal")
     parser.add_argument("--webview", action="store_true", help="test the optional native CEF browser example")
+    parser.add_argument("--tracking", action="store_true", help="measure 150 live owner translations and keep raw samples")
     args = parser.parse_args()
     if os.name != "nt" or shutil.which("wt.exe") is None:
         parser.error("requires Windows Terminal (wt.exe) on a local Windows desktop")
@@ -66,7 +106,8 @@ def main():
     api.user.SendMessageW.restype = ctypes.c_ssize_t
     hwnd = host = occluder = None
     success = False
-    with tempfile.TemporaryDirectory(prefix="comfortable-tui-overlay-") as folder:
+    folder = tempfile.mkdtemp(prefix="comfortable-tui-overlay-")
+    try:
         path = Path(folder) / "events.json"
         example = Path(__file__).with_name("webview.py" if args.webview else
                                            "embedded_canvas.py" if args.embedded else "overlay_canvas.py").resolve()
@@ -116,6 +157,10 @@ def main():
                 return rect if all(abs(a - b) <= 1 for a, b in zip(actual, target)) else False
 
             rect = wait_for(aligned, timeout=4, message="window and physical canvas rectangle differ")
+            tracking = measure_tracking(api, host, hwnd) if args.tracking and not (args.embedded or args.webview) else None
+            if tracking:
+                assert tracking["settled_within_sample"] >= 135, tracking
+                rect = wait_for(aligned, timeout=4, message="layer did not return after tracking test")
             api.user.WindowFromPoint.argtypes = [wintypes.POINT]
             api.user.WindowFromPoint.restype = wintypes.HWND
             hole = api.user.WindowFromPoint(wintypes.POINT(rect.left + 5, rect.top + 5))
@@ -143,8 +188,10 @@ def main():
             # Targeted messages to our own helper, never global keyboard/mouse injection.
             api.user.SendMessageW(hwnd, 0x201, 1, point)
             api.user.SendMessageW(hwnd, 0x202, 0, point)
-            api.user.SendMessageW(hwnd, 0x100, 0x27, 0)
-            api.user.SendMessageW(hwnd, 0x101, 0x27, 0)
+            # Arrow keys can legitimately move TUI focus before key-up arrives.
+            # Use a non-navigation key to verify a complete provider key pair.
+            api.user.SendMessageW(hwnd, 0x100, 0x41, 0)
+            api.user.SendMessageW(hwnd, 0x101, 0x41, 0)
             wait_for(lambda: {"mouse_down", "mouse_up", "key_down", "key_up"}.issubset(
                 {e["kind"] for e in load()}), timeout=4, message="native input did not return to provider")
             api.user.SetForegroundWindow(host)
@@ -199,6 +246,10 @@ def main():
                 ready_events = [e["data"] for e in load() if e["kind"] == "ready"]
                 assert len(ready_events) >= (2 if args.webview else 3)
                 assert len({(e["pid"], e["hwnd"]) for e in ready_events}) == 1, "multiple native canvas windows"
+                if args.tracking:
+                    wait_for(aligned, timeout=4, message="layer did not align after resuming")
+                    tracking = measure_tracking(api, host, hwnd)
+                    assert tracking["settled_within_sample"] >= 135, tracking["settled_within_sample"]
             events = load()
             report = {"result": "passed", "host": result,
                       "checks": ["owner", "z_order_after_host_raise", "move_resize_physical_alignment",
@@ -214,10 +265,16 @@ def main():
             background = [e["data"] for e in events if e["kind"] == "layer_status" and e["data"]["visible"]
                           and e["data"]["foreground"] not in (host, hwnd)]
             report["background_visibility_observed"] = bool(background)
+            if tracking:
+                report["tracking"] = tracking
+                report["checks"].append("continuous_owner_tracking")
             if background:
                 report["checks"].append("background_terminal_layer_visible")
             report["checks"] += ["owned_occluder_background_z_order", "background_does_not_steal_focus"]
-            print(json.dumps(report, ensure_ascii=True, indent=2))
+            summary = dict(report)
+            if tracking:
+                summary["tracking"] = {key: value for key, value in tracking.items() if key != "samples"}
+            print(json.dumps(summary, ensure_ascii=True, indent=2))
             if args.report:
                 args.report.parent.mkdir(parents=True, exist_ok=True)
                 args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -229,12 +286,25 @@ def main():
                 args.report.parent.mkdir(parents=True, exist_ok=True)
                 args.report.write_text(json.dumps({"result": "incomplete", "events": load(),
                     "foreground": api.user.GetForegroundWindow()}, ensure_ascii=False, indent=2), encoding="utf-8")
-            if hwnd and api.user.IsWindow(hwnd):
-                api.user.SendMessageW(hwnd, 0x10, 0, 0)
-                wait_for(lambda: not api.user.IsWindow(hwnd), timeout=5, message="helper did not close")
-            # Auto-exit is a second cleanup path if startup fails before ready.
-            if host and api.user.IsWindow(host):
-                wait_for(lambda: not api.user.IsWindow(host), timeout=5, message="test terminal did not exit")
+            validation_failed = sys.exc_info()[0] is not None
+            try:
+                if hwnd and api.user.IsWindow(hwnd):
+                    api.user.SendMessageW(hwnd, 0x10, 0, 0)
+                    wait_for(lambda: not api.user.IsWindow(hwnd), timeout=5, message="helper did not close")
+                # Auto-exit is a second cleanup path if startup fails before ready.
+                if host and api.user.IsWindow(host):
+                    wait_for(lambda: not api.user.IsWindow(host), timeout=5, message="test terminal did not exit")
+            except Exception as error:
+                success = False
+                # Preserve the original validation failure and its report folder.
+                if not validation_failed:
+                    raise
+                print(f"Cleanup incomplete: {error}", file=sys.stderr)
+    finally:
+        if success:
+            shutil.rmtree(folder)
+        else:
+            print(f"Kept diagnostics for the still-exiting example: {folder}", file=sys.stderr)
 
 
 if __name__ == "__main__":

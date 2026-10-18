@@ -264,6 +264,75 @@ def test_terminal_itself_is_visible_even_when_its_root_owner_is_hidden():
     assert tracker.visible(2)
 
 
+def test_uia_offsets_are_only_recalibrated_from_settled_geometry(monkeypatch):
+    from comfortable_tui import _win32_host as module
+    clock = [0.]
+    monkeypatch.setattr(module.time, "perf_counter", lambda: clock[0])
+    position, size, dpi = [100, 200], [800, 400], [144]
+
+    def client(hwnd, pointer):
+        pointer._obj.right, pointer._obj.bottom = size
+        return True
+
+    api = SimpleNamespace(origin=lambda hwnd: tuple(position), user=SimpleNamespace(
+        GetClientRect=client, GetDpiForWindow=lambda hwnd: dpi[0]))
+    monkeypatch.setattr(module, "Win32", lambda: api)
+    host = TerminalHost(hwnd=1, viewport=PixelRect(10, 20, 780, 360))
+    tracker = module.HostTracker(host, (80, 24))
+    initial = tracker._sample_geometry()
+    assert not tracker._geometry_settled(initial)
+    clock[0] = .2
+    assert tracker._geometry_settled(initial)
+    # A drag updates screen position immediately, retaining the client offset.
+    position[:] = [130, 240]
+    assert tracker.snapshot().viewport == PixelRect(140, 260, 780, 360)
+    assert not tracker._geometry_settled(initial)
+    moving = tracker._sample_geometry()
+    clock[0] += .1
+    assert not tracker._geometry_settled(moving)
+    clock[0] += .1
+    assert tracker._geometry_settled(moving)
+    # Resize and cross-monitor DPI changes also invalidate in-flight UIA reads.
+    size[0] += 100
+    assert not tracker._geometry_settled(moving)
+    resized = tracker._sample_geometry()
+    clock[0] += .2
+    assert tracker._geometry_settled(resized)
+    dpi[0] = 192
+    assert not tracker._geometry_settled(resized)
+    tracker.close()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="WinEvent callback ABI requires Windows")
+def test_location_hook_is_scoped_filtered_and_unregistered():
+    from comfortable_tui._win32_host import HostLocationHook
+    calls, changed = [], []
+
+    def process(hwnd, pid):
+        pid._obj.value = 77
+        return 88
+
+    def register(*args):
+        calls.append(args)
+        return 123
+
+    unregistered = []
+    user = SimpleNamespace(GetWindowThreadProcessId=process, SetWinEventHook=register,
+                           UnhookWinEvent=lambda handle: unregistered.append(handle))
+    hook = HostLocationHook(SimpleNamespace(user=user), 42, lambda: changed.append(True))
+    assert calls[0][:2] == (0x800B, 0x800B)
+    assert calls[0][4:] == (77, 0, 0)
+    hook._callback(123, 0x800B, 41, 0, 0, 88, 0)
+    hook._callback(123, 0x800B, 42, -4, 0, 88, 0)
+    hook._callback(123, 0x800B, 42, 0, 1, 88, 0)
+    assert not changed
+    hook._callback(123, 0x800B, 42, 0, 0, 88, 0)
+    assert changed == [True]
+    hook.close()
+    hook.close()
+    assert unregistered == [123]
+
+
 @pytest.mark.parametrize("z_order,foreground,expected_move", [([1, 2, 3], 1, (2, 0)),
                                                             ([2, 3, 1], 2, (1, 2)),
                                                             ([2, 1, 3], 2, None),
