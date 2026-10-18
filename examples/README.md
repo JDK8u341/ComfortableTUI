@@ -1,14 +1,12 @@
 # Examples
 
-浏览器上层服务示例：`python examples/webview.py`（Windows 终端附加层），Linux 使用
-`--platform x11` 或 `--platform wayland` 启动自有 C++ 窗口。需要先构建可选 CEF/原生
-宿主，详见 [WebView 指南](../docs/webview.md)。服务验证用 `verify_webview.py`；Linux
-组合显示验证用 `verify_window_host.py`。Cookie/profile 与图像 SDK 相互独立。
+浏览器上层服务示例：`python examples/webview.py`（Windows 终端附加层）。
+需要可选 CEF/原生宿主，详见 [WebView 指南](../docs/webview.md)。
+Linux WindowHost 和 WebView 图形运行路径已经暂停；旧 Linux GUI 验证脚本仅为历史资料。
+普通纯 TUI、PixelCanvas 仍按终端能力运行，见[支持决策](../docs/linux-support-decision.md)。
 
 原生安全负面测试用 `verify_browser_security.py --browser PATH --report NEW.json`，
-覆盖绕过 Python 的原始 RPC、跨域/重定向、文件选择/下载拒绝、消息洪泛和 CSP。
-Linux 分别使用 `--platform x11` 与 `--platform wayland`。需要安全分支的 CEF helper，
-旧 helper 会拒绝握手；诊断求值需显式授权，不能通过关闭沙箱解决兼容问题。
+覆盖原始 RPC、跨域、文件选择/下载拒绝、消息洪泛和 CSP。需要匹配安全协议的 CEF helper。
 
 先在仓库根目录执行 `python -m pip install -e .`。随后：
 

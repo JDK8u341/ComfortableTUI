@@ -1,15 +1,8 @@
-from comfortable_tui import App, Checkbox, WindowHost
+import pytest
+
+from comfortable_tui import WindowHost
 
 
-def test_native_window_space_uses_terminal_key_semantics():
-    checkbox = Checkbox("Check")
-    with App(checkbox) as app:
-        app.render(20, 4)
-        host = object.__new__(WindowHost)
-        host._closed, host.app = False, app
-        class Events:
-            def events(self):
-                return [{"event": "tui_event", "kind": "key_down", "data": {"name": "space", "text": " "}}]
-        host._rpc = Events()
-        host.poll()
-        assert checkbox.checked
+def test_withdrawn_window_host_rejects_before_starting_any_native_process():
+    with pytest.raises(NotImplementedError, match="Linux graphical support is suspended"):
+        WindowHost(None, executable="does-not-exist", display_platform="wayland")

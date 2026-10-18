@@ -1,5 +1,7 @@
 # WebView GPU 输出调研与实现记录
 
+> 2026-10-18 状态更新：本文涉及的 Linux/WSLg 图形测试是历史自有窗口结果。Linux 图像混合支持现已暂停，不能据此宣称外部终端兼容；[当前决策](linux-support-decision.md)。
+
 2026-10-18 使用 Exa 做两组搜索、检查十条候选结果，再读取 CEF 152 文档、上游
 D3D11 示例和 Microsoft 同步文档；实现时以本地固定的 CEF 152.0.14 头文件为准。
 范围是 Windows 浏览器服务输出；Linux GPU 按用户要求暂缓。

@@ -1,5 +1,7 @@
 # 公共 API 参考
 
+当前图形后端仅支持 Windows。`WindowHost` 为已撤下的兼容错误入口；Linux 纯 TUI 保留。见[平台决策](linux-support-decision.md)。
+
 浏览器默认拒绝范围、`BrowserPolicy` / `BrowserLimits` 启动描述及原生校验边界见
 [安全模型](security-model.md)。权限判断不进入 GPU 传输或 Python 逐帧绘制路径。
 

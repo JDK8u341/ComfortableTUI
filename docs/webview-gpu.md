@@ -2,7 +2,7 @@
 
 这是 BrowserService 上层服务的一种输出模式，普通图像 SDK 不依赖 CEF。
 `service.open(..., render_mode="gpu")` 使用 CEF 加速离屏输出和现有 D3D11 帧提供者。
-默认仍是 `render_mode="cpu"`；Linux GPU 未实现，Linux 的 X11/Wayland 保留 CPU WindowHost。
+默认仍是 `render_mode="cpu"`；Linux 图像混合支持已暂停，见 [支持决策](linux-support-decision.md)。
 这项功能没有实现 Linux 外部终端附加层，也不改变 Windows 普通图表提供者接口。
 
 ## 使用

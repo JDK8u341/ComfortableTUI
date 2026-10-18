@@ -1,5 +1,7 @@
 # 2026-10-17 本机验证
 
+> 2026-10-18 状态更新：本文涉及的 Linux/WSLg 图形测试是历史自有窗口结果。Linux 图像混合支持现已暂停，不能据此宣称外部终端兼容；[当前决策](../../linux-support-decision.md)。
+
 固定 CEF 152.0.14 / Chromium 152.0.7977.167；Windows x64 VS 2022，Linux 为
 Ubuntu 22.04 WSL2、GCC 11.4、Qt 6.2.4、Python 3.10.12。
 WSLg 1.0.66，DISPLAY=:0、WAYLAND_DISPLAY=wayland-0。
