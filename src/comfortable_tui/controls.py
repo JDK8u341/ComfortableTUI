@@ -1,6 +1,7 @@
 """Basic display, form and feedback controls."""
 from __future__ import annotations
 
+import math
 
 from wcwidth import wcswidth
 
@@ -572,9 +573,12 @@ class Sparkline(Widget):
 
 
 class BarChart(Widget):
-    def __init__(self, values: dict[str, float], **kwargs):
+    def __init__(self, values: dict[str, float], *, maximum=None, **kwargs):
+        if maximum is not None and (not math.isfinite(maximum) or maximum <= 0):
+            raise ValueError("maximum must be finite and positive")
         super().__init__(**kwargs)
         self.samples = values
+        self.maximum = maximum
         self._bars = {}
 
     def layout(self, rect):
@@ -583,7 +587,7 @@ class BarChart(Widget):
         for key in list(self._bars):
             if key not in visible:
                 self.release_value(self._bars.pop(key))
-        maximum = max(self.samples.values(), default=1) or 1
+        maximum = self.maximum if self.maximum is not None else max(self.samples.values(), default=1) or 1
         for key, sample in visible.items():
             if key not in self._bars:
                 self._bars[key] = self.value(role="data")

@@ -133,6 +133,30 @@ def test_chart_interpolation_preserves_exact_numbers_and_bounded_animation_owner
         assert not app.animator.active
 
 
+@pytest.mark.parametrize("maximum,expected", [(None, 1), (100, .586)])
+def test_chart_render_uses_selected_scale_and_keeps_exact_sample(maximum, expected):
+    chart = BarChart({"CPU 0": 38.6, "CPU 1": 22.9, "CPU 2": 58.6}, maximum=maximum)
+    with App(chart, reduced_motion=True) as app:
+        app.render(80, 3)
+        frame = app.render(80, 3)
+        row = frame.plain().splitlines()[2]
+        bar = row[15:73]  # Rendered track, excluding labels and numeric value.
+        fraction = sum(" ▏▎▍▌▋▊▉█".index(c) for c in bar) / (8 * len(bar))
+        assert fraction == pytest.approx(expected, abs=1 / (8 * len(bar)))
+        assert "58.6" in row
+        if maximum == 100:
+            chart.samples["CPU 0"] = 90
+            app.render(80, 3)
+            updated = app.render(80, 3).plain().splitlines()[2]
+            assert updated[15:73] == bar  # Another core must not change this core's scale.
+
+
+@pytest.mark.parametrize("maximum", [0, -1, float("nan"), float("inf")])
+def test_chart_rejects_invalid_fixed_scale(maximum):
+    with pytest.raises(ValueError, match="maximum"):
+        BarChart({}, maximum=maximum)
+
+
 def test_cell_snapshot_compositing_keeps_wide_glyphs_and_excludes_images():
     source = Canvas(8, 3, Style(bg=(100, 100, 100)))
     source.text(2, 1, "中a")

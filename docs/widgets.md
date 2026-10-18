@@ -15,7 +15,7 @@
 | `Spinner(label="Working")` | `.running`、`.elapsed` | 10Hz 字符切换；running=False 显示完成标记 |
 | `Log(max_lines=1000)` | `write(text)`、`.lines` | 有界日志，默认尾随；上下键、Home/End 查看 |
 | `Sparkline(values=())` | `.samples` | 最近 viewport 宽度个采样，自动缩放 |
-| `BarChart(values: dict)` | `.samples` | 名称、水平条、数值；按可见高度裁剪 |
+| `BarChart(values: dict, maximum=None)` | `.samples`、`.maximum` | 默认按数据最大值相对缩放；`maximum=100` 固定百分比满刻度，条长限制在 0..100%；按可见高度裁剪 |
 
 ## 表单
 
