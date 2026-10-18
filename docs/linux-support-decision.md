@@ -65,8 +65,8 @@ Kitty 图像协议允许图像与文字一起定位、缩放和滚动，提供�
 - `WindowHost` 兼容名字保留，仅抛出说明性的 `NotImplementedError`，不启动进程。
 - CMake 拒绝启用 Linux host；非 Windows 平台拒绝构建受支持的 CEF 运行时。
 - CI 保留 Linux 纯 TUI 和可移植 CPU SDK，撤掉 Qt Linux host 构建任务。
-- Top 在 Linux 仅允许 terminal 模式；bootstrap 仅允许 `--terminal-only`，拒绝图形
-  运行时构建，不再自动发现旧 Linux 图形运行时。
+- Top 0.1.4 起整体只支持 Windows：安装、运行和构建入口拒绝 Linux，不发布 Linux
+  安装包或运行时。ComfortableTUI 库的 Linux 纯 TUI 独立保留。
 - 当前安装指南撤下 Linux GUI 命令。旧报告明确标记为历史自有窗口结果。
 - 从 ComfortableTUI 0.1.3 起生效，旧版归档保留原样。ComfortableTop 0.1.4 起整体
   仅提供 Windows 版本；库的 Linux 纯 TUI 与可移植 CPU SDK 不受影响。
