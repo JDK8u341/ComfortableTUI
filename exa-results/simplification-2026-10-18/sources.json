@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-18",
+  "requested_candidates": 20,
+  "workstreams": 3,
+  "searches": [
+    {
+      "angle": "CEF初始化",
+      "sources": [
+        {
+          "title": "include/cef_request_context.h at master · chromiumembedded/cef",
+          "url": "https://github.com/chromiumembedded/cef/blob/master/include/cef_request_context.h",
+          "excerpt": "#if CEF_API_ADDED(13401)\n///\n/// Implemented by the client to observe content and website setting changes and\n/// registered via CefRequestContext::AddSettingObserver. The methods of this\n/// class will be called on the browser process UI thread.\n///\n/*--cef(source=client,added=13401)--*/\nclass CefSettingObserver : public virtual CefBaseRefCounted {\n public:\n  ///\n  /// Called when a content or website setting has changed. The new value can be\n  /// retrieved using CefRequestContext::GetContentSetting or\n  /// CefRequestContext::GetWebsiteSetting.\n  ///\n  /*--cef(optional_param=requesting_url,optional_param=top_level_url)--*/\n  virtual void OnSettingChanged(const CefString& requesting_url,\n                                const CefString& top_level_url,\n                                cef_content_setting_types_t content_type) = 0;\n};\n#endif\n\n///\n/// A request context provides request hand"
+        },
+        {
+          "title": "Cant get DNS over HTTPS to work, is this even possible? · cefsharp CefSharp · Discussion #5269 · GitHub",
+          "url": "https://github.com/cefsharp/CefSharp/discussions/5269",
+          "excerpt": "There is not a CefSharp-specific DNS-over-HTTPS API that I can see. CefSharp can do two relevant things here:\n\n```\n1. Pass command-line switches to CEF before Cef.Initialize().\n2. Set request-context preferences, but only if CEF/Chromium exposes that preference as settable.\n\n```\n\nFor the preference route, I would first check whether CEF says the preference is settable:\n\n```\nusing (var ctx = Cef.GetGlobalRequestContext())\n{\n    var canSetMode = ctx.CanSetPreference(\"dns_over_https.mode\");\n    var canSetTemplates = ctx.CanSetPreference(\"dns_over_https.templates\");\n\n    string error;\n    var modeSet = ctx.SetPreference(\"dns_over_https.mode\", \"secure\", out error);\n    // log canSetMode, modeSet, and error\n}\n```\n\nThe timing matters. CefSharp's own comments point to `IBrowserProcessHandler.OnContextInitialized()` as the first place you can access the global request context and set preferences."
+        },
+        {
+          "title": "CefSharp.Core.Runtime/RequestContext.cpp",
+          "url": "https://github.com/cefsharp/CefSharp/blob/master/CefSharp.Core.Runtime/RequestContext.cpp",
+          "excerpt": "bool RequestContext::HasPreference(String^ name)\n {\n ThrowIfDisposed();\n\n ThrowIfExecutedOnNonCefUiThread();\n\n return _requestContext->HasPreference(StringUtils::ToNative(name));\n }\n\n Object^ RequestContext::GetPreference(String^ name)\n {\n ThrowIfDisposed();\n\n ThrowIfExecutedOnNonCefUiThread();\n\n return TypeConversion::FromNative(_requestContext->GetPreference(StringUtils::ToNative(name)));\n }\n\n IDictionary<String^, Object^>^ RequestContext::GetAllPreferences(bool includeDefaults)\n {\n ThrowIfDisposed();\n\n auto preferences = _requestContext->GetAllPreferences(includeDefaults);\n\n return TypeConversion::FromNative(preferences);\n }\n\n bool RequestContext::CanSetPreference(String^ name)\n {\n ThrowIfDisposed();\n\n ThrowIfExecutedOnNonCefUiThread();\n\n return _requestContext->CanSetPreference(StringUtils::ToNative(name));\n }\n\n bool RequestContext::SetPreference(String^ name, Object^ value, [Out] St"
+        },
+        {
+          "title": "tests/ceftests/cors_unittest.cc",
+          "url": "https://github.com/chromiumembedded/cef/blob/45a17430/tests/ceftests/cors_unittest.cc",
+          "excerpt": "namespace {\n\n// Browser-side app delegate.\nclass CorsBrowserTest : public client::ClientAppBrowser::Delegate {\n public:\n CorsBrowserTest() = default;\n\n void OnContextInitialized(CefRefPtr app) override {\n // Disable InsecureFormNavigationThrottle which blocks 307 redirect of\n // POST requests from HTTPS to custom non-standard scheme causing the\n // CorsTest.RedirectPost307HttpSchemeToCustomNonStandardScheme test to\n // fail.\n CefRefPtr value = CefValue::Create();\n value->SetBool(false);\n CefString error;\n bool result = CefRequestContext::GetGlobalContext()->SetPreference(\n \"profile.mixed_forms_warnings\", value, error);\n CHECK(result) << error.ToString();\n }\n\n private:\n IMPLEMENT_REFCOUNTING(CorsBrowserTest);\n};\n\n---\n\n"
+        },
+        {
+          "title": "Chromium Embedded Framework (CEF): Member List",
+          "url": "https://cef-builds.spotifycdn.com/docs/152.0/classCefRequestContext-members.html",
+          "excerpt": "CefRequestContext Member List\n\nThis is the complete list of members for CefRequestContext, including all inherited members.\n\n| AddPreferenceObserver(const CefString &name, CefRefPtr< CefPreferenceObserver > observer)=0 | CefPreferenceManager | pure virtual |\n| --- | --- | --- |\n| AddRef() const =0 | CefBaseRefCounted | pure virtual |\n| AddSettingObserver(CefRefPtr< CefSettingObserver > observer)=0 | CefRequestContext | pure virtual |\n| CanSetPreference(const CefString &name)=0 | CefPreferenceManager | pure virtual |\n| ClearCertificateExceptions(CefRefPtr< CefCompletionCallback > callback)=0 | CefRequestContext | pure virtual |\n| ClearHttpAuthCredentials(CefRefPtr< CefCompletionCallback > callback)=0 | CefRequestContext | pure virtual |\n| ClearHttpCache(CefRefPtr< CefCompletionCallback > callback)=0 | CefRequestContext | pure virtual |\n| ClearSchemeHandlerFactories()=0 | CefRequestContext"
+        }
+      ]
+    },
+    {
+      "angle": "URL解析",
+      "sources": [
+        {
+          "title": "include/cef_parser.h at master · Mojang/cef",
+          "url": "https://github.com/Mojang/cef/blob/master/include/cef_parser.h",
+          "excerpt": "///\n// Parse the specified |url| into its component parts.\n// Returns false if the URL is empty or invalid.\n///\n/*--cef()--*/\nbool CefParseURL(const CefString& url, CefURLParts& parts);\n...\nor a non-empty host and path (at a minimum), but not both.\n//\n\n---\n\n"
+        },
+        {
+          "title": "cef_parser.h",
+          "url": "https://magpcss.org/ceforum/apidocs3/projects/(default)/cef_parser.h.html",
+          "excerpt": "///\n// Parse the specified |url| into its component parts.\n// Returns false if the URL is empty or invalid.\n///\n/*--cef()--*/\nbool CefParseURL(const CefString& url, CefURLParts& parts);\n\n///\n// Creates a URL from the specified |parts|, which must contain a non-empty\n// spec or a non-empty host and path (at a minimum), but not both.\n// Returns false if |parts| isn't initialized as described.\n///\n/*--cef()--*/\nbool CefCreateURL(const CefURLParts& parts, CefString& url);\n\n///\n// This is a convenience function for formatting a URL in a concise and human-\n// friendly way to help users make security-related decisions (or in other\n// circumstances when people need to distinguish sites, origins, or otherwise-\n// simplified URLs from each other). Internationalized domain names (IDN) may be\n// presented in Unicode if the conversion is considered safe. The returned value\n// will (a) omit the path f"
+        },
+        {
+          "title": "Chromium Docs - Use origin (rather than URL) for security decisions.",
+          "url": "https://chromium.googlesource.com/chromium/src/+/HEAD/docs/security/origin-vs-url.md",
+          "excerpt": "are often not sufficient for security decisions, since the origin may not be present in ... URL (e.g., `about:blank`), may be tricky to parse (e.g., `blob:` or ` ... a normal-looking URL (e.g., the security context may be sandboxed). Use origins\n\n---\n\n"
+        },
+        {
+          "title": "strange happened with CefParseURL and CefURLParts",
+          "url": "https://magpcss.org/ceforum/viewtopic.php?f=6&t=6048",
+          "excerpt": "If a scheme is not registered as a standard scheme then the URL parser will not attempt to parse the URL (because it's not a standard scheme and is not required to follow URL format). Depending on whether you're using multi_threaded_message_loop there may be a race between your call to CefParseURL and initialization of CEF internals. If you want consistent results you should execute CefParseURL from a callback running on a CEF thread.\n\n---\n\n"
+        },
+        {
+          "title": "origin.cc - chromium/src/url - Git at Google",
+          "url": "https://chromium.googlesource.com/chromium/src/url/+/refs/heads/main/origin.cc",
+          "excerpt": "| // Copyright 2015 The Chromium Authors |\n| --- |\n| // Use of this source code is governed by a BSD-style license that can be |\n| // found in the LICENSE file. |\n| #include \"url/origin.h\" |\n| #include <stdint.h> |\n| #include |\n| #include |\n| #include |\n| #include |\n| #include <string_view> |\n| #include |\n| #include |\n| #include \"base/base64.h\" |\n| #include \"base/check.h\" |\n| #include \"base/check_op.h\" |\n| #include \"base/compiler_specific.h\" |\n| #include \"base/containers/span.h\" |\n| #include \"base/debug/crash_logging.h\" |\n| #include \"base/pickle.h\" |\n| #include \"base/strings/strcat.h\" |\n| #include \"base/trace_event/memory_usage_estimator.h\" |\n| #include \"base/trace_event/trace_event.h\" |\n| #include \"base/unguessable_token.h\" |\n| #include \"url/gurl.h\" |\n| #include \"url/scheme_host_port.h\" |\n| #include \"url/url_constants.h\" |\n| #include \"url/url_features.h\" |\n| #include \"url/url_util.h\" |\n"
+        }
+      ]
+    },
+    {
+      "angle": "事件与生命周期",
+      "sources": [
+        {
+          "title": "IPC: Shared Memory | Qt Core | Qt 6.12.0",
+          "url": "https://doc.qt.io/qt-6/qtcore-ipc-sharedmemory-example.html",
+          "excerpt": "The user is then asked to select an image file using QFileDialog::getOpenFileName(). The selected file is loaded into a QImage. Using a QImage lets us ensure that the selected file is a valid image, and it also allows us to immediately display the image in the dialog using setPixmap().\n\nNext the image is streamed into a QBuffer using a QDataStream. This gives us the size, which we then use to create() our shared memory segment. Creating a shared memory segment automatically attaches the segment to the process. Using a QBuffer here lets us get a pointer to the image data, which we then use to do a memcopy() from the QBuffer into the shared memory segment.\n\n```\n    // load into shared memory\n    QBuffer buffer;\n    buffer.open(QBuffer::ReadWrite);\n    QDataStream out(&buffer);\n    out << image;\n    int size = buffer.size();\n\n    if (!sharedMemory.create(size)) {\n        if (sharedMemory.er"
+        },
+        {
+          "title": "Qt Quick Shared Image Provider | Qt Quick | Qt 6.11.2",
+          "url": "https://doc.qt.io/qt-6/qt-labs-sharedimage-qmlmodule.html",
+          "excerpt": "### Summary\n\nThis module provides functionality to save memory in use cases where several Qt Quick applications use the same local image files. It does this by placing the decoded QImage data in shared system memory, making it accessible to all the processes (see QSharedMemory).\n\nThis module only shares CPU memory. It does not provide sharing of GPU memory or textures.\n\n### Usage\n\nTo use this module, import it like this:\n\n```\nimport Qt.labs.sharedimage\n```\n\nThe sharing functionality is provided through a QQuickImageProvider. Use the \"image:\" scheme for the URL source of the image, followed by the identifier shared, followed by the image file path. For example:\n\n```\nImage { source: \"image://shared/usr/share/wallpapers/mybackground.jpg\" }\n```\n\nThis will look for the file /usr/share/wallpapers/mybackground.jpg. The first process that does this will read the image file using normal Qt image "
+        },
+        {
+          "title": "Shared Memory | Qt Core | Qt 6.12.0",
+          "url": "https://doc.qt.io/qt-6/shared-memory.html",
+          "excerpt": "# Shared Memory\n\nQt provides two techniques to share memory with other processes in the same system: QSharedMemory and memory-mapped files using QFile. Memory that is shared with other processes is often referred to as a \"segment\", and although it may have been implemented as specific segments on processors with segmented memory models in the past, this is not the case in any modern operating system. Shared memory segments are simply regions of memory that the operating system will ensure are available to all processes participating.\n\nNote: The address at which the segment is located in memory will almost always be different for each process that is participating in the sharing. Therefore, applications must take care to share only position-independent data, such as primitive C++ types or arrays of such types.\n\n## Sharing memory using QSharedMemory\n\nQSharedMemory provides a simple API to "
+        },
+        {
+          "title": "[Interest] Signal with QString argument from another thread.",
+          "url": "https://lists.qt-project.org/pipermail/interest/2015-October/019141.html",
+          "excerpt": "```\nOn 2015-10-06 16:42, Igor Mironchik wrote:\n> But I had next experience. QImage is implicitly shared too. But I had \n> following issue:\n> \n> I had a signal like this\n> \n> void mySignal( QImage );\n> \n> and when I tried to use this image in the slot in another thread (queued \n> connection was used) image was corrupted. Any operation with image \n> crashed application...\n> \n> I have to say that image object created in method that emitted \n> mySignal() on the stack, like this:\n> \n> void method( const QVideoFrame & frame )\n> {\n>      QImage image( constructed from frame data );\n\nThis right here is probably your problem. Check the documentation of\nQImage; when constructed from a bag of bytes, the QImage DOES NOT¹ copy\nor take ownership of the data. So, here...\n\n>      emit mySignal( image );\n> }\n\n...you have to ensure that \"frame data\" remains valid until no copies of\nthe created image exist"
+        },
+        {
+          "title": "Queued async operations with QtConcurrent interfere QImage from freed",
+          "url": "https://stackoverflow.com/questions/78242705/queued-async-operations-with-qtconcurrent-interfere-qimage-from-freed",
+          "excerpt": "```\n#include <QCoreApplication>\n#include <QDebug>\n#include <QImage>\n#include <QThread>\n#include <QTimer>\n#include <QtConcurrent>\n\nclass Producer : public QObject {\n  Q_OBJECT\n\npublic:\n  Producer(QObject *parent = nullptr) : QObject(parent) {}\n\npublic slots:\n  void produce() {\n    constexpr auto count = 1000;\n    for (int i = 0; i < count; ++i) {\n      QImage img(2448, 2048, QImage::Format_Grayscale8);\n      img.fill(0);\n      emit imageReady(img);\n    }\n  }\n\nsignals:\n  void imageReady(QImage image);\n};\n\nclass Consumer : public QObject {\n  Q_OBJECT\n\npublic:\n  Consumer(QObject *parent = nullptr) : QObject(parent) {}\n  int consumedCount() const { return count_; }\n\npublic slots:\n  void onImageReady(QImage image) {\n    QFuture<void> future = QtConcurrent::run([=] {\n      QImage copy = image.copy(); // Make a deep copy first\n      QThread::msleep(200);       // Mock detection on the copy\n     "
+        }
+      ]
+    },
+    {
+      "angle": "Qt外部缓冲区",
+      "sources": [
+        {
+          "title": "QImage Class | Qt GUI | Qt 6.11.1",
+          "url": "https://doc.qt.io/qt-6/qimage.html",
+          "excerpt": "### QImage:: QImage(const uchar * data, int width, int height, QImage::Format format, QImageCleanupFunction cleanupFunction = nullptr, void * cleanupInfo = nullptr)\n\nConstructs an image with the given width, height and format, that uses an existing read-only memory buffer, data. The width and height must be specified in pixels, data must be 32-bit aligned, and each scanline of data in the image must also be 32-bit aligned.\n\nThe buffer must remain valid throughout the life of the QImage and all copies that have not been modified or otherwise detached from the original buffer. The image does not delete the buffer at destruction. You can provide a function pointer cleanupFunction along with an extra pointer cleanupInfo that will be called when the last copy is destroyed.\n\nIf format is an indexed color format, the image color table is initially empty and must be sufficiently expanded with se"
+        }
+      ]
+    }
+  ],
+  "primary_sources": [
+    "https://github.com/chromiumembedded/cef/blob/master/include/cef_request_context.h",
+    "https://github.com/chromiumembedded/cef/blob/master/include/cef_request_context_handler.h",
+    "https://chromium.googlesource.com/chromium/src/+/HEAD/docs/security/origin-vs-url.md",
+    "https://doc.qt.io/qt-6/qimage.html"
+  ]
+}

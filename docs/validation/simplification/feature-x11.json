@@ -1,0 +1,32 @@
+{
+  "platform": "x11",
+  "checks": [
+    "independent_profiles",
+    "explicit_shared_profile",
+    "authorized_cross_profile_message",
+    "topic_denied",
+    "oversized_message_denied",
+    "child_frame_bridge_denied",
+    "unrequested_evaluation_result_denied",
+    "evaluation_timeout_and_recovery",
+    "application_storage_and_message_isolation",
+    "unicode_commit",
+    "native_frame_pixels",
+    "navigation_subscription_reset",
+    "persistent_restart",
+    "unattended_fresh_root_startup"
+  ],
+  "capabilities": {
+    "cef_version": "152.0.14+g8a0b5b9+chromium-152.0.7977.167",
+    "event": "service_ready",
+    "frame_backend": "native_cpu",
+    "permissions_default_deny": true,
+    "protocol": 1,
+    "sandbox_requested": true,
+    "security_protocol": 2,
+    "startup_ui_suppressed": true,
+    "application_isolated": true,
+    "storage_backend": "cef_request_context",
+    "messaging": "cef_router"
+  }
+}

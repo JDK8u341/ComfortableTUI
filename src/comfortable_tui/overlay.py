@@ -153,6 +153,8 @@ class OverlayCanvas(Widget):
         """Keep the old buffer alive until the new buffer_attached event arrives."""
         buffer._check_open()
         self.buffer = buffer
+        if self._session is not None:
+            self._emit(CanvasEvent("attaching", {"buffer": buffer.info}))
         self.invalidate()
 
     def set_ime(self, *, cursor=(0, 0, 1, 20), text="", position=0, anchor=None):
@@ -318,7 +320,9 @@ class _OverlaySession:
                 if widget.host not in (TerminalHost(), self.host_spec):
                     raise ValueError("all OverlayCanvas widgets in an App must use the same TerminalHost")
                 self.widgets[key] = widget
-                widget._session = self
+                if widget._session is not self:
+                    widget._session = self
+                    widget._emit(CanvasEvent("attaching", {"buffer": widget.buffer.info}))
         items = []
         # Placement order is paint order. Hidden items follow, never hit-testable.
         for key in dict.fromkeys((*placements, *self.widgets)):

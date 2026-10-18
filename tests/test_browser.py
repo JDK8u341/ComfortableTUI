@@ -12,7 +12,7 @@ class FakeProcess:
 
     def __init__(self, command, **kwargs):
         self.command = command
-        self.capabilities = {"startup_ui_suppressed": True, "security_protocol": 1}
+        self.capabilities = {"startup_ui_suppressed": True, "security_protocol": 2}
         self.messages = []
         self.calls.append(self)
 
@@ -20,7 +20,8 @@ class FakeProcess:
         pass
 
     def request(self, op, **kwargs):
-        return {}
+        self.messages.append((op, kwargs))
+        return {"security": kwargs["security"]} if op == "open" else {}
 
     def send(self, op, **kwargs):
         self.messages.append((op, kwargs))
@@ -74,6 +75,7 @@ def test_retired_frames_wait_for_consumer_ack_then_are_released(monkeypatch, tmp
         page = service.open("about:blank", width=8, height=8)
         view = WebView(page, on_event=lambda event: True)
         view._session = object()
+        view._emit(CanvasEvent("attaching"))
         view._emit(CanvasEvent("buffer_attached", {"buffer": page.source.info}))
         old = page.source
         page.resize(12, 12)
@@ -104,11 +106,47 @@ def test_hidden_pages_share_one_app_poll_and_unsubscribe_on_unmount(monkeypatch,
         tabs = Tabs({"Other": Label("Hidden browsers still poll"), "First": first, "Second": second})
         with App(tabs) as app:
             assert len(app._event_pollers) == 1
-            service._rpc.events = lambda: [{"view": page.id, "event": "title", "data": {"title": "arrived"}}]
+            polls = []
+            def events():
+                polls.append(True)
+                return [{"view": page.id, "event": "title", "data": {"title": "arrived"}}]
+            service._rpc.events = events
             app.render(40, 12)
             assert page.title == "arrived"
+            assert len(polls) == 1
+            tabs.select(1)
+            app.render(40, 12)
+            assert len(polls) == 2  # Visible WebViews must not poll again in tick().
         assert not app._event_pollers
         assert not service._app_bindings
+
+
+def test_continuous_resizes_and_mirrors_keep_all_inflight_sources_until_latest_ack(browser_service):
+    from comfortable_tui import CanvasEvent, WebView
+    page = browser_service.open("about:blank", width=8, height=8)
+    first, second = WebView(page), WebView(page)
+    for view in (first, second):
+        view._session = object()
+        view._emit(CanvasEvent("attaching", {"buffer": page.source.info}))
+        view._emit(CanvasEvent("buffer_attached", {"buffer": page.source.info}))
+    original = page.source
+    page.resize(12, 12)
+    intermediate = page.source
+    page.resize(16, 16)
+    current = page.source
+    first._emit(CanvasEvent("buffer_attached", {"buffer": intermediate.info}))
+    for source in (original, intermediate, current):
+        source._check_open()
+    first._emit(CanvasEvent("buffer_attached", {"buffer": current.info}))
+    original._check_open()  # The second mirror still has an unacknowledged replacement.
+    second.close()
+    original._check_open()  # A logical close is not a native detach.
+    second._emit(CanvasEvent("detached"))
+    for source in (original, intermediate):
+        assert source._closed
+    assert not current._closed
+    first.close()
+    first._emit(CanvasEvent("detached"))
 
 
 @pytest.fixture

@@ -13,7 +13,7 @@ import weakref
 from ._native_process import NativeProcess
 from ._display_environment import display_environment
 from ._shared_frame import FrameBuffer
-from .security import BrowserLimits, BrowserPolicy, SECURITY_PROTOCOL, topic_names, web_origin
+from .security import BrowserLimits, BrowserPolicy, SECURITY_PROTOCOL, origin_names, topic_names, url_text
 
 
 def _key(value):
@@ -109,7 +109,7 @@ class BrowserService:
             version = self._rpc.capabilities.get("security_protocol")
             if type(version) is not int or version != SECURITY_PROTOCOL:
                 self._rpc.close()
-                raise RuntimeError("Browser helper lacks security protocol 1; rebuild its CEF runtime")
+                raise RuntimeError("Browser helper lacks security protocol 2; rebuild its CEF runtime")
             self.capabilities = dict(self._rpc.capabilities, application_isolated=True,
                                      storage_backend="cef_request_context", messaging="cef_router")
         except BaseException:
@@ -148,16 +148,8 @@ class BrowserService:
         policy = self.policy if policy is None else policy
         if not isinstance(policy, BrowserPolicy):
             raise TypeError("Expected BrowserPolicy")
-        url = str(url)
-        wire, origins = policy.bind(url, origins)
-        if policy is not self.policy:
-            if (policy.allow_evaluate and not self.policy.allow_evaluate or
-                    policy.allow_insecure_http and not self.policy.allow_insecure_http):
-                raise PermissionError("A page cannot widen the service's boolean grants")
-            parent, _ = self.policy.bind(url)
-            for key in ("navigation_origins", "resource_origins"):
-                if not set(wire[key]).issubset(parent[key]):
-                    raise PermissionError("A page cannot widen the service's origin grants")
+        url, origins = url_text(url), origin_names(origins)
+        wire = dict(asdict(policy), protocol=SECURITY_PROTOCOL)
         publish_topics, subscribe_topics = topic_names(publish_topics), topic_names(subscribe_topics)
         self._check_frame_budget(width, height)
         if type(fps) is not int or not 1 <= fps <= 240:
@@ -165,13 +157,14 @@ class BrowserService:
         profile = self._profile(profile)
         source = FrameBuffer(width, height, pixel_format="bgra8_premultiplied")
         page = BrowserPage(self, profile, source, message_group)
-        page.policy, page._security = policy, wire
+        page.policy = policy
         try:
             page.info = self._rpc.request("open", view=page.id, profile=_key(profile.name),
                 persistent=profile.persistent, persist_session_cookies=profile.persist_session_cookies,
                 scope=page.scope, source=asdict(source.info), fps=fps, url=str(url), origins=list(origins),
                 publish_topics=list(publish_topics), subscribe_topics=list(subscribe_topics), security=wire,
                 limits=asdict(self.limits))
+            page._security = page.info["security"]
             self._pages[page.id] = page
             return page
         except BaseException:
@@ -260,6 +253,7 @@ class BrowserPage:
         self.service, self.profile, self.source = service, profile, source
         self.id, self.scope = uuid.uuid4().hex, service._scope(profile, group)
         self._buffers, self._widgets, self._listeners = [source], weakref.WeakSet(), []
+        self._attachments = {}  # Consumer token -> acknowledged descriptor, or None while attaching.
         self._closed = False
         self.loaded, self.url, self.title, self.info = False, "", "", {}
 
@@ -284,11 +278,9 @@ class BrowserPage:
         return self.service._rpc.request(op, view=self.id, **fields)
 
     def navigate(self, url):
-        url = str(url)
-        if url != "about:blank" and web_origin(url, allow_insecure_http=self.policy.allow_insecure_http) not in self._security["navigation_origins"]:
-            raise PermissionError("Navigation is outside this page's origin policy")
+        result = self._request("navigate", url=url_text(url))
         self.loaded = False
-        return self._request("navigate", url=url)
+        return result
 
     def reload(self):
         return self._request("reload")
@@ -315,6 +307,10 @@ class BrowserPage:
     def set_visible(self, visible):
         return self._request("visible", visible=bool(visible))
 
+    def set_muted(self, muted):
+        """Explicit host audio control; ordinary Chromium playback rules still apply."""
+        return self._request("muted", muted=bool(muted))
+
     def resize(self, width, height):
         if self._closed:
             raise RuntimeError("BrowserPage is closed")
@@ -334,17 +330,15 @@ class BrowserPage:
     def _collect_buffers(self):
         # Attach/detach is acknowledged by the display consumer, not inferred
         # from a Python layout change. Preserve every buffer a consumer may use.
-        if self._closed and not self._widgets:
+        if self._closed and not self._widgets and not self._attachments:
             for buffer in self._buffers:
                 buffer.close()
             self._buffers.clear()
             self.service._pages.pop(self.id, None)
             return
-        if any(w._session is not None and getattr(w, "_browser_attached_source", None) is None
-               for w in self._widgets):
+        if any(info is None for info in self._attachments.values()):
             return
-        pinned = {w._browser_attached_source for w in self._widgets
-                  if getattr(w, "_browser_attached_source", None) is not None}
+        pinned = set(self._attachments.values())
         keep = []
         for buffer in self._buffers:
             if buffer is self.source or buffer.info in pinned:
@@ -352,6 +346,14 @@ class BrowserPage:
             else:
                 buffer.close()
         self._buffers = keep
+
+    def _display_buffer(self, token, info):
+        self._attachments[token] = info
+        self._collect_buffers()
+
+    def _display_detached(self, token):
+        self._attachments.pop(token, None)
+        self._collect_buffers()
 
     def input(self, kind, **data):
         if not self._closed:

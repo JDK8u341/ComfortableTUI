@@ -37,7 +37,7 @@ flowchart LR
 | --- | --- | --- |
 | [Electron 安全清单](https://www.electronjs.org/docs/latest/tutorial/security) | 不向远程内容暴露系统 API；校验 IPC sender；限制导航和新窗口 | 网页只有 publish/subscribe，CEF 校验真实主 frame、精确 origin 和主题；没有 shell/fs RPC |
 | [Chromium 沙箱设计](https://chromium.googlesource.com/chromium/src/+/main/docs/design/sandbox.md) | 低权限目标进程由可信 broker 代办能力 | 保留 CEF renderer 沙箱；禁止主服务用 no-sandbox / disable-web-security / 忽略证书 / 远程调试启动 |
-| [Tauri capabilities](https://v2.tauri.app/security/capabilities/) | 无授权即无 IPC；能力按 WebView 限定，避免权限并集过宽 | 页面固定策略；子页面只能缩小服务的布尔权限和绑定初始 URL 后的 origin 上限 |
+| [Tauri capabilities](https://v2.tauri.app/security/capabilities/) | 无授权即无 IPC；能力按 WebView 限定，避免权限并集过宽 | 页面固定策略，由可信宿主指定；服务策略仅为默认值，不模拟两个可信 Python 调用之间的授权层级 |
 | [CEF 152 PermissionHandler](https://cef-builds.spotifycdn.com/docs/152.0/classCefPermissionHandler.html) | 嵌入者显式处理权限请求，不能依赖默认 UI 行为 | 设备/通用权限统一在 C++ 拒绝，不弹出可以被误点的系统授权 UI |
 | [CEF ResourceRequestHandler](https://cef-builds.spotifycdn.com/docs/152.0/classCefResourceRequestHandler.html) | 资源、重定向、协议执行分别有入口 | 原生 URL-loader origin 检查、跨域重定向阻止、禁止 OS 协议执行 |
 | [Windows AppContainer](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer) | SID、token、DACL 才是系统隔离边界 | 作为未来不可信生产者的必要条件；没有实装前不声称提供这种隔离 |
@@ -55,7 +55,7 @@ Qt 窗口或外部生产者设计授权。CSP 是网页的脚本防线，不是�
 | 导航到钓鱼站、file/data/javascript | 初始 URL、显式 navigate、网页自行导航均受同一类原生 origin 规则约束 | 不为 file:// 或不透明 origin 提供兼容性授权 |
 | 子资源窃取与重定向 | 默认初始 origin；额外资源源明确声明；重定向再次检查；无页面身份的后台请求拒绝 | 不是 OS 防火墙；不声称覆盖 WebSocket、WebRTC、DNS 等全部网络通道 |
 | 权限提示、下载、上传文件、外部协议 | CEF 原生拒绝媒体与其统一 permission-prompt 权限、文件选择、下载、新窗口、外部协议、JS 对话框；不自动选客户端证书 | 尚未实现安全授权 UI，因此这些能力没有“允许”开关；不能把这些回调外推为所有 Chromium 设备 API 的 OS 封锁 |
-| 打印、密码管理器与 Chrome UI | 在加载页面前设置并回读 Chromium 打印/密码/自动登录 pref；失败不加载内容；原生阻止非编辑 Chrome 命令，Linux 也取消打印回调；浏览器音频静音 | 不替代 OS 音量/凭据策略；WebAuthn、USB/HID 等未单独建立并验证的系统设备类不在本轮能力承诺内 |
+| 打印、密码管理器与 Chrome UI | 在 profile 首次使用时设置并回读 Chromium 打印/密码/自动登录 pref；失败不加载内容；原生阻止非编辑 Chrome 命令，Linux 也取消打印回调 | 音频由宿主显式 set_muted 控制；WebAuthn、USB/HID 等未单独建立并验证的系统设备类不在本轮能力承诺内 |
 | 剪贴板 / 用户输入 | 关闭 JS clipboard-access/dom-paste 设置，权限请求拒绝；宿主已有粘贴输入和保留快捷键继续工作 | 不声称 OS 级剪贴板封锁，也不把网页 API 设置等同于阻止可信宿主访问剪贴板 |
 | 页面切换后权限残留 | 导航取消求值、清空订阅、递增文档代数；投递时再次核对真实当前 origin | JS 求值结果仍是网页提供的不可信数据，不能当认证或安全决策证明 |
 | 消息洪泛和畸形 JSON | 原生 query 先做 120/s、突发 240 的准入，再解析；64KiB、32 层、4096 节点、64 订阅 | 不能限制网页自身 JS 堆；CEF 在路由回调前的内部消息内存不等于这个 64KiB 接受上限 |
@@ -72,6 +72,7 @@ Qt 窗口或外部生产者设计授权。CSP 是网页的脚本防线，不是�
 媒体、通知、定位、非净化剪贴板访问、USB/HID/Serial/Bluetooth 请求 guard、文件系统
 guard、字体、MIDI、键鼠锁、窗口管理和传感器使用已列明的 CEF ContentSetting 类型，
 在首个真实文档加载前设为 BLOCK 并回读确认；同时撤销对应 origin 的旧设备选择数据。
+同一 profile 缓存完成的 origin 组合，后续页面仅处理新增组合，避免每页重做全部设置。
 只有拒绝 prompt 不足以覆盖旧 profile 的 ALLOW，因此还实测了持久化旧授权重启后
 被覆盖，Cookie/localStorage 仍通过独立回归。每页导航 origin 上限 8、资源 origin
 上限 64，使初始化时的 origin 组合检查有界，运行中不反复配置。
@@ -89,7 +90,9 @@ Python 的 JSON 控制端点。它们继续使用 CEF 自有 IPC，不把宿主�
 
 新增仅两个不可变的启动描述：BrowserPolicy 和 BrowserLimits。没有全局安全管理器、
 动态角色继承、Python 中间件链或逐帧审计。策略在 open 时绑定、序列化一次；更改
-需要重新创建页面。原生协议要求 security_protocol=1；旧 helper **拒绝启动**，
+需要重新创建页面。服务 policy 是页面的默认配置；open(policy=...) 整体替换默认值，
+没有父子权限继承。宿主 Python 始终可信，网页也不能创建页面或改变这些配置。
+原生协议要求 security_protocol=2；旧 helper **拒绝启动**，
 不能悄悄降级到未执行策略的运行时。该握手用于版本兼容，不是远程证明。
 
 ```python
@@ -109,9 +112,10 @@ with BrowserService("org.example.app", policy=policy,
 
 origin 是 scheme/host/port 精确元组：[WHATWG origin 模型](https://html.spec.whatwg.org/multipage/browsers.html#origin)。
 不支持通配符、前缀匹配、带路径授权、user:pass、反斜杠 authority、file/null origin。
-授权和初始 URL 的主机只接受显式 ASCII/punycode，避免 Python IDNA2003 与 Chromium
-UTS46 对 ß 等字符解释不同而授予另一个域名。Python 消除默认端口、拒绝混淆 IP 写法；C++ 用 CEF URL 解析
-重新检查实际导航和授权值。非 loopback 的 HTTP 需要在服务中明确声明
+URL/origin 仅由 CEF 解析并规范化，Python 只做类型、长度和集合形状检查，不再维护
+第二套 IDNA/IP/端口解释。Unicode 主机和 Chromium 接受的 IP 写法按 CEF 的实际
+结果规范化后精确比较，例如 faß.de 不会被 Python IDNA2003 转为 fass.de。
+不透明 URL 不获得桥接授权。非 loopback 的 HTTP 需要在页面配置中明确声明
 allow_insecure_http=True；本机 127.0.0.1/localhost/::1 示例仍可直接使用。
 
 navigation_origins 为空时固定为初始网络 origin；resource_origins 为空时继承导航
@@ -119,7 +123,7 @@ navigation_origins 为空时固定为初始网络 origin；resource_origins 为�
 自动授予消息桥接。子 frame 永远不因这个列表直接获得桥接权限。相同 origin 的
 脚本天然共享网页权限，不把同源 iframe 当作一个独立安全租户。
 
-JavaScript 求值默认关闭。需要诊断的可信宿主可以在服务中明确设置
+JavaScript 求值默认关闭。需要诊断的可信宿主可以为服务默认值或单页明确设置
 BrowserPolicy(allow_evaluate=True)，并且页面 origin 必须已授权。仍遵守 CSP，不
 添加 unsafe-eval。求值结果只能作业务数据；恶意网页可修改 JS 全局对象、伪造
 业务数据或不响应，不能把 evaluate("isAuthenticated") 当作宿主认证。
@@ -175,6 +179,9 @@ Linux 使用独立 namespaces/seccomp/Landlock 等合适机制，最小只读根
 macOS 按既有范围暂不支持。上述 OS 方案目前是设计，不是当前 API 的能力声明。
 
 ## 性能门槛与验证方法
+
+2026-10-18 的后续简化、迁移与实测见[实现简化报告](browser-simplification.md)。
+以下首轮记录保留在原提交基线上，不代表后续所有提交的实测结果。
 
 本轮实际结果见[安全验证与性能对照](validation/security/README.md)，包括原始 JSON、
 复现步骤、未通过尝试的说明及性能限制。ComfortableTop 的 Windows GPU/CEF 对照中，

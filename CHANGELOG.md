@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Simplify browser policies to service defaults plus one final per-page configuration; make CEF the only URL/origin parser (security protocol 2).
+- Cache profile preferences and completed origin permission pairs; remove forced audio muting and add explicit set_muted().
+- Poll each browser service once per App tick; retain all in-flight browser buffers until the latest attach acknowledgement or detach, without inspecting widget session internals.
 - Add a native-enforced browser security profile: exact navigation/resource origins, default-denied device/file/download/dialog/protocol access, bounded bridge queries and document-scoped subscriptions.
 - Require a matching security helper handshake; remove no-sandbox escape and require explicit host JS-evaluation permission without bypassing CSP.
 - Bound control reads and stderr storage; validate shared-frame descriptors/headers and reject unsafe POSIX lock files.

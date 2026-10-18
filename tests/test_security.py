@@ -1,5 +1,5 @@
 """Adversarial boundary cases, not a substitute for OS sandbox verification."""
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 import os
 import struct
 import sys
@@ -9,37 +9,25 @@ import pytest
 from comfortable_tui import BrowserLimits, BrowserPolicy, BrowserService, FrameBuffer, FrameBufferInfo, WebView
 from comfortable_tui import browser
 from comfortable_tui._native_process import NativeProcess
-from comfortable_tui.security import web_origin
+from comfortable_tui.security import url_text
 from test_browser import FakeProcess
 
 
-@pytest.mark.parametrize("value", ["file:///C:/secret", "data:text/html,hi", "javascript:alert(1)",
-    "blob:https://example.com/id", "null", "https://*.example.com", "https://example.com./",
-    "https://example.com@evil.test", "https://a:b@example.com", "https://example.com\\@evil.test",
-    "https://example.com\n", "http://example.com", "https://example.com:0", "https://example.com:65536",
-    "http://127.1", "http://0177.0.0.1", "http://0x7f000001", "https://%65xample.com", "https://faß.de"])
-def test_ambiguous_opaque_and_ungranted_origins_are_rejected(value):
-    with pytest.raises((ValueError, PermissionError)):
-        web_origin(value, exact=True)
-
-
-@pytest.mark.parametrize("source,expected", [("https://EXAMPLE.com:443/", "https://example.com"),
-    ("http://127.0.0.1:8123", "http://127.0.0.1:8123"), ("http://[::1]:80", "http://[::1]"),
-    ("https://xn--fsqu00a.xn--0zwm56d", "https://xn--fsqu00a.xn--0zwm56d")])
-def test_canonical_origin_has_no_prefix_or_default_port_ambiguity(source, expected):
-    assert web_origin(source, exact=True) == expected
-
-
-def test_policy_is_immutable_and_defaults_to_initial_origin_only():
-    policy = BrowserPolicy()
-    wire, bridge = policy.bind("https://example.com/path?q=1")
-    assert not bridge and not wire["allow_evaluate"]
-    assert wire["navigation_origins"] == wire["resource_origins"] == ["https://example.com"]
-    with pytest.raises(PermissionError):
-        policy.bind("https://example.com", ["https://evil.test"])
+@pytest.mark.parametrize("value", [None, 1, True, "", "x" * 8193], ids=["none", "integer", "boolean", "empty", "too-long"])
+def test_python_checks_url_shape_without_a_second_parser(value):
     with pytest.raises(ValueError):
-        BrowserPolicy(navigation_origins=("https://example.com/path",))
-    assert policy.bind("about:blank")[0]["navigation_origins"] == []
+        url_text(value)
+
+
+def test_policy_is_an_immutable_native_configuration():
+    policy = BrowserPolicy()
+    assert not policy.allow_evaluate and policy.navigation_origins == ()
+    with pytest.raises(FrozenInstanceError):
+        policy.allow_evaluate = True
+    with pytest.raises(ValueError):
+        BrowserPolicy(navigation_origins="https://example.com")
+    # Keep spelling intact until CEF canonicalizes it. No Python IDNA interpretation.
+    assert BrowserPolicy(navigation_origins=["https://faß.de"]).navigation_origins == ("https://faß.de",)
 
 
 @pytest.fixture
@@ -51,20 +39,19 @@ def service(monkeypatch, tmp_path):
         yield value
 
 
-def test_navigation_and_eval_fail_before_ipc_and_cannot_widen_parent(service):
+def test_host_page_settings_override_service_defaults_without_a_permission_hierarchy(service):
     page = service.open("https://example.com", origins=["https://example.com"], width=8, height=8)
     with pytest.raises(PermissionError):
         page.evaluate_async("42")
-    with pytest.raises(PermissionError):
-        page.navigate("https://evil.test")
-    with pytest.raises(PermissionError):
-        service.open("https://example.com", width=8, height=8, policy=BrowserPolicy(allow_evaluate=True))
-    with pytest.raises(PermissionError):
-        service.open("https://example.com", width=8, height=8,
-                     policy=BrowserPolicy(resource_origins=("https://evil.test",)))
+    page.navigate("https://EXAMPLE.com:443/next")
+    assert service._rpc.messages[-1][1]["url"] == "https://EXAMPLE.com:443/next"
+    other = service.open("https://example.com", width=8, height=8, policy=BrowserPolicy(allow_evaluate=True))
+    other.evaluate_async("42")
+    assert service._rpc.messages[-1][0] == "eval"
+    before = len(service._rpc.messages)
     with pytest.raises(ValueError):
         service.open("https://example.com", publish_topics=["*"], width=8, height=8)
-    assert not service._rpc.messages
+    assert len(service._rpc.messages) == before
 
 
 def test_partial_frame_setup_releases_created_mapping_and_locks(monkeypatch):
@@ -87,9 +74,11 @@ def test_partial_frame_setup_releases_created_mapping_and_locks(monkeypatch):
 
 
 def test_frame_budget_includes_retired_buffers_pinned_by_consumer(service):
+    from comfortable_tui import CanvasEvent
     page = service.open("about:blank", width=8, height=8)
     view = WebView(page)
     view._session = object()
+    view._emit(CanvasEvent("attaching"))
     page.resize(12, 12)  # 832 old bytes + 1792 current bytes.
     with pytest.raises(PermissionError, match="total buffer"):
         page.resize(8, 8)
@@ -97,7 +86,7 @@ def test_frame_budget_includes_retired_buffers_pinned_by_consumer(service):
     view.close()
 
 
-@pytest.mark.parametrize("version", [None, True, "1", 2])
+@pytest.mark.parametrize("version", [None, True, "2", 1, 3])
 def test_stale_helper_and_no_sandbox_fail_closed(monkeypatch, tmp_path, version):
     class Old(FakeProcess):
         def __init__(self, *args, **kwargs):

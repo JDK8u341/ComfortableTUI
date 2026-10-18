@@ -10,6 +10,8 @@ import time
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--top', type=Path, required=True, help='ComfortableTop 0.1.2 source checkout')
 parser.add_argument('--output', type=Path, required=True)
+parser.add_argument('--clock', choices=('wall', 'thread'), default='wall',
+                    help='Thread CPU time isolates Python rendering cost from OS preemption')
 args = parser.parse_args()
 TOP = args.top.resolve()
 sys.path.insert(0, str(TOP / 'tests'))
@@ -24,6 +26,7 @@ monitor = Monitor(collector, charts, language='en', user='fixture')
 stream = hashlib.sha256()
 total, settled = 0, 0
 times = []
+timer = time.thread_time if args.clock == 'thread' else time.perf_counter
 try:
     with monitor.app as app:
         monitor.accept(sample(*[process(10 + i, cpu=float(i)) for i in range(24)]))
@@ -31,6 +34,7 @@ try:
         for widget in app.root.walk():
             if isinstance(widget, PixelCanvas):
                 widget.backend = 'braille'
+        batch_started = timer()
         for i in range(420):
             if i == 40:
                 app.focus(monitor.sort)
@@ -42,18 +46,21 @@ try:
                 app.close_modal()
             elif i == 220:
                 monitor.tabs.select(0)
-            before = time.perf_counter()
+            before = timer()
             frame = app.render(120, 33, dt=1 / 60)
             output = app.encode(frame).encode('utf-8')
-            times.append((time.perf_counter() - before) * 1000)
+            times.append((timer() - before) * 1000)
             total += len(output)
             stream.update(output)
             if i >= 330:
                 settled += len(output)
-        result = dict(result='passed', frames=420, total_bytes=total,
+        batch_ms = (timer() - batch_started) * 1000
+        result = dict(result='passed', frames=420, clock=args.clock, total_bytes=total,
             ansi_sha256=stream.hexdigest(), settled_last_90_bytes=settled,
-            cpu_p50_ms=round(statistics.median(times), 3),
-            cpu_p95_ms=round(sorted(times)[int((len(times)-1)*.95)], 3))
+            batch_ms=round(batch_ms, 3), batch_per_frame_ms=round(batch_ms / 420, 3))
+        if args.clock == 'wall':
+            result.update(cpu_p50_ms=round(statistics.median(times), 3),
+                          cpu_p95_ms=round(sorted(times)[int((len(times)-1)*.95)], 3))
         assert settled == 0
 finally:
     collector.close()

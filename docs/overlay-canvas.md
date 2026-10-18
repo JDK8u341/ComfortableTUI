@@ -154,6 +154,7 @@ App 的全局绑定（Ctrl+Q、Ctrl+C、Tab、Shift+Tab、F6）保持生效。
 | kind | data 主要内容 |
 | --- | --- |
 | `ready` | 共享窗口 hwnd、pid、host_hwnd、host_class、platform、shared_layer=True |
+| `attaching` | buffer 为准备附加的新描述符；首次连接或活动画布 set_buffer 时在 TUI 线程通知 |
 | `buffer_attached` | 已安全附着的 FrameBufferInfo，适合切换缓冲区后的释放确认 |
 | `detached` | 逻辑画布已移除且辅助层引用已释放；可停止专用生产者并释放缓冲区 |
 | `transform` | transform、previous、screen_rect、clip_rect |

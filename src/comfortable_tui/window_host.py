@@ -137,7 +137,9 @@ class WindowHost:
         self.widgets = current
         for widget in attachments:
             widget._window_source = widget.buffer.info
-            widget._session = self
+            if widget._session is not self:
+                widget._session = self
+                widget._emit(CanvasEvent("attaching", {"buffer": widget.buffer.info}))
             widget._emit(CanvasEvent("buffer_attached", {"buffer": widget.buffer.info}))
         for widget in retired.values():
             widget._session = None

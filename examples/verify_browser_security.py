@@ -68,6 +68,55 @@ def main():
             page = service.open(origin_a, origins=[origin_a], publish_topics=["probe"], subscribe_topics=["probe"],
                                 policy=BrowserPolicy(allow_evaluate=True, resource_origins=(origin_a,)))
             wait(service, lambda: page.loaded)
+            initial = service._rpc.request("security_state", view=page.id)
+            started = time.perf_counter()
+            same = service.open("about:blank", policy=BrowserPolicy(navigation_origins=(origin_a,)))
+            cached_ms = (time.perf_counter() - started) * 1000
+            cached = service._rpc.request("security_state", view=same.id)
+            assert initial["profile_initializations"] == cached["profile_initializations"] == 1
+            assert initial["profile_permission_pairs"] == cached["profile_permission_pairs"] == 1
+            same.close()
+            combined = BrowserPolicy(navigation_origins=(origin_a, origin_b))
+            for _ in range(2):
+                extra = service.open("about:blank", policy=combined)
+                expanded = service._rpc.request("security_state", view=extra.id)
+                assert expanded["profile_initializations"] == 1 and expanded["profile_permission_pairs"] == 4
+                extra.close()
+            result["profile_cache"] = dict(initial_pairs=1, repeated_pairs=1, expanded_pairs=4,
+                                           repeated_expanded_pairs=4, cached_open_ms=round(cached_ms, 3))
+            result["checks"].append("profile_initializes_once_and_only_configures_new_origin_pairs")
+
+            for invalid in ("file:///ctui-forbidden", "data:text/html,hi", "javascript:42", "null",
+                            "https://*.example.com", "https://user:pass@example.com", "https://example.com/path",
+                            "https://example.com\\@evil.test", "https://example.com\n", "http://example.com",
+                            "https://example.com:0", "https://example.com:65536"):
+                try:
+                    service.open("about:blank", policy=BrowserPolicy(navigation_origins=(invalid,)), width=8, height=8)
+                except RuntimeError:
+                    pass
+                else:
+                    raise AssertionError("native origin grant accepted: " + repr(invalid))
+            for spelling, expected in (("https://EXAMPLE.com:443/", "https://example.com"),
+                                       ("https://faß.de", "https://xn--fa-hia.de"),
+                                       ("http://127.1", "http://127.0.0.1"),
+                                       ("http://[::1]:80/", "http://[::1]")):
+                normalized = service.open("about:blank", policy=BrowserPolicy(navigation_origins=(spelling,)), width=8, height=8)
+                assert normalized._security["navigation_origins"] == [expected]
+                normalized.close()
+            try:
+                service.open("about:blank", origins=[origin_b], policy=BrowserPolicy(navigation_origins=(origin_a,)), width=8, height=8)
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("bridge outside native navigation policy")
+            result["checks"].append("cef_is_the_single_origin_parser_including_unicode_and_ipv4")
+
+            assert not initial["audio_muted"]
+            page.set_muted(True)
+            assert service._rpc.request("security_state", view=page.id)["audio_muted"]
+            page.set_muted(False)
+            assert not service._rpc.request("security_state", view=page.id)["audio_muted"]
+            result["checks"].append("audio_is_explicit_host_control_instead_of_a_fixed_permission")
             no_eval = service.open(origin_a, policy=BrowserPolicy())
             wait(service, lambda: no_eval.loaded)
             try:

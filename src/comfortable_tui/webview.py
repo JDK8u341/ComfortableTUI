@@ -21,6 +21,8 @@ class WebView(OverlayCanvas):
         self.page, self._user_canvas_event = page, on_event
         self.interacting = False
         self._enter_key_pending = False
+        self._display_visible = None
+        self._awaiting_buffer = None
         self._user_browser_event = on_browser_event
         self._remove_listener = page.on_event(self._browser_event)
         super().__init__(page.source, on_event=self._canvas_event, **kwargs)
@@ -81,7 +83,6 @@ class WebView(OverlayCanvas):
         self.invalidate()
 
     def tick(self, dt):
-        self.page.service.poll()
         super().tick(dt)
         if self.page._closed:
             return
@@ -92,28 +93,34 @@ class WebView(OverlayCanvas):
 
     def _page_visible(self):
         return any(widget.app and id(widget) in widget.app._overlay_placements and not widget._closed
-                   and getattr(widget, "_browser_display_visible", None) is not False
+                   and widget._display_visible is not False
                    for widget in self.page._widgets)
 
     def _canvas_event(self, event):
         user_consumed = bool(self._user_canvas_event(event)) if self._user_canvas_event else False
         kind, data = event.kind, event.data
+        if kind == "attaching":
+            self._awaiting_buffer = data.get("buffer")
+            self.page._display_buffer(self._event_token, None)
+            return user_consumed
         if kind == "buffer_attached":
-            self._browser_attached_source = data.get("buffer")
-            self.page._collect_buffers()
+            if self._awaiting_buffer is not None and data["buffer"] != self._awaiting_buffer:
+                return user_consumed  # An earlier resize ack cannot retire a newer in-flight buffer.
+            self._awaiting_buffer = None
+            self.page._display_buffer(self._event_token, data["buffer"])
             return user_consumed
         if kind == "detached":
-            self._browser_attached_source = None
-            self._browser_display_visible = False
+            self._awaiting_buffer = None
+            self._display_visible = False
             if self._closed:
                 self.page._widgets.discard(self)
-            self.page._collect_buffers()
+            self.page._display_detached(self._event_token)
         if self.page._closed:
             return user_consumed
         if kind in ("show", "hide", "detached"):
             if kind != "show":
                 self.leave_interaction()
-            self._browser_display_visible = kind == "show"
+            self._display_visible = kind == "show"
             visible = self._page_visible()
             if getattr(self.page, "_reported_visible", None) != visible:
                 self.page._reported_visible = visible

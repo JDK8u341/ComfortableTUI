@@ -107,7 +107,7 @@ display_platform=None, allow_no_sandbox=False, timeout=30, policy=None, limits=N
 | executable | CEF 原生宿主完整路径；其次读取 COMFORTABLE_TUI_BROWSER_EXECUTABLE，最后尝试仓库默认构建目录 |
 | display_platform | Linux 的 x11 / wayland，传给 Chromium Ozone；Windows 省略 |
 | timeout | 进程首次握手超时，单位秒 |
-| policy | 不可变 BrowserPolicy；默认固定初始导航/资源 origin，JS 求值关闭 |
+| policy | 页面默认 BrowserPolicy；open(policy=...) 整体覆盖；默认固定初始导航/资源 origin，JS 求值关闭 |
 | limits | BrowserLimits；页面、单缓冲及总缓冲预算，均在创建/调整尺寸时检查 |
 
 默认根位于 `%LOCALAPPDATA%/ComfortableTUI/browser/<app-hash>` 或
@@ -127,8 +127,9 @@ publish_topics=(), subscribe_topics=(), message_group=None, policy=None)` 返回
 默认无网页桥接权限；origins 必须是精确 origin（scheme/host/port，不能带路径）。
 默认最多 16 个页面（含未脱离的退场页面），可在硬上限 64 内设置；profile 最多 64 个。
 文件、设备、下载和外部协议没有允许路径；额外资源 origin 需要显式授权。
-`poll()` 在调用线程处理事件，App 中的 WebView 会调用它；
-同一 App 内去重注册一个事件源，标签页隐藏后仍轮询业务事件；空轮询不会强制重绘。
+`poll()` 在调用线程处理事件；WebView 在 mount 时为 App 去重注册一个事件源，
+每个服务在同一 App 每次推进仅轮询一次，控件 tick 不再重复调用。标签页隐藏后仍
+轮询业务事件；空轮询不会强制重绘。
 无控件时应自行定期调用。`on_event(callback)` 返回取消监听函数。
 `capabilities` 返回固定版本、实际帧后端和启动策略；`close()` 幂等关闭进程和源。
 
@@ -142,6 +143,7 @@ publish_topics=(), subscribe_topics=(), message_group=None, policy=None)` 返回
 | evaluate_async(code) | 返回 Future，结果字典含 value/error；调用者应管理自己的等待期限 |
 | resize(width, height) | 显式更换源分辨率；原生写端确认后替换控件 buffer，消费者附加确认后回收旧缓冲区 |
 | set_visible(bool) | 通知 Chromium 节流；WebView/宿主也根据可见布局协调 |
+| set_muted(bool) | 宿主显式静音/取消静音；默认不强制静音，仍遵守 Chromium 播放规则 |
 | input(kind, **data) | 低层异步输入适配；常规应用使用 WebView 自动转发 |
 | on_event(callback) | 监听 navigating、loaded、load_error、title、new_window、message、ime、crashed、closed |
 | loaded, url, title, info | 本线程 poll 后更新的状态；loaded 表示主 frame 完成，不代表所有异步请求完成 |
@@ -150,6 +152,10 @@ publish_topics=(), subscribe_topics=(), message_group=None, policy=None)` 返回
 `evaluate_async()` 的 Future 取消会从 Python 等待队列移除；使用同步 `evaluate()`
 可同时通知原生端取消未完成的评估。网页内容与返回值均不应视为可信代码/数据。
 消息和评估不提供任意 Python 代码执行入口。
+
+URL/origin 由原生 CEF 统一规范化与校验；Python 不另行解释 Unicode 域名或 IP。
+服务和页面没有权限继承：单页传入 policy 就完整覆盖服务默认值。消息桥接仍必须
+显式声明 origin/topic，不能由网页修改。[简化与迁移说明](browser-simplification.md)。
 
 `WebView(page, on_event=None, on_browser_event=None, **overlay_options)` 继承
 OverlayCanvas。`interacting` 表示当前交互状态；`enter_interaction()` / `leave_interaction()`

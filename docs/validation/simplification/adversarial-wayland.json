@@ -1,0 +1,57 @@
+{
+  "checks": [
+    "profile_initializes_once_and_only_configures_new_origin_pairs",
+    "cef_is_the_single_origin_parser_including_unicode_and_ipv4",
+    "audio_is_explicit_host_control_instead_of_a_fixed_permission",
+    "native_eval_denied_even_when_python_is_bypassed",
+    "raw_rpc_navigation_and_local_schemes_denied",
+    "script_navigation_denied_in_native_handler",
+    "cross_origin_and_redirect_requests_never_reach_fixture_server",
+    "explicit_resource_grant_works_without_navigation_grant",
+    "bridge_unknown_ops_nested_payload_and_flood_denied",
+    "native_content_permissions_printing_password_and_dialogs_deny",
+    "native_file_chooser_and_download_callbacks_deny_after_user_click",
+    "host_eval_opt_in_does_not_bypass_csp",
+    "native_open_revalidates_malformed_policy",
+    "native_frame_dimensions_stride_and_corrupt_header_denied",
+    "native_startup_rejects_unsafe_switch_value_forms",
+    "saved_allow_permissions_replaced_before_document_load",
+    "explicit_blank_navigation_completes_and_drops_subscriptions"
+  ],
+  "result": "passed",
+  "profile_cache": {
+    "initial_pairs": 1,
+    "repeated_pairs": 1,
+    "expanded_pairs": 4,
+    "repeated_expanded_pairs": 4,
+    "cached_open_ms": 5.763
+  },
+  "native_state": {
+    "audio_muted": false,
+    "content_permissions_blocked": true,
+    "denied_dialogs": 2,
+    "denied_downloads": 1,
+    "denied_navigations": 1,
+    "denied_permissions": 0,
+    "denied_resources": 2,
+    "document": 1,
+    "password_manager_disabled": true,
+    "printing_disabled": true,
+    "profile_initializations": 1,
+    "profile_permission_pairs": 8,
+    "subscriptions": 0
+  },
+  "capabilities": {
+    "cef_version": "152.0.14+g8a0b5b9+chromium-152.0.7977.167",
+    "event": "service_ready",
+    "frame_backend": "native_cpu",
+    "permissions_default_deny": true,
+    "protocol": 1,
+    "sandbox_requested": true,
+    "security_protocol": 2,
+    "startup_ui_suppressed": true,
+    "application_isolated": true,
+    "storage_backend": "cef_request_context",
+    "messaging": "cef_router"
+  }
+}

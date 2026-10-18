@@ -129,24 +129,41 @@ bool network_url(const std::string &url) {
   const auto scheme = CefString(&parts.scheme).ToString();
   return (scheme == "https" || scheme == "http") && CefString(&parts.username).empty() && CefString(&parts.password).empty();
 }
-std::set<std::string> origin_grants(Dict d, const char *key, bool insecure) {
-  auto result = strings(d, key);
-  if (result.size() > 64)
-    throw std::invalid_argument("Too many origin grants");
-  for (const auto &value : result) {
-    if (!network_url(value) || origin(value) != value)
-      throw std::invalid_argument("Origin grants must be exact HTTP(S) origins");
+std::string canonical_origin(const std::string &url, bool exact, bool insecure) {
+    if (!network_url(url)) throw std::invalid_argument("Only credential-free HTTP(S) URLs are supported");
     CefURLParts parts;
-    CefParseURL(value, parts);
+    CefParseURL(url, parts);
+    if (exact && ((!CefString(&parts.path).empty() && CefString(&parts.path) != "/") ||
+        !CefString(&parts.query).empty() || !CefString(&parts.fragment).empty()))
+      throw std::invalid_argument("Origin grants cannot contain paths, queries or fragments");
     const auto host = CefString(&parts.host).ToString();
+    if (host.empty() || host.find_first_of("*%") != std::string::npos || CefString(&parts.port) == "0")
+      throw std::invalid_argument("Invalid origin host or port");
     unsigned a, b, c, e; char trailing;
     const bool loopback = host == "localhost" || host == "::1" || host == "[::1]" ||
         (std::sscanf(host.c_str(), "%u.%u.%u.%u%c", &a, &b, &c, &e, &trailing) == 4 &&
          a == 127 && b <= 255 && c <= 255 && e <= 255);
     if (CefString(&parts.scheme) == "http" && !insecure && !loopback)
       throw std::invalid_argument("Cleartext HTTP requires explicit policy");
+    return origin(url);
+}
+std::set<std::string> origin_grants(Dict d, const char *key, bool insecure) {
+  std::set<std::string> result;
+  auto list = d->GetList(key);
+  if (d->HasKey(key) && !list) throw std::invalid_argument("Origins must be a list");
+  if (list) {
+    if (list->GetSize() > 64) throw std::invalid_argument("Too many origin grants");
+    for (std::size_t i = 0; i < list->GetSize(); ++i) {
+      if (list->GetType(i) != VTYPE_STRING) throw std::invalid_argument("Origin must be a string");
+      result.insert(canonical_origin(list->GetString(i).ToString(), true, insecure));
+    }
   }
   return result;
+}
+void set_strings(Dict d, const char *key, const std::set<std::string> &values) {
+  auto list = CefListValue::Create();
+  for (const auto &value : values) list->SetString(list->GetSize(), value);
+  d->SetList(key, list);
 }
 bool bounded_line(std::istream &input, std::string &line, bool &overflow) {
   line.clear();
@@ -521,7 +538,7 @@ public:
     auto d = dict();
     d->SetString("event", "service_ready");
     d->SetInt("protocol", 1);
-    d->SetInt("security_protocol", 1);
+    d->SetInt("security_protocol", 2);
     d->SetBool("sandbox_requested", true);
     d->SetBool("permissions_default_deny", true);
     d->SetString("cef_version", CEF_VERSION);
@@ -611,6 +628,61 @@ public:
     for (const auto &[key, view] : views_) if (key != id) bytes += view->allocation();
     if (bytes > static_cast<std::size_t>(total)) throw std::runtime_error("Browser frame budget exceeded");
   }
+  void prepare_profile(const std::string &key, const std::set<std::string> &origins) {
+    CEF_REQUIRE_UI_THREAD();
+    auto &profile = profiles_.at(key);
+    const auto context = profile.context;
+    if (!profile.initializations) {
+      auto disabled = CefValue::Create(); disabled->SetBool(false);
+      for (const auto *preference : {"printing.enabled", "credentials_enable_service", "credentials_enable_autosignin"}) {
+        CefString error;
+        if (!context->SetPreference(preference, disabled, error))
+          throw std::runtime_error(std::string("Required browser preference unavailable: ") + preference);
+        auto actual = context->GetPreference(preference);
+        if (!actual || actual->GetType() != VTYPE_BOOL || actual->GetBool())
+          throw std::runtime_error("Required browser preference was not disabled");
+      }
+      ++profile.initializations;
+    }
+    // A request context owns these settings. Reuse completed work across all
+    // its pages; new origin pairs are still denied before their document loads.
+    const cef_content_setting_types_t blocked[] = {
+        CEF_CONTENT_SETTING_TYPE_GEOLOCATION, CEF_CONTENT_SETTING_TYPE_NOTIFICATIONS,
+        CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA,
+        CEF_CONTENT_SETTING_TYPE_USB_GUARD, CEF_CONTENT_SETTING_TYPE_HID_GUARD,
+        CEF_CONTENT_SETTING_TYPE_SERIAL_GUARD, CEF_CONTENT_SETTING_TYPE_BLUETOOTH_GUARD,
+        CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_READ_GUARD, CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_WRITE_GUARD,
+        CEF_CONTENT_SETTING_TYPE_CLIPBOARD_READ_WRITE,
+        CEF_CONTENT_SETTING_TYPE_LOCAL_FONTS, CEF_CONTENT_SETTING_TYPE_MIDI_SYSEX,
+        CEF_CONTENT_SETTING_TYPE_KEYBOARD_LOCK, CEF_CONTENT_SETTING_TYPE_POINTER_LOCK,
+        CEF_CONTENT_SETTING_TYPE_WINDOW_MANAGEMENT, CEF_CONTENT_SETTING_TYPE_SENSORS};
+    const cef_content_setting_types_t saved_devices[] = {
+        CEF_CONTENT_SETTING_TYPE_USB_CHOOSER_DATA, CEF_CONTENT_SETTING_TYPE_HID_CHOOSER_DATA,
+        CEF_CONTENT_SETTING_TYPE_SERIAL_CHOOSER_DATA, CEF_CONTENT_SETTING_TYPE_BLUETOOTH_CHOOSER_DATA,
+        CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_ACCESS_CHOOSER_DATA};
+    for (const auto &requesting : origins) {
+      if (!profile.cleared_origins.count(requesting)) {
+        for (const auto type : saved_devices) context->SetWebsiteSetting(requesting, "", type, nullptr);
+        profile.cleared_origins.insert(requesting);
+      }
+      for (const auto &top : origins) {
+        const auto pair = std::make_pair(requesting, top);
+        if (profile.permission_pairs.count(pair)) continue;
+        for (const auto type : saved_devices) context->SetWebsiteSetting(requesting, top, type, nullptr);
+        for (const auto type : blocked) {
+          context->SetContentSetting(requesting, top, type, CEF_CONTENT_SETTING_VALUE_BLOCK);
+          if (context->GetContentSetting(requesting, top, type) != CEF_CONTENT_SETTING_VALUE_BLOCK)
+            throw std::runtime_error("Required native content permission was not blocked");
+        }
+        profile.permission_pairs.insert(pair);
+      }
+    }
+  }
+  void profile_state(const std::string &key, Dict result) const {
+    const auto &profile = profiles_.at(key);
+    result->SetInt("profile_initializations", profile.initializations);
+    result->SetInt("profile_permission_pairs", static_cast<int>(profile.permission_pairs.size()));
+  }
   void closed(const std::string &id) {
     views_.erase(id);
     if (closing_ && views_.empty()) {
@@ -644,8 +716,8 @@ private:
       throw std::runtime_error("Service is closing");
     if (op == "open") {
       const auto security = d->GetDictionary("security");
-      if (!security || security->GetInt("protocol") != 1)
-        throw std::invalid_argument("Security protocol 1 policy is required");
+      if (!security || security->GetInt("protocol") != 2)
+        throw std::invalid_argument("Security protocol 2 policy is required");
       if (views_.size() >= 64)
         throw std::runtime_error("At most 64 active pages are supported");
       if (!identifier(id) || views_.count(id))
@@ -708,6 +780,9 @@ private:
   struct Profile {
     CefRefPtr<CefRequestContext> context;
     bool persistent, cookies;
+    unsigned initializations{};
+    std::set<std::string> cleared_origins;
+    std::set<std::pair<std::string, std::string>> permission_pairs;
   };
   std::filesystem::path root_;
   std::map<std::string, Profile> profiles_;
@@ -729,11 +804,20 @@ View::View(Service *owner, Dict c, CefRefPtr<CefRequestContext> context,
   const bool insecure = security->GetBool("allow_insecure_http");
   navigation_ = origin_grants(security, "navigation_origins", insecure);
   if (navigation_.size() > 8) throw std::invalid_argument("At most 8 navigation origins per page");
+  const auto url = text(c, "url");
+  if (url != "about:blank") {
+    const auto initial = canonical_origin(url, false, insecure);
+    if (navigation_.empty()) navigation_.insert(initial);
+    if (!navigation_.count(initial)) throw std::invalid_argument("Initial navigation denied");
+  }
   resources_ = origin_grants(security, "resource_origins", insecure);
+  if (resources_.empty()) resources_ = navigation_;
   origins_ = origin_grants(c, "origins", insecure);
   for (const auto &value : origins_)
     if (!navigation_.count(value)) throw std::invalid_argument("Bridge origin is outside navigation policy");
   allow_evaluate_ = security->GetBool("allow_evaluate");
+  set_strings(security, "navigation_origins", navigation_);
+  set_strings(security, "resource_origins", resources_);
   if (!allowed(text(c, "url"), navigation_))
     throw std::invalid_argument("Initial navigation denied");
   if (publish_topics_.size() > 64 || subscribe_topics_.size() > 64)
@@ -762,53 +846,17 @@ View::View(Service *owner, Dict c, CefRefPtr<CefRequestContext> context,
 }
 void View::OnAfterCreated(CefRefPtr<CefBrowser> b) {
   browser_ = b;
-  auto disabled = CefValue::Create(); disabled->SetBool(false);
-  for (const auto *preference : {"printing.enabled", "credentials_enable_service", "credentials_enable_autosignin"}) {
-    CefString error;
-    if (!context_->SetPreference(preference, disabled, error)) {
-      reply(request_, nullptr, std::string("Required browser preference unavailable: ") + preference);
-      close(); return;
-    }
-    auto actual = context_->GetPreference(preference);
-    if (!actual || actual->GetType() != VTYPE_BOOL || actual->GetBool()) {
-      reply(request_, nullptr, "Required browser preference was not disabled");
-      close(); return;
-    }
-  }
-  browser_->GetHost()->SetAudioMuted(true);
-  // Prompt denial alone does not revoke grants saved by an older runtime.
-  // Apply exact native content settings before the first real document loads.
-  const cef_content_setting_types_t blocked[] = {
-      CEF_CONTENT_SETTING_TYPE_GEOLOCATION, CEF_CONTENT_SETTING_TYPE_NOTIFICATIONS,
-      CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA,
-      CEF_CONTENT_SETTING_TYPE_USB_GUARD, CEF_CONTENT_SETTING_TYPE_HID_GUARD,
-      CEF_CONTENT_SETTING_TYPE_SERIAL_GUARD, CEF_CONTENT_SETTING_TYPE_BLUETOOTH_GUARD,
-      CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_READ_GUARD, CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_WRITE_GUARD,
-      CEF_CONTENT_SETTING_TYPE_CLIPBOARD_READ_WRITE,
-      CEF_CONTENT_SETTING_TYPE_LOCAL_FONTS, CEF_CONTENT_SETTING_TYPE_MIDI_SYSEX,
-      CEF_CONTENT_SETTING_TYPE_KEYBOARD_LOCK, CEF_CONTENT_SETTING_TYPE_POINTER_LOCK,
-      CEF_CONTENT_SETTING_TYPE_WINDOW_MANAGEMENT, CEF_CONTENT_SETTING_TYPE_SENSORS};
-  const cef_content_setting_types_t saved_devices[] = {
-      CEF_CONTENT_SETTING_TYPE_USB_CHOOSER_DATA, CEF_CONTENT_SETTING_TYPE_HID_CHOOSER_DATA,
-      CEF_CONTENT_SETTING_TYPE_SERIAL_CHOOSER_DATA, CEF_CONTENT_SETTING_TYPE_BLUETOOTH_CHOOSER_DATA,
-      CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_ACCESS_CHOOSER_DATA};
-  for (const auto &requesting : navigation_) {
-    for (const auto type : saved_devices) context_->SetWebsiteSetting(requesting, "", type, nullptr);
-    for (const auto &top : navigation_) {
-      for (const auto type : saved_devices) context_->SetWebsiteSetting(requesting, top, type, nullptr);
-      for (const auto type : blocked) {
-        context_->SetContentSetting(requesting, top, type, CEF_CONTENT_SETTING_VALUE_BLOCK);
-        if (context_->GetContentSetting(requesting, top, type) != CEF_CONTENT_SETTING_VALUE_BLOCK) {
-          reply(request_, nullptr, "Required native content permission was not blocked");
-          close(); return;
-        }
-      }
-    }
+  try {
+    owner_->prepare_profile(text(config_, "profile"), navigation_);
+  } catch (const std::exception &e) {
+    reply(request_, nullptr, e.what());
+    close(); return;
   }
   auto d = dict();
   d->SetString("view", id_);
   d->SetString("frame_backend", "native_cpu");
   d->SetString("cache_path", context_->GetCachePath());
+  d->SetDictionary("security", config_->GetDictionary("security"));
   reply(request_, d);
   if (text(config_, "url") != "about:blank") browser_->GetMainFrame()->LoadURL(text(config_, "url"));
 }
@@ -975,6 +1023,8 @@ void View::command(Dict d) {
     result->SetBool("printing_disabled", !context_->GetPreference("printing.enabled")->GetBool());
     result->SetBool("password_manager_disabled", !context_->GetPreference("credentials_enable_service")->GetBool());
     result->SetBool("content_permissions_blocked", true); // Verified before loading the first document.
+    result->SetBool("audio_muted", host->IsAudioMuted());
+    owner_->profile_state(text(config_, "profile"), result);
     reply(request, result); return;
   } else if (op == "navigate") {
     if (!allowed(text(d, "url"), navigation_)) throw std::runtime_error("Navigation origin denied");
@@ -989,6 +1039,8 @@ void View::command(Dict d) {
     browser_->Reload();
   else if (op == "visible")
     host->WasHidden(!d->GetBool("visible"));
+  else if (op == "muted")
+    host->SetAudioMuted(d->GetBool("muted"));
   else if (op == "resize") {
     auto info = frame_info(d->GetDictionary("source"));
     const auto bytes = check_frame(info);

@@ -1,52 +1,28 @@
 """Immutable browser capability policy. Host Python/native code remains trusted."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-import ipaddress
+from dataclasses import dataclass
 import re
-from urllib.parse import urlsplit
 
 
-SECURITY_PROTOCOL = 1
+SECURITY_PROTOCOL = 2
 _TOPIC = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\Z")
 
 
-def web_origin(url: str, *, exact=False, allow_insecure_http=False) -> str:
-    """Canonical network origin; opaque/file origins and credentials are never grants."""
-    if not isinstance(url, str) or len(url) > 8192 or any(ord(c) <= 32 or ord(c) == 127 for c in url):
-        raise ValueError("URL must be bounded and contain no controls or whitespace")
-    if "\\" in url or "%" in urlsplit(url).netloc:
-        raise ValueError("Ambiguous URL authority")
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username is not None or parts.password is not None:
-        raise ValueError("Only credential-free HTTP(S) network origins are supported")
-    if exact and (parts.path not in ("", "/") or parts.query or parts.fragment):
-        raise ValueError("Origin grants cannot contain paths, queries or fragments")
-    # stdlib IDNA2003 and Chromium UTS46 disagree (for example on ß).
-    # Require explicit ASCII/punycode instead of granting a different domain.
-    if not parts.hostname.isascii():
-        raise ValueError("Use an explicit ASCII/punycode origin hostname")
-    host = parts.hostname.lower()
-    if host.endswith(".") or "*" in host or not re.fullmatch(r"[a-z0-9.:-]+", host):
-        raise ValueError("Invalid or ambiguous origin hostname")
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        ip = None
-        # Chromium accepts shortened, octal and hexadecimal IPv4 forms; never
-        # turn an alternate spelling into a loopback grant.
-        if re.fullmatch(r"[0-9.xa-f]+", host) and (host[0].isdigit() or host.startswith("0x")):
-            raise ValueError("Use canonical IP addresses")
-    if parts.scheme == "http" and not allow_insecure_http and not (host == "localhost" or ip and ip.is_loopback):
-        raise PermissionError("Cleartext HTTP requires explicit policy; loopback is allowed")
-    port = parts.port  # Reject malformed/out-of-range ports before native IPC.
-    if port == 0:
-        raise ValueError("Origin port must be positive")
-    if ip:
-        host = ip.compressed
-    host = f"[{host}]" if ":" in host else host
-    suffix = f":{port}" if port is not None and port != (443 if parts.scheme == "https" else 80) else ""
-    return f"{parts.scheme}://{host}{suffix}"
+def url_text(url):
+    """Shape check only. CEF is the single authority for URL/origin semantics."""
+    if not isinstance(url, str) or not 1 <= len(url) <= 8192:
+        raise ValueError("URL must be a nonempty string of at most 8192 characters")
+    return url
+
+
+def origin_names(values, maximum=64):
+    if isinstance(values, (str, bytes)):
+        raise ValueError("Origins must be a bounded sequence")
+    values = tuple(values)
+    if len(values) > maximum:
+        raise ValueError("Too many origins")
+    return tuple(dict.fromkeys(url_text(value) for value in values))
 
 
 def topic_names(values):
@@ -83,7 +59,7 @@ class BrowserLimits:
 
 @dataclass(frozen=True)
 class BrowserPolicy:
-    """No devices, files, downloads, popups, external protocols or eval by default.
+    """Per-page settings; a service policy supplies defaults, not an ACL parent.
 
     Origin lists are exact allowlists, never glob patterns. An empty list binds
     to the initial network origin. Resource filtering is not an OS firewall.
@@ -97,27 +73,4 @@ class BrowserPolicy:
         if type(self.allow_insecure_http) is not bool or type(self.allow_evaluate) is not bool:
             raise ValueError("Policy switches must be booleans")
         for name in ("navigation_origins", "resource_origins"):
-            values = getattr(self, name)
-            if isinstance(values, str) or len(values) > (8 if name == "navigation_origins" else 64):
-                raise ValueError("Origins must be a bounded sequence")
-            canonical = tuple(dict.fromkeys(web_origin(v, exact=True, allow_insecure_http=self.allow_insecure_http)
-                                             for v in values))
-            object.__setattr__(self, name, canonical)
-
-    def bind(self, url, origins=()):
-        if isinstance(origins, (str, bytes)):
-            raise ValueError("Bridge origins must be a sequence")
-        bridge = tuple(origins)
-        if len(bridge) > 64:
-            raise ValueError("Too many bridge origins")
-        bridge = tuple(dict.fromkeys(web_origin(v, exact=True, allow_insecure_http=self.allow_insecure_http) for v in bridge))
-        initial = () if url == "about:blank" else (web_origin(url, allow_insecure_http=self.allow_insecure_http),)
-        navigation = self.navigation_origins or initial
-        resources = self.resource_origins or navigation
-        if initial and initial[0] not in navigation:
-            raise PermissionError("Initial URL is outside navigation origins")
-        if not set(bridge).issubset(navigation):
-            raise PermissionError("Bridge origins must be a subset of navigation origins")
-        wire = asdict(self)
-        wire.update(protocol=SECURITY_PROTOCOL, navigation_origins=list(navigation), resource_origins=list(resources))
-        return wire, bridge
+            object.__setattr__(self, name, origin_names(getattr(self, name), 8 if name == "navigation_origins" else 64))

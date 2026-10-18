@@ -150,5 +150,5 @@ def test_removal_waits_for_detached_ack_even_after_unmount():
             assert canvas._event_token in session.retired
             session._events.put(CanvasEvent("detached", {"canvas_id": id(canvas), "canvas_token": canvas._event_token}))
             session.poll()
-            assert [e.kind for e in observed] == ["detached"]
+            assert [e.kind for e in observed] == ["attaching", "detached"]
             assert not session.retired and canvas.app is None
