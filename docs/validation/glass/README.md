@@ -1,5 +1,18 @@
 # 玻璃工作区验证
 
+## 焦点联动修复回归（2026-10-19）
+
+见 [focus-results.json](focus-results.json)。旧实现的选中索引轮转会改变所有叠牌槽位，
+且窗口插入顺序反向，选中卡可能位于其他卡后方。新增自有原生窗口回归8项通过：
+自动紧凑叠牌、显式 deck、容器置前、仅旧/新焦点换位、显式 ribbon、还原后的布局、
+启用弹簧时其他卡不动，以及关闭释放。检查实际 HWND 矩形和前后顺序，不只检查模型。
+CPU/GPU 原有路径各16项、全库280 passed / 1 skipped、Ruff、MkDocs 和原生 CTest
+也再次通过；本轮未调用电脑操作插件。
+
+```powershell
+python examples/verify_glass_focus.py --report .build/glass-focus.json
+```
+
 ## 当前回归（2026-10-19，光学与 CardGroup）
 
 第二轮摘要见 [optics-results.json](optics-results.json)。下方的 [results.json](results.json)

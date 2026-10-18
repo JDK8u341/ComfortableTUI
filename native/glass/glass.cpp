@@ -185,7 +185,7 @@ struct GlassHost::Impl {
     float dpi{1};
     bool active{}, compact{}, contrast{}, system_animation{true}, backdrop_dismissed{};
     HWND last_external{}, last_group_foreground{};
-    std::string last_selected;
+    std::vector<std::string> root_stack,card_stack,last_stack;
     std::string effective_material;
     HWND background{};
     std::unique_ptr<UiSurface> background_ui;
@@ -688,8 +688,8 @@ struct GlassHost::Impl {
         if(scene.selected==id)return;
         auto target=std::find_if(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==id;});
         if(target==cards.end()||!(*target)->group_visible||!(*target)->group_enabled)return;
-        scene.selected=id;
-        for(auto &c:cards)c->dirty=true;
+        auto previous=scene.selected;scene.selected=id;
+        for(auto &c:cards)if(c->spec.id==previous||c->spec.id==id)c->dirty=true;
         emit({"selected",id});
     }
     void cycle(int delta) {
@@ -788,6 +788,7 @@ struct GlassHost::Impl {
     struct Unit {
         float width{},height{};
         std::vector<std::pair<Card *,D2D1_POINT_2F>> cards;
+        std::string root;
     };
     Unit measure(const std::string &id,bool visible=true,bool enabled=true) {
         auto leaf=std::find_if(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==id;});
@@ -797,7 +798,7 @@ struct GlassHost::Impl {
                 if(!enabled&&c.dragging){c.stop_drag(true);c.dragging=false;if(GetCapture()==c.hwnd)ReleaseCapture();}
                 c.group_enabled=enabled;EnableWindow(c.hwnd,enabled);c.dirty=true;
             }
-            return {c.width,c.height,{{&c,D2D1::Point2F(0,0)}}};
+            return {c.width,c.height,{{&c,D2D1::Point2F(0,0)}},id};
         }
         auto at=std::find_if(scene.groups.begin(),scene.groups.end(),[&](const auto &g){return g.id==id;});
         if(at==scene.groups.end())return {};
@@ -823,7 +824,7 @@ struct GlassHost::Impl {
                 result.width=std::max(result.width,children[i].width+i*dx);result.height=std::max(result.height,children[i].height+i*dy);
             }
         }
-        return result;
+        result.root=id;return result;
     }
     void layout(double dt,bool show) {
         bounds();
@@ -835,7 +836,9 @@ struct GlassHost::Impl {
         float gap=18*dpi;
         float maxw=0;for(const auto &u:units)maxw=std::max(maxw,u.width*dpi);
         compact=owner_rect.right+maxw+gap>work.right && owner_rect.left-maxw-gap<work.left;
-        std::string mode=compact?"deck":scene.layout;
+        // Compact orbit uses fixed deck slots; explicit focus/ribbon remain
+        // opt-in selection-driven transitions, bounded by the work area.
+        std::string mode=compact&&scene.layout=="orbit"?"deck":scene.layout;
         int selected=0;for(const auto &c:cards)if(c->spec.id==scene.selected&&slots.count(c.get()))selected=static_cast<int>(slots[c.get()].first);
         bool reduced=scene.reduced_motion||!system_animation;
         bool visibility_changed=false;
@@ -844,7 +847,6 @@ struct GlassHost::Impl {
             auto slot=slots[&c];auto unit=slot.first<units.size()?&units[slot.first]:nullptr;
             float uw=unit?unit->width*dpi:cw,uh=unit?unit->height*dpi:ch;
             std::size_t index=slot.first;
-            int relative=(static_cast<int>(index)-selected+static_cast<int>(units.size()))%std::max(1,static_cast<int>(units.size()));
             float tx=0,ty=0;
             if(mode=="orbit") {
                 bool right=(index%2)==0;
@@ -857,11 +859,12 @@ struct GlassHost::Impl {
                 tx=right?owner_rect.right+gap:owner_rect.left-uw-gap;
                 ty=(work.top+work.bottom)/2.f-uh/2+(static_cast<int>(index)-selected)*64*dpi;
             } else if(mode=="focus") {
-                tx=relative==0?(owner_rect.left+owner_rect.right)/2.f-uw/2:owner_rect.right-uw+relative*16*dpi;
-                ty=owner_rect.top+(relative==0?64:36+relative*28)*dpi;
+                bool focal=static_cast<int>(index)==selected;
+                tx=focal?(owner_rect.left+owner_rect.right)/2.f-uw/2:owner_rect.right-uw+index*16*dpi;
+                ty=owner_rect.top+(focal?64:36+index*28)*dpi;
             } else {
                 tx=compact?owner_rect.right-uw-24*dpi:owner_rect.right+gap;
-                tx+=relative*15*dpi;ty=owner_rect.top+(66+relative*24)*dpi;
+                tx+=index*15*dpi;ty=owner_rect.top+(66+index*24)*dpi;
             }
             tx=std::clamp(tx,work.left+12*dpi,std::max(work.left+12*dpi,work.right-uw-12*dpi))+slot.second.x*dpi;
             ty=std::clamp(ty,work.top+12*dpi,std::max(work.top+12*dpi,work.bottom-uh-12*dpi))+slot.second.y*dpi;
@@ -909,17 +912,30 @@ struct GlassHost::Impl {
                 if(!ours)break;
                 above=GetWindow(above,GW_HWNDPREV);
             }
-            if(above==last_external&&last_selected==scene.selected&&!visibility_changed)return;
-            last_external=above;last_selected=scene.selected;
-            // Keep the active container together in the normal window band.
+            // Promote the selected container/card while preserving every
+            // other sibling's relative order, including inside old groups.
+            auto promote=[](std::vector<std::string> &stack,const std::vector<std::string> &ids,const std::string &active_id) {
+                stack.erase(std::remove_if(stack.begin(),stack.end(),[&](const auto &id){return std::find(ids.begin(),ids.end(),id)==ids.end();}),stack.end());
+                for(const auto &id:ids)if(std::find(stack.begin(),stack.end(),id)==stack.end())stack.push_back(id);
+                auto at=std::find(stack.begin(),stack.end(),active_id);
+                if(at!=stack.end())std::rotate(stack.begin(),at,at+1);
+            };
+            std::vector<std::string> root_ids,card_ids;
+            for(const auto &u:units)root_ids.push_back(u.root);
+            for(const auto &c:cards)card_ids.push_back(c->spec.id);
+            promote(root_stack,root_ids,units.empty()?"":units[selected].root);
+            promote(card_stack,card_ids,scene.selected);
             std::vector<Card *> order;
-            for(auto &c:cards)if(c->spec.id==scene.selected)order.push_back(c.get());
-            for(std::size_t n=0;n<units.size();n++) {
-                auto index=(selected+n)%units.size();
-                for(auto entry:units[index].cards)if(entry.first->spec.id!=scene.selected)order.push_back(entry.first);
+            std::vector<std::string> order_ids;
+            for(const auto &root:root_stack) {
+                auto unit=std::find_if(units.begin(),units.end(),[&](const auto &u){return u.root==root;});
+                for(const auto &id:card_stack)for(auto entry:unit->cards)if(entry.first->spec.id==id){order.push_back(entry.first);order_ids.push_back(id);}
             }
-            for(auto it=order.rbegin();it!=order.rend();++it) {
-                auto h=(*it)->hwnd;
+            if(above==last_external&&order_ids==last_stack&&!visibility_changed)return;
+            last_external=above;last_stack=std::move(order_ids);
+            // hWndInsertAfter inserts below its argument: visit front to back.
+            for(auto card:order) {
+                auto h=card->hwnd;
                 if(h==above)above=GetWindow(h,GW_HWNDPREV);
                 if(above&&(GetWindowLongPtrW(above,GWL_EXSTYLE)&WS_EX_TOPMOST))above=HWND_TOP;
                 SetWindowPos(h,above,0,0,0,0,SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE|SWP_NOOWNERZORDER);

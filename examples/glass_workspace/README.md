@@ -17,6 +17,9 @@ python -m examples.glass_workspace --groups --material liquid
 ```
 
 推荐让终端保持中等大小以查看环绕；最大化会改为屏幕内紧凑叠牌。
+环绕/叠牌点击只改变前后层级，其他卡片保持位置和相对顺序。`--groups` 时03与04
+同属 tools 容器，整组可置前，但不会跟着无关选择换位。focus 只交换旧/新焦点，
+ribbon 是显式选择的整体轮播转场。
 
 - F6 从终端进入卡片；Escape 返回终端，Ctrl+Q 退出。
 - 卡片中 Tab/Shift+Tab 换控件，Ctrl+Tab 换卡；点击外观卡上的选项循环切换。
@@ -47,6 +50,7 @@ python -m examples.glass_workspace --smoke-seconds 15 --report .build/glass-run.
 python examples/verify_glass_windows.py --report .build/glass-cpu.json
 python examples/verify_glass_windows.py --gpu-provider .build/glass-native/Release/ctui_glass_signal.exe --report .build/glass-gpu.json
 python examples/verify_glass_optics.py --report .build/glass-optics.json --hold 30
+python examples/verify_glass_focus.py --report .build/glass-focus.json
 ```
 
 需要桌面交互。`--preview` 另建一个明确标注的 Qt **视觉测试宿主**，用于电脑插件检查

@@ -2,6 +2,7 @@
 
 ## Unreleased — Glass Workspace development
 
+- Keep orbit/compact-deck slots stable on focus changes, preserve unrelated siblings' stacking order, and fix reversed native window insertion. Explicit focus transitions move only the old/new focus containers; explicit ribbon retains its carousel animation.
 - Add an optional native Windows peripheral-card UI using existing FrameProvider/Compositor infrastructure, without WebView or per-frame Python drawing.
 - Add interruptible orbit/deck/ribbon/focus layouts, independent per-card optical/blur/Mica/solid backgrounds, focus-group backgrounds, nine native control kinds and an MSAA bridge.
 - Add native DDA/D3D11 SDF lensing and Gaussian blur, GPU change detection to stop self-capture repaint feedback, and observable solid fallback. Desktop pixels remain on the GPU; only 16 bytes of changed-region bounds are read back asynchronously.

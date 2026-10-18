@@ -1,0 +1,26 @@
+{
+  "result": "passed",
+  "checks": [
+    "automatic_compact_deck_focus_preserves_positions_and_other_siblings_order",
+    "explicit_deck_focus_only_raises_selected_card",
+    "group_focus_raises_container_without_repositioning_its_children",
+    "explicit_focus_transition_only_moves_previous_and_new_focus",
+    "explicit_ribbon_carousel_retains_selection_animation",
+    "restored_owner_focus_preserves_orbit_or_compact_positions",
+    "enabled_springs_do_not_animate_unrelated_cards_on_focus",
+    "native_windows_close_after_focus_regression"
+  ],
+  "date": "2026-10-19",
+  "branch": "codex/liquid-glass-cards",
+  "mode": "own native windows, production ownership, actual geometry and window order",
+  "before_fix": "Reproduced: selected card not foremost and compact deck slots rotated on focus",
+  "unit_tests": {
+    "passed": 280,
+    "skipped": 1
+  },
+  "native_cpu_checks": 16,
+  "native_gpu_checks": 16,
+  "ctest": "passed",
+  "ruff": "passed",
+  "docs": "passed"
+}
