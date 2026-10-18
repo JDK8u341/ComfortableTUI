@@ -19,7 +19,7 @@ from .webview import WebView
 from .window_host import WindowHost
 from .security import BrowserLimits, BrowserPolicy
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 __all__ = [
     "Animator", "MotionProfile", "Spring", "Value", "App", "Timer", "Canvas", "Cell", "Rect", "crop_text", "text_width",
     "Collapsible", "Grid", "HBox", "PageStack", "Panel", "ScrollView", "Tabs", "VBox", "BarChart",

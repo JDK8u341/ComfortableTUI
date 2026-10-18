@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 — 2026-10-18
 
 - Follow Windows terminal movement through scoped location events and a translation-only overlay path, avoiding native scene handshakes on every move. Reject UIA geometry samples taken during movement; retain full resize/DPI/layout configuration.
 - Add continuous native-window tracking verification and batch embedded example diagnostics. Retain test report directories on failure until the example can finish writing.
