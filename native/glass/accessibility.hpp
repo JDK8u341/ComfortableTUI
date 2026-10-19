@@ -60,7 +60,7 @@ template<class Card> class GlassAccessibility final : public IAccessible {
     HRESULT STDMETHODCALLTYPE accLocation(LONG *x,LONG *y,LONG *w,LONG *h,VARIANT v)override {
         if(!c())return CO_E_OBJNOTCONNECTED;if(!x||!y||!w||!h)return E_POINTER;
         RECT r{};GetWindowRect(c()->hwnd,&r);int i=index(v);*x=r.left;*y=r.top;*w=r.right-r.left;*h=r.bottom-r.top;
-        if(i>=0){*x+=static_cast<LONG>(20*c()->host->dpi);*y+=static_cast<LONG>(c()->row_top(i)*c()->host->dpi);*w=static_cast<LONG>((c()->width-40)*c()->host->dpi);*h=static_cast<LONG>(row_height(c()->spec.controls[i].kind)*c()->host->dpi);}return S_OK;
+        if(i>=0){*x+=static_cast<LONG>(20*c()->host->dpi);*y+=static_cast<LONG>(c()->row_top(i)*c()->host->dpi);*w=static_cast<LONG>((c()->width-40)*c()->host->dpi);*h=static_cast<LONG>(row_height(c()->spec.controls[i])*c()->host->dpi);}return S_OK;
     }
     HRESULT STDMETHODCALLTYPE accNavigate(LONG direction,VARIANT from,VARIANT *out)override {
         if(!out||!c())return E_INVALIDARG;VariantInit(out);int i=index(from)+1,n=static_cast<int>(c()->spec.controls.size());

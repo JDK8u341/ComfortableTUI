@@ -17,6 +17,8 @@ from .style import Style, Theme
 from .widget import Widget
 from .browser import BrowserService, BrowserProfile, BrowserPage
 from .webview import WebView
+from .glass_webview import GlassWebView
+from .glass_canvas import GlassCanvas
 from .window_host import WindowHost
 from .security import BrowserLimits, BrowserPolicy
 
@@ -33,6 +35,6 @@ __all__ = [
     "OverlayCanvas", "PixelRect", "TerminalHost",
     "GpuFrameInfo", "GpuFrameSource", "gpu_available",
     "GlassBackground", "GlassCard", "GlassCardGroup", "GlassControl", "GlassEvent", "GlassTheme", "GlassWorkspace",
-    "BrowserService", "BrowserProfile", "BrowserPage", "BrowserPolicy", "BrowserLimits", "WebView",
+    "BrowserService", "BrowserProfile", "BrowserPage", "BrowserPolicy", "BrowserLimits", "WebView", "GlassCanvas", "GlassWebView",
     "WindowHost",
 ]

@@ -130,6 +130,36 @@ class OverlayCanvas(Widget):
         self._closed = False
         self._detached = False
         self._event_token = uuid.uuid4().hex
+        self._surface_host = None
+
+    def mount(self, app):
+        if self._surface_host is not None:
+            raise RuntimeError("This canvas is already mounted in a card")
+        super().mount(app)
+
+    def _mount_surface(self, owner, event_loop):
+        if self._closed or self.app is not None or self._session is not None or self._surface_host is not None:
+            raise RuntimeError("A canvas must be open and have only one display host")
+        self._surface_host, self._detached = owner, False
+
+    def _unmount_surface(self):
+        self._surface_host = None
+
+    def _resize_surface(self, width, height):
+        # Ordinary producers own their dimensions and receive a transform event.
+        pass
+
+    def _prepare_surface(self):
+        pass
+
+    @property
+    def _surface_available(self):
+        return not self._closed
+
+    def invalidate(self):
+        super().invalidate()
+        if self._surface_host is not None:
+            self._surface_host._canvas_invalidated()
 
     @staticmethod
     def _validate(fit, input_mode, fps):
@@ -154,7 +184,7 @@ class OverlayCanvas(Widget):
         buffer._check_open()
         changed = self.buffer.info != buffer.info
         self.buffer = buffer
-        if changed and self._session is not None:
+        if changed and (self._session is not None or self._surface_host is not None):
             self._emit(CanvasEvent("attaching", {"buffer": buffer.info}))
         self.invalidate()
 
@@ -258,7 +288,7 @@ class OverlayCanvas(Widget):
         session = self._session
         self._session = None
         self._closed = True
-        if session is None:
+        if session is None and self._surface_host is None:
             self._emit(CanvasEvent("detached"))
         self.invalidate()
 

@@ -416,3 +416,195 @@ def test_webview_in_table_or_text_can_navigate_to_neighbor(browser_service, cont
         app.focus(view)
         view._native_event(CanvasEvent("key_down", {"name": "right"}))
         assert app.focused is neighbor and not view.interacting
+
+
+class GlassHostStub:
+    def __init__(self):
+        self.serial = self.applied = 0
+        self.inbox, self.scenes, self.commands = [], [], []
+        self.closed = False
+
+    def configure(self, scene):
+        self.serial += 1
+        self.scenes.append(scene)
+        return self.serial
+
+    def command(self, action, value=""):
+        self.commands.append((action, value))
+
+    def metrics(self):
+        return dict(applied=self.applied, active=True, error="", windows=[
+            dict(id=name, visible=True, enabled=True, focused_control="browser") for name in ("a", "b")])
+
+    def events(self):
+        result, self.inbox = self.inbox, []
+        return result
+
+    def close(self):
+        self.closed = True
+
+
+def _glass_page(page, **kwargs):
+    from comfortable_tui import GlassCard, GlassWebView, GlassWorkspace
+    view = GlassWebView("browser", page, auto_resize=False, **kwargs)
+    workspace = GlassWorkspace([GlassCard("a", "A", [view], width=400)])
+    host = workspace._native = GlassHostStub()
+    workspace.poll()
+    host.applied = host.serial
+    workspace.poll()
+    return workspace, view, host
+
+
+@pytest.mark.parametrize("gpu", [False, True])
+def test_glass_browser_retires_sources_only_after_latest_scene_ack(browser_service, gpu_browser_service, gpu):
+    service = gpu_browser_service if gpu else browser_service
+    page = service.open("about:blank", width=8, height=8, render_mode="gpu" if gpu else "cpu")
+    workspace, view, host = _glass_page(page)
+    try:
+        original = page.source
+        assert page._attachments[view._token] == original.info
+        page.resize(12, 12)
+        intermediate = page.source
+        workspace.poll()
+        older_scene = host.serial
+        page.resize(16, 16)
+        workspace.poll()
+        host.applied = older_scene
+        workspace.poll()
+        for source in (original, intermediate, page.source):
+            source._check_open()
+        assert page._attachments[view._token] is None
+        host.applied = host.serial
+        workspace.poll()
+        assert original._closed and intermediate._closed and not page.source._closed
+        assert page._attachments[view._token] == page.source.info
+        workspace.set_cards([])
+        workspace.poll()
+        assert view.canvas in page._widgets and page._attachments
+        host.applied = host.serial
+        workspace.poll()
+        assert view.canvas not in page._widgets and not page._attachments
+        assert not service._app_bindings
+    finally:
+        workspace.close()
+
+
+def test_glass_browser_routes_input_and_keeps_exit_keys(browser_service):
+    from comfortable_tui import GlassEvent
+    page = browser_service.open("about:blank", width=8, height=8)
+    workspace, view, host = _glass_page(page)
+    def event(kind, **fields):
+        view.default_event(GlassEvent(kind, card="a", control="browser", **fields), workspace)
+    try:
+        event("mouse_down", position=(2, 3), source_name="retired-browser-frame")
+        assert not view.interacting
+        event("key_down", text="39")
+        assert host.commands[-1] == ("next", "") and not view.interacting
+        event("key_down", text="13")
+        assert view.interacting
+        event("key_up", text="13")
+        event("key_down", text="65", modifiers=("ctrl",), scan_code=30)
+        event("text", text="中文")
+        messages = browser_service._rpc.messages
+        assert any(op == "input" and data["kind"] == "text" and data["data"]["commit"] == "中文" for op, data in messages)
+        assert any(op == "input" and data["kind"] == "key_down" and data["data"]["modifiers"] == ["ctrl"] for op, data in messages)
+        event("key_down", text="27")
+        assert not view.interacting
+        event("key_down", text="27")
+        assert host.commands[-1] == ("focus_terminal", "")
+        event("mouse_down", position=(2, 3), button="right", buttons=2)
+        assert view.interacting and "right" in view._buttons
+        event("control_focus_out")
+        assert not view.interacting and not view._buttons
+    finally:
+        workspace.close()
+
+
+def test_glass_browser_visibility_is_shared_with_terminal_views(browser_service):
+    from comfortable_tui import WebView
+    page = browser_service.open("about:blank", width=8, height=8)
+    terminal_view = WebView(page)
+    workspace, view, host = _glass_page(page)
+    try:
+        assert terminal_view._page_visible()
+        workspace.hide()
+        workspace.poll()
+        assert not terminal_view._page_visible()
+        workspace.show()
+        workspace.poll()
+        assert terminal_view._page_visible()
+        workspace.close()
+        assert not terminal_view._page_visible()
+    finally:
+        workspace.close()
+        terminal_view.close()
+
+
+def test_glass_browser_polling_is_deduplicated_and_focus_loss_cannot_be_consumed(browser_service):
+    from comfortable_tui import GlassCard, GlassWebView, GlassWorkspace
+    page = browser_service.open("about:blank", width=8, height=8)
+    other = browser_service.open("about:blank", width=8, height=8)
+    first, second = GlassWebView("browser", page, auto_resize=False), GlassWebView("browser", other, auto_resize=False)
+    workspace = GlassWorkspace([GlassCard("a", "A", [first]), GlassCard("b", "B", [second])], on_event=lambda e: True)
+    host = workspace._native = GlassHostStub()
+    try:
+        workspace.poll()
+        assert len(workspace._event_sources) == 1 and browser_service._app_bindings[workspace][0] == 2
+        first.enter_interaction()
+        host.inbox = [dict(kind="control_focus_out", card="a", control="browser")]
+        workspace.poll()
+        assert not first.interacting
+    finally:
+        workspace.close()
+    assert not page._attachments and not other._attachments and not workspace._event_sources
+
+
+def test_glass_browser_page_close_keeps_displayed_frames_until_workspace_detaches(browser_service):
+    page = browser_service.open("about:blank", width=8, height=8)
+    workspace, view, host = _glass_page(page)
+    source = page.source
+    view.enter_interaction()
+    page.close()
+    workspace.poll()
+    assert not view.enabled and not view.interacting and not source._closed
+    workspace.close()
+    assert source._closed and not page._widgets and not page._attachments
+
+
+def test_glass_browser_mount_failure_cleans_page_claim_and_listeners(browser_service, monkeypatch):
+    from comfortable_tui import GlassCard, GlassWebView, GlassWorkspace
+    page = browser_service.open("about:blank", width=8, height=8)
+    view = GlassWebView("browser", page)
+    workspace = GlassWorkspace([GlassCard("a", "A", [view])])
+    workspace._native = GlassHostStub()
+    def failed_binding(_):
+        raise RuntimeError("fixture binding failed")
+    monkeypatch.setattr(browser_service, "_bind_app", failed_binding)
+    try:
+        with pytest.raises(RuntimeError, match="binding failed"):
+            workspace.poll()
+        assert view._workspace is None and not page._widgets and not page._attachments
+    finally:
+        workspace.close()
+
+
+def test_existing_webview_can_be_hosted_as_an_ordinary_canvas_and_remounted(browser_service):
+    from comfortable_tui import App, GlassCanvas, GlassCard, GlassEvent, GlassWorkspace, WebView
+    page = browser_service.open("about:blank", width=8, height=8)
+    canvas = WebView(page)
+    view = GlassCanvas("browser", canvas, auto_resize=True)
+    for _ in range(2):
+        page.resize(12, 12)
+        workspace = GlassWorkspace([GlassCard("a", "A", [view])])
+        host = workspace._native = GlassHostStub()
+        workspace.poll()
+        host.applied = host.serial
+        workspace.poll()
+        view.default_event(GlassEvent("key_down", text="13"), workspace)
+        assert canvas.interacting and len(page._listeners) == 1
+        workspace.close()
+        assert not canvas.interacting and not page._listeners and not page._attachments
+        assert canvas._surface_host is None and not canvas._closed
+    with App(canvas) as app:
+        app.render(40, 12)
+        assert canvas.app is app and canvas in page._widgets and len(page._listeners) == 1

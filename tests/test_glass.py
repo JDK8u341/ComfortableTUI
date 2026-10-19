@@ -6,6 +6,107 @@ from comfortable_tui import (App, FrameBuffer, GlassBackground, GlassCard, Glass
                              GlassControl, GlassTheme, GlassWorkspace, Label)
 
 
+def test_hosted_canvas_keeps_standard_events_and_buffer_ack_lifetime():
+    from comfortable_tui import GlassCanvas, GlassEvent, OverlayCanvas
+    events = []
+    with FrameBuffer(16, 8) as first, FrameBuffer(32, 16) as second:
+        canvas = OverlayCanvas(first, on_event=events.append)
+        view = GlassCanvas("canvas", canvas, height=96)
+        workspace = GlassWorkspace([GlassCard("a", "A", [view])])
+        host = workspace._native = Host()
+        try:
+            workspace.poll()
+            assert canvas._surface_host is view and canvas.app is None
+            assert events[-1].kind == "attaching"
+            host.applied = host.serial
+            workspace.poll()
+            assert events[-1].kind == "buffer_attached"
+            view.default_event(GlassEvent("transform", position=(200, 100), value=1.5), workspace)
+            assert canvas.transform.viewport_size == (300, 150)
+            view.default_event(GlassEvent("mouse_down", position=(4, 5), buttons=1), workspace)
+            assert events[-1].data["source_position"] == (4, 5)
+            view.default_event(GlassEvent("control_focus_in"), workspace)
+            view.default_event(GlassEvent("control_focus_out"), workspace)
+            assert [e.kind for e in events[-2:]] == ["mouse_up", "focus_out"]
+            canvas.set_buffer(second)
+            assert workspace._dirty and events[-1].kind == "attaching"
+            workspace.poll()
+            assert first in workspace._attached_refs
+            host.applied = host.serial
+            workspace.poll()
+            assert first not in workspace._attached_refs and second in workspace._attached_refs
+            assert events[-1].data["buffer"] == second.info
+            workspace.set_cards([])
+            workspace.poll()
+            assert canvas._surface_host is view
+            host.applied = host.serial
+            workspace.poll()
+            assert canvas._surface_host is None and events[-1].kind == "detached"
+            assert not canvas._closed and not first._closed and not second._closed
+        finally:
+            workspace.close()
+            canvas.close()
+
+
+def test_hosted_canvas_enforces_one_host_and_preserves_callback_navigation():
+    from comfortable_tui import GlassCanvas, GlassEvent, OverlayCanvas
+    from types import SimpleNamespace
+    with FrameBuffer(4, 4) as source:
+        received, commands = [], []
+        canvas = OverlayCanvas(source, on_event=lambda e: received.append(e) or e.kind == "key_down")
+        view = GlassCanvas("canvas", canvas)
+        workspace = GlassWorkspace([GlassCard("a", "A", [view])])
+        workspace._native = Host()
+        workspace.poll()
+        try:
+            with pytest.raises(RuntimeError, match="one display host"):
+                GlassCanvas("other", canvas)._mount(workspace)
+            with pytest.raises(RuntimeError, match="mounted in a card"):
+                canvas.mount(SimpleNamespace())
+            view.default_event(GlassEvent("key_down", text="39"),
+                               SimpleNamespace(command=lambda *v: commands.append(v)))
+            assert received[-1].data["name"] == "right" and not commands
+            canvas.on_canvas_event = received.append
+            view.default_event(GlassEvent("key_down", text="39"),
+                               SimpleNamespace(command=lambda *v: commands.append(v)))
+            assert commands == [("next",)]
+            canvas.configure(fit="cover")
+            assert view.snapshot()["fit"] == "cover"
+        finally:
+            workspace.close()
+            canvas.close()
+
+
+def test_canvas_replacement_in_attach_callback_is_not_lost_and_close_waits_for_detach():
+    from comfortable_tui import GlassCanvas, OverlayCanvas
+    events = []
+    with FrameBuffer(4, 4) as first, FrameBuffer(8, 8) as second:
+        def event(e):
+            events.append(e)
+            if e.kind == "attaching" and canvas.buffer is first:
+                canvas.set_buffer(second)
+        canvas = OverlayCanvas(first, on_event=event)
+        view = GlassCanvas("canvas", canvas)
+        workspace = GlassWorkspace([GlassCard("a", "A", [view])])
+        host = workspace._native = Host()
+        try:
+            workspace.poll()
+            assert workspace._dirty
+            workspace.poll()
+            host.applied = host.serial
+            workspace.poll()
+            assert events[-1].kind == "buffer_attached" and events[-1].data["buffer"] == second.info
+            canvas.close()
+            assert not any(e.kind == "detached" for e in events)
+            workspace.set_cards([])
+            workspace.poll()
+            host.applied = host.serial
+            workspace.poll()
+            assert events[-1].kind == "detached" and not second._closed
+        finally:
+            workspace.close()
+
+
 def test_glass_models_are_headless_and_bounded():
     workspace = GlassWorkspace([GlassCard("tools", "Tools", [GlassControl("task", "button", "Run")])])
     assert workspace.snapshot()["cards"][0]["controls"][0]["kind"] == "button"

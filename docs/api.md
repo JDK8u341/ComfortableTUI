@@ -16,6 +16,10 @@ invalidate。App.close 会清理所有事件源。WebView 使用该接口轮询�
 可选的终端周边 UI 导出 `GlassWorkspace`、`GlassCard`、`GlassCardGroup`、`GlassBackground`、`GlassControl`、`GlassTheme`、
 `GlassEvent`，完整参数与事件表见[玻璃工作区 API](glass-workspace.md)。它使用自身原生
 控件模型和 App 事件源，不属于终端字符 Widget，也不依赖浏览器服务。
+`GlassCanvas` 可承载现有 OverlayCanvas（包括 WebView）、FrameBuffer 或 GpuFrameSource，
+复用标准画布事件与生命周期，见[卡片通用画布](glass-canvas.md)。
+`GlassWebView` 是组合 GlassCanvas 与现有 WebView 的便捷入口，可将调用方拥有的 BrowserPage 嵌入卡片，自动处理显示确认、可见性和
+输入，详见[卡片 WebView](glass-webview.md)；基础玻璃控件仍无需启动浏览器。
 
 ## App
 

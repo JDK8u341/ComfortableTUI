@@ -11,6 +11,8 @@ nav:
   - 帧调度与卡顿排查: frame-pacing.md
   - 原生缓冲区画布: overlay-canvas.md
   - 终端周边玻璃工作区: glass-workspace.md
+  - 玻璃卡片 WebView 与键盘: glass-webview.md
+  - 卡片通用画布: glass-canvas.md
   - 玻璃 UI 调研与计划: glass-research-plan.md
   - 通透材质与事件调研: glass-optics-research.md
   - 玻璃 UI 验证记录: validation/glass/README.md

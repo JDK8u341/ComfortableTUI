@@ -10,4 +10,4 @@ recursive-include native/browser *.cpp *.hpp CMakeLists.txt
 recursive-include native/host *.cpp CMakeLists.txt
 recursive-include tools *.py
 recursive-include docs *.md *.json *.csv *.gif *.png *.py
-recursive-include examples *.py *.md *.cpp *.html CMakeLists.txt
+recursive-include examples *.py *.md *.cpp *.html *.js CMakeLists.txt

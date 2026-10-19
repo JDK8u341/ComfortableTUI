@@ -3,7 +3,7 @@
 namespace comfortable {
 inline void bind_glass(pybind11::module_ &m) {
     namespace py=pybind11;
-    m.attr("glass_protocol_version")=2;
+    m.attr("glass_protocol_version")=3;
     py::class_<GlassHost>(m,"GlassHost")
         .def(py::init([](std::uintptr_t hwnd,bool inspectable){py::gil_scoped_release release;return std::make_unique<GlassHost>(hwnd,inspectable);}),py::arg("hwnd"),py::arg("inspectable_windows")=false)
         .def("configure",[](GlassHost &host,py::dict input){
@@ -43,6 +43,8 @@ inline void bind_glass(pybind11::module_ &m) {
                     control.id=py::cast<std::string>(c["id"]);control.kind=py::cast<std::string>(c["kind"]);
                     control.label=py::cast<std::string>(c["label"]);control.text=py::cast<std::string>(c["text"]);
                     control.value=py::cast<double>(c["value"]);control.enabled=py::cast<bool>(c["enabled"]);
+                    control.canvas_height=py::cast<float>(c["canvas_height"]);
+                    control.capture_escape=py::cast<bool>(c["capture_escape"]);
                     control.acknowledged=py::cast<std::uint64_t>(c["acknowledged"]);
                     control.series=py::cast<std::vector<double>>(c["series"]);
                     control.options=py::cast<std::vector<std::string>>(c["options"]);
@@ -71,6 +73,7 @@ inline void bind_glass(pybind11::module_ &m) {
                 auto r=s.rects[i];py::dict w;w["id"]=s.ids[i];w["hwnd"]=s.windows[i];
                 w["rect"]=py::make_tuple(r.x,r.y,r.width,r.height);windows.append(w);
                 w["material"]=s.materials[i];w["pinned"]=static_cast<bool>(s.pinned[i]);w["draggable"]=static_cast<bool>(s.draggable[i]);
+                w["visible"]=static_cast<bool>(s.visible[i]);w["enabled"]=static_cast<bool>(s.enabled[i]);w["focused_control"]=s.focused_control[i];
             }
             py::dict d;d["applied"]=s.applied;d["frames"]=s.frames;d["tick_ms"]=s.tick_ms;
             d["dropped_events"]=s.dropped_events;d["active"]=s.active;d["compact"]=s.compact;
@@ -85,7 +88,9 @@ inline void bind_glass(pybind11::module_ &m) {
             std::vector<GlassEvent> events;{py::gil_scoped_release release;events=h.events();}
             py::list out;
             for(const auto &e:events){py::dict d;d["kind"]=e.kind;d["card"]=e.card;d["control"]=e.control;
-                d["text"]=e.text;d["value"]=e.value;d["position"]=py::make_tuple(e.x,e.y);d["sequence"]=e.sequence;out.append(d);}
+                d["text"]=e.text;d["value"]=e.value;d["position"]=py::make_tuple(e.x,e.y);d["sequence"]=e.sequence;
+                d["modifiers"]=py::tuple(py::cast(e.modifiers));d["scan_code"]=e.scan_code;d["repeat"]=e.repeat;
+                d["button"]=e.button;d["buttons"]=e.buttons;d["clicks"]=e.clicks;d["inside_source"]=e.inside_source;d["source_name"]=e.source_name;out.append(d);}
             return out;
         });
 }

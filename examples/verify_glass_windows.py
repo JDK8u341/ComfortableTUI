@@ -14,13 +14,15 @@ import subprocess
 import sys
 import time
 
-from comfortable_tui import FrameBuffer, GlassCard, GlassControl, GlassTheme, GlassWorkspace, GpuFrameSource
+from comfortable_tui import (FrameBuffer, GlassCanvas, GlassCard, GlassControl, GlassTheme,
+                             GlassWorkspace, GpuFrameSource, OverlayCanvas)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gpu-provider", type=Path)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--hosted-canvas", action="store_true")
     parser.add_argument("--focus-timeout", type=float, default=12,
                         help="Allow time to activate this test fixture when Windows denies foreground requests")
     args = parser.parse_args()
@@ -39,7 +41,7 @@ def main():
     owner.resize(450, 350)
     owner.move(480, 180)
     owner.show()
-    events, report = [], {"checks": []}
+    events, canvas_events, report = [], [], {"checks": []}
     def check(name):
         report["checks"].append(name)
         print("PASS " + name, flush=True)
@@ -56,7 +58,9 @@ def main():
                 line = provider.stdout.readline().split()
                 assert len(line) == 6 and line[0] == "CTUI_GPU_V1"
                 source = GpuFrameSource.attach(line[1])
-            canvas = GlassControl("canvas", "canvas", "Frame input", source=source)
+            canvas = (GlassCanvas("canvas", OverlayCanvas(source, on_event=canvas_events.append),
+                                  label="Frame input", height=96) if args.hosted_canvas else
+                      GlassControl("canvas", "canvas", "Frame input", source=source))
             controls = [GlassControl("action", "button", "Action"), GlassControl("toggle", "toggle", "Enabled"), canvas]
             cards = [GlassCard("main", "Verification", controls, width=280),
                      GlassCard("side", "Other card", [GlassControl("input", "input", "Notes")], width=260)]
@@ -83,11 +87,27 @@ def main():
                 assert api.user.GetWindow(window["hwnd"], 4) == int(owner.winId())  # GW_OWNER, production taskbar grouping
             wait(lambda: workspace.metrics().get("canvas_frames", 0) >= (3 if args.gpu_provider else 1))
             check("native_ui_and_external_frames_presented")
-            pump(.6)
+            # Initial card motion can generate hover/focus changes after a fixed
+            # delay, especially while the machine is building native extensions.
+            # Require a genuinely quiet UI/geometry interval first. A renderer
+            # that redraws continuously will fail this bounded wait, not pass it.
+            settle_started = stable_since = time.perf_counter()
+            previous_state = None
+            def settled():
+                nonlocal stable_since, previous_state
+                metrics = workspace.metrics()
+                state = (metrics["frames"], metrics["applied"], metrics["active"],
+                         tuple((w["id"], tuple(w["rect"]), w["visible"], w["focused_control"])
+                               for w in metrics["windows"]))
+                if state != previous_state:
+                    previous_state, stable_since = state, time.perf_counter()
+                return time.perf_counter() - stable_since >= .35
+            wait(settled, timeout=8)
+            report["idle_settle_seconds"] = time.perf_counter() - settle_started
             before = workspace.metrics()["frames"]
             pump(.3)
             report["idle_ui_draws_in_300ms"] = workspace.metrics()["frames"] - before
-            assert report["idle_ui_draws_in_300ms"] <= 2
+            assert report["idle_ui_draws_in_300ms"] <= 2, report
             report["initial_metrics"] = workspace.metrics()
             check("settled_ui_does_not_redraw_continuously")
             hwnd = workspace.metrics()["windows"][0]["hwnd"]
@@ -123,17 +143,22 @@ def main():
             assert abs(click.position[0] - source.info.width / 2) < 2
             assert abs(click.position[1] - source.info.height / 2) < 2
             assert any(e.kind == "mouse_up" and e.control == "canvas" for e in events)
+            if args.hosted_canvas:
+                assert {"attaching", "buffer_attached", "transform", "mouse_down", "mouse_up"} <= {e.kind for e in canvas_events}
+                assert canvas.canvas.transform is not None
+                check("generic_canvas_keeps_standard_events_and_transform")
             canvas.enabled = False
             workspace.update()
             workspace.poll()
             wait(lambda: not workspace._pending)
-            before_events = sum(e.control == "canvas" for e in events)
+            input_kinds = {"mouse_down", "mouse_up", "mouse_move", "mouse_leave", "key_down", "key_up", "text", "wheel", "wheel_horizontal"}
+            before_events = sum(e.control == "canvas" and e.kind in input_kinds for e in events)
             mouse(0x200, 140, 264)
             mouse(0x201, 140, 264, 1)
             mouse(0x202, 140, 264)
             api.user.SendMessageW(hwnd, 0x101, 65, 0)
             pump(.1)
-            assert sum(e.control == "canvas" for e in events) == before_events
+            assert sum(e.control == "canvas" and e.kind in input_kinds for e in events) == before_events
             canvas.enabled = True
             workspace.update()
             check("canvas_source_coordinates_and_mouse_pair")
@@ -165,7 +190,10 @@ def main():
             workspace.poll()
             wait(lambda: workspace.metrics()["material"] == "solid")
             check("opaque_and_reduced_motion_preferences")
-            canvas.source = replacement
+            if args.hosted_canvas:
+                canvas.canvas.set_buffer(replacement)
+            else:
+                canvas.source = replacement
             workspace.update()
             workspace.poll()
             wait(lambda: workspace._attached_refs == [replacement] and not workspace._pending)

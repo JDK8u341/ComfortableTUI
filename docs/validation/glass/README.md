@@ -1,5 +1,42 @@
 # 玻璃工作区验证
 
+## 跨卡键盘、通用画布与内嵌浏览器（2026-10-19）
+
+见 [webview-results.json](webview-results.json) 和 [GlassWebView 指南](../../glass-webview.md)。
+GlassCanvas 承载原有 OverlayCanvas 及其 WebView 子类，GlassWebView 仅作为便捷入口；
+来源协议不变，玻璃控制扩展协议升级为3，帧协议仍为1。
+
+- 全库及强制纯 Python：291 passed、1 skipped；Ruff、严格 MkDocs、原生构建/CTest、
+  安装后的 ComfortableGlass 客户端链接通过。
+- 真实 CEF 的 CPU/GPU 各13项通过：独立页面呈现、Tab 跨卡与禁用跳过、反向 Tab
+  路径、实际原生键盘焦点、方向键、Enter/Escape 交互、鼠标/中文、退格/表单提交、
+  受限主题消息、快速 resize 退休确认、容器隐藏、实际帧后端和已显示页面关闭后的延迟释放。
+- 正向 Tab/方向键通过自有 HWND 的按键消息运行；反向路径使用与 Shift+Tab 共用
+  原生函数的 previous_control 命令。未声称本轮使用电脑插件实按过 Shift/Ctrl 组合键。
+- GPU 检查为 native_gpu_d3d11，cpu_paints 为0；CPU 是原有共享缓冲区/原生上传路径。
+  DOM 状态通过已授权的消息桥回传，不启用 evaluate，也不放宽页面 CSP 的 unsafe-eval。
+- 原有 CPU/GPU 图像路径各16项、焦点/层级8项回归通过。失焦通知虽可能在禁用后到达，
+  禁用输入检查仍明确要求不向提供者发送鼠标/按键/文字事件。
+- 通用 GlassCanvas 的真实 CPU/GPU 路径各17项通过，额外确认原 CanvasEvent 回调和
+  物理像素 transform。换源、单宿主约束、App/卡片挂载转换、回调内换源及延迟 detached
+  由单元测试覆盖。卡片仍限制每卡一个画布，不宣称支持旧 Qt 宿主所有高级输入功能。
+- 空闲测试曾在启动0.6秒时统计到3次 UI 绘制而失败；已改为最多等待8秒，直到 UI 绘制
+  计数和窗口几何/焦点连续350毫秒稳定，再测量300毫秒内绘制量。持续重绘会在等待阶段
+  超时，断言上限仍为2；CPU/GPU 复测均记录0次。这是夹具稳定条件修正，没有禁用动画。
+- 真实 Windows Terminal 运行双网页卡片示例20秒并正常关闭，两个页面均使用 GPU
+  绘制，工作区正常解除消费者；没有把只创建隐藏窗口当作呈现成功。
+- 真实 Windows Terminal 运行 mixed 示例20秒：原生控件、CPU 波形和两个 GPU 网页混排，
+  图像消费者均有呈现，退出后工作区及捕获正常关闭。
+
+验证时后台启动器曾被 Windows 拒绝前台请求；从普通可见终端入口启动后完成。
+这是测试启动条件的差异，没有添加前台权限绕过或全局输入钩子。本轮未调用电脑插件。
+
+```powershell
+python examples/verify_glass_webview.py --render-mode cpu --report .build/glass-browser-cpu.json
+python examples/verify_glass_webview.py --render-mode gpu --report .build/glass-browser-gpu.json
+python -m examples.glass_workspace.webview --smoke-seconds 20 --report .build/glass-browser-terminal.json
+```
+
 ## 焦点联动修复回归（2026-10-19）
 
 见 [focus-results.json](focus-results.json)。旧实现的选中索引轮转会改变所有叠牌槽位，

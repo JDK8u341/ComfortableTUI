@@ -22,7 +22,8 @@ python -m examples.glass_workspace --groups --material liquid
 ribbon 是显式选择的整体轮播转场。
 
 - F6 从终端进入卡片；Escape 返回终端，Ctrl+Q 退出。
-- 卡片中 Tab/Shift+Tab 换控件，Ctrl+Tab 换卡；点击外观卡上的选项循环切换。
+- Tab/Shift+Tab 遍历标题及控件，越界换卡；Ctrl+Tab/Shift+Ctrl+Tab 直接换卡并转移
+  键盘焦点。标题上的方向键换卡；编辑控件保留自己的按键。点击外观卡上的选项循环切换。
 - 信号幅度滑块控制提供者，CPU 信号画布支持点击放置标记。
 - 暂停开关暂停专注计时，保存按钮把笔记放入终端日志。
 - 聚焦背景仅在终端/卡片焦点组活动时出现；点背景空白处解除。
@@ -51,6 +52,7 @@ python examples/verify_glass_windows.py --report .build/glass-cpu.json
 python examples/verify_glass_windows.py --gpu-provider .build/glass-native/Release/ctui_glass_signal.exe --report .build/glass-gpu.json
 python examples/verify_glass_optics.py --report .build/glass-optics.json --hold 30
 python examples/verify_glass_focus.py --report .build/glass-focus.json
+python examples/verify_glass_webview.py --render-mode gpu --report .build/glass-browser.json
 ```
 
 需要桌面交互。`--preview` 另建一个明确标注的 Qt **视觉测试宿主**，用于电脑插件检查
@@ -60,3 +62,31 @@ python examples/verify_glass_focus.py --report .build/glass-focus.json
 仅电脑插件需要分别选中卡片时加 `--inspectable-windows`；该检查模式会把卡片拆成
 独立任务栏窗口，不用于验收正式模式的任务栏联动。
 本目录中的 `__main__.py` 是 `python -m examples.glass_workspace` 入口。
+
+## 内嵌网页
+
+准备好已有 CEF 浏览器运行时后，可运行独立的双网页卡片示例：
+
+```powershell
+python -m examples.glass_workspace.webview
+python -m examples.glass_workspace.webview --render-mode cpu
+python -m examples.glass_workspace.webview --preview
+```
+
+可通过 `--browser PATH` 指定运行时，否则沿用 BrowserService 的发现规则。每张卡拥有
+独立 BrowserPage；在 Notes 中输入、点击 Share note，Inbox 通过受限消息桥显示内容，
+其输入框不会同步。Enter/点击进入网页，Escape 离开；Tab 始终用于卡片导航。
+原生控件、液态玻璃材质并不使用 WebView 实现。
+API、缩放、生命周期和输入边界见[卡片 WebView 文档](../../docs/glass-webview.md)。
+
+## 普通画布与网页混排
+
+```powershell
+python -m examples.glass_workspace.mixed
+python -m examples.glass_workspace.mixed --render-mode cpu
+```
+
+在双网页示例基础上增加一个普通 OverlayCanvas 图像卡，点击波形可暂停/恢复；
+这不是网页。也可通过 `--gpu-source CHANNEL_NAME` 接入正在运行的标准 GPU 提供者。
+`GlassCanvas` 接受现有 OverlayCanvas（包括 WebView）或直接接受 CPU/GPU 来源。
+接口和事件约定见[通用画布文档](../../docs/glass-canvas.md)。

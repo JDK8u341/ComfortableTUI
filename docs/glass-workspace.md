@@ -4,6 +4,9 @@
 `OverlayCanvas` 是不同的上层 UI：终端继续承载主要内容，卡片承担临时工具、笔记、
 状态、快捷动作和外部渲染画布。默认不遮住整个桌面，不启动 WebView 或 CEF。
 
+Card 可以通过 [GlassCanvas](glass-canvas.md) 承载现有 OverlayCanvas（包括 WebView）、
+CPU 或 GPU 来源；浏览器不是卡片的实现依赖。混合示例为 `python -m examples.glass_workspace.mixed`。
+
 本功能位于 `codex/liquid-glass-cards`，尚未发布。支持本机 Windows 桌面，当前实测为
 Windows 11。光学材质使用 D3D11 feature level 11 和 Desktop Duplication；Mica
 另需系统支持。采样不可用、排除自身窗口失败或显卡不匹配时回退实色。
@@ -19,7 +22,7 @@ Python 3.10+ 和 pybind11。以下命令在仓库根目录的 PowerShell 中运�
 python -m pip install -e ".[dev,overlay]"
 $env:COMFORTABLE_TUI_BUILD_GLASS = '1'
 python -m pip install --no-build-isolation -e .
-python -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 2"
+python -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 3"
 python -m examples.glass_workspace
 ```
 
@@ -149,7 +152,7 @@ background=None, draggable=True, on_event=None)`。
 宽度为逻辑像素，高度依据控件自动计算。`id` 用于稳定匹配，不用显示文案作为身份。
 
 `GlassControl(id, kind, label="", text="", value=0, enabled=True, series=(), options=(),
-source=None, fit="contain", on_event=None)`：
+source=None, fit="contain", on_event=None, canvas_height=96, capture_escape=False)`：
 
 | kind | 数据与交互 |
 | --- | --- |
@@ -162,6 +165,10 @@ source=None, fit="contain", on_event=None)`：
 | `progress` | `value` 0..1，固定绝对比例 |
 | `sparkline` | `series` 为 0..1 的样本，最多 256 个 |
 | `canvas` | `source` 为 FrameBuffer / GpuFrameSource，见下节 |
+
+`canvas_height` 是图像区逻辑高度16..1024，默认96；`capture_escape=True` 时允许画布
+通过 key_down 接收 Escape，自行处理退出层级。普通画布默认仍由 Escape 返回终端。
+可选 [GlassWebView](glass-webview.md) 是消费 BrowserPage 的上层控件，复用这种图像视图。
 
 更新模型后调用 `workspace.update()`；或者使用 `set_cards(cards)` 整体替换卡片。
 原生交互先更新自身状态，`poll()` 再更新 Python 模型并触发回调。场景带编辑确认序号，
@@ -220,7 +227,9 @@ CPU 缓冲区走现有 C++ 上传适配器；GPU 来源走现有共享纹理与�
 工作区会保留已提交来源直到原生确认替换/移除，退出按合成器、UI 表面、外部提供者
 顺序关闭。应用方仍应在工作区关闭后才关闭自身 FrameBuffer、GpuFrameSource 或提供者。
 
-`GlassEvent` 字段：`kind, card, control, text, value, position, sequence`。
+`GlassEvent` 字段：`kind, card, control, text, value, position, sequence`，另有
+`modifiers`（ctrl/shift/alt）、`scan_code`、`repeat`、`button`、`buttons`、`clicks`、`inside_source`。
+画布输入的 `source_name` 标识当时的来源，适配器据此丢弃已替换来源的排队输入。
 `position` 是 `(x, y)`；`sequence` 用于诊断，不需要业务手动确认。
 
 | kind | 有效字段 |
@@ -229,8 +238,10 @@ CPU 缓冲区走现有 C++ 上传适配器；GPU 来源走现有共享纹理与�
 | `change` | card/control、text（输入/选项）、value（数字控件） |
 | `submit` | card/control、text |
 | `mouse_down`, `mouse_move`, `mouse_up` | 画布 card/control、position 为源像素坐标 |
-| `wheel` | 画布 card/control、value 为滚轮步数 |
+| `wheel`, `wheel_horizontal` | 画布 card/control、value 为滚轮步数、position 为源坐标 |
 | `key_down`, `key_up` | 画布 card/control、text 为 Windows 虚拟键码的十进制字符串 |
+| `text` | 画布 card/control、text 为 Unicode 提交文字 |
+| `control_focus_in`, `control_focus_out`, `mouse_cancel` | 控件焦点/捕获生命周期通知 |
 | `transform` | 画布 card/control、value 为 DPI 比例、position 为显示逻辑宽高 |
 | `pointer_down`, `pointer_move`, `pointer_up` | card，position 为卡片逻辑坐标，text 为 header 或空字符串 |
 | `pointer_cancel` | card，捕获丢失通知；正在拖动时另发 drag_cancel |
@@ -248,8 +259,11 @@ OverlayCanvas 的完整 IME、触摸、拖放或文本编辑事件。不要假�
 
 ## 焦点、召回和生命周期
 
-卡片中 Tab/Shift+Tab 遍历可交互控件，Ctrl+Tab/Shift+Ctrl+Tab 换卡，非编辑控件上的
-左右键或空白处滚轮换卡。Escape 返回终端，非编辑控件上的 F6 也可返回。
+Tab/Shift+Tab 遍历卡片标题和可交互控件，越界进入相邻卡片；反向从标题进入上一卡的
+最后一个可交互控件。隐藏/禁用卡片跳过，纯状态卡可停靠标题。Ctrl+Tab/Shift+Ctrl+Tab
+直接换卡并转移真实键盘焦点。标题上的方向键循环换卡，非编辑控件的上/下遍历控件，
+左/右换卡；输入框保留编辑键，滑块保留左右调值。Escape 返回终端，F6 始终返回。
+GlassWebView 的 Enter/点击进入页面，Escape 先离开页面；具体见[嵌入说明](glass-webview.md)。
 Ctrl+Q 发出 `close_request`，绑定 App 时请求退出。卡片右上角关闭键隐藏整个工作区。
 提供 MSAA 的名称、角色、值、状态、边界和基础操作，仍需进一步屏幕阅读器兼容测试。
 
@@ -258,11 +272,12 @@ Ctrl+Q 发出 `close_request`，绑定 App 时请求退出。卡片右上角关�
 | `bind(app)` | 加入 App 事件源并延迟发现真实终端；只能绑定一次 |
 | `start(hwnd)` | 显式启动；不得与 bind 重复使用 |
 | `poll()` | 处理事件、提交最新场景；外部宿主必须轮询 |
+| `watch_events(callback)` | 注册非阻塞服务轮询源，返回幂等取消函数；浏览器适配器自动使用 |
 | `update()` | 验证当前模型，下一次 poll 提交 |
 | `set_cards(cards)` | 验证后替换场景，失败保留旧模型 |
 | `configure(layout=..., theme=..., backdrop=...)` | 修改配置，失败保留旧配置 |
 | `show()` / `hide()` | 召回/退回卡片；hide 不等于释放 |
-| `command(action, value="")` | next / previous / select（卡 id）/ focus_card / focus_terminal / dismiss / reflow |
+| `command(action, value="")` | next / previous（换卡）/ next_control / previous_control（控件焦点环）/ select（卡 id）/ focus_card / focus_terminal / dismiss / reflow |
 | `metrics()` | 有界原生诊断快照 |
 | `close()` | 幂等关闭、等待原生线程退出；释放来源引用 |
 
@@ -300,6 +315,7 @@ tick_ms 是最近一次原生控制 tick 的 CPU 时间，不是屏幕延迟；�
 退出后 HWND 列表清空。另有 capture_active、capture_frames（提交到镜像的变化帧）、
 optical_frames、copied_pixels（GPU 区域复制的像素量）、unchanged_capture_frames、
 optics_error、backdrop_material，以及 windows 每卡 material/pinned/draggable。
+每卡另报告 visible、enabled、focused_control，便于验证可见性和真实控件焦点。
 请在退出前采样性能。
 
 限制为最多12卡、24组、8层容器，节点 id 全局唯一，不允许环/共享子树。

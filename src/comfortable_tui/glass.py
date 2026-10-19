@@ -1,4 +1,4 @@
-"""Optional native Windows cards around a terminal; no browser or per-frame Python UI."""
+"""Optional native Windows cards; UI rendering remains independent of browser services."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -68,6 +68,14 @@ class GlassEvent:
     value: float = 0.
     position: tuple[float, float] = (0., 0.)
     sequence: int = 0
+    modifiers: tuple[str, ...] = ()
+    scan_code: int = 0
+    repeat: bool = False
+    button: str = "left"
+    buttons: int = 0
+    clicks: int = 1
+    inside_source: bool = True
+    source_name: str = ""
 
 
 @dataclass
@@ -83,8 +91,17 @@ class GlassControl:
     options: tuple[str, ...] = ()
     source: FrameBuffer | GpuFrameSource | None = None
     fit: str = "contain"
-    on_event: Callable[[GlassEvent], None] | None = field(default=None, repr=False, compare=False)
+    on_event: Callable[[GlassEvent], bool | None] | None = field(default=None, repr=False, compare=False)
     _acknowledged: int = field(default=0, init=False, repr=False, compare=False)
+    canvas_height: float = 96.
+    capture_escape: bool = False
+    _managed = False  # Opt-in view lifecycle; ordinary controls have no per-tick hooks.
+
+    def handle_event(self, event):
+        return bool(self.on_event(event)) if self.on_event else False
+
+    def default_event(self, event, workspace):
+        pass
 
     def snapshot(self):
         _text(self.id, 128, "control id")
@@ -109,6 +126,10 @@ class GlassControl:
             raise ValueError("series must contain at most 256 normalized samples")
         if self.fit not in ("contain", "cover", "stretch", "pixel"):
             raise ValueError("invalid canvas fit")
+        if not isinstance(self.canvas_height, (int, float)) or not math.isfinite(self.canvas_height) or not 16 <= self.canvas_height <= 1024:
+            raise ValueError("canvas_height must be in 16..1024 logical pixels")
+        if type(self.capture_escape) is not bool:
+            raise ValueError("capture_escape must be a bool")
         source = None
         if self.kind == "canvas":
             if not isinstance(self.source, (FrameBuffer, GpuFrameSource)):
@@ -121,7 +142,8 @@ class GlassControl:
                           adapter_high=getattr(info, "adapter_high", 0))
         return dict(id=self.id, kind=self.kind, label=self.label, text=self.text, value=float(self.value),
                     enabled=bool(self.enabled), series=list(self.series), options=list(self.options),
-                    source=source, fit=self.fit, acknowledged=self._acknowledged)
+                    source=source, fit=self.fit, acknowledged=self._acknowledged,
+                    canvas_height=float(self.canvas_height), capture_escape=self.capture_escape)
 
 
 @dataclass
@@ -158,7 +180,7 @@ class GlassCard:
             raise ValueError("control ids must be unique within a card")
         if sum(v["kind"] == "canvas" for v in controls) > 1:
             raise ValueError("each card supports one canvas")
-        if 122 + sum(_HEIGHTS.get(v["kind"], 46) for v in controls) > 1200:
+        if 122 + sum(v["canvas_height"] + 32 if v["kind"] == "canvas" else _HEIGHTS.get(v["kind"], 46) for v in controls) > 1200:
             raise ValueError("card content exceeds 1200 logical pixels")
         if type(self.draggable) is not bool:
             raise ValueError("draggable must be a bool")
@@ -201,10 +223,30 @@ class GlassWorkspace:
         self._pane_error = ""
         self._native = self._tracker = self._app = self._unsubscribe = None
         self._pending = {}
+        self._pending_controls, self._bound_controls = {}, {}
+        self._active_controls, self._event_sources = [], []
         self._attached_refs = []
         self._dirty, self._closed = True, False
         self._metrics = {}
         self.snapshot()
+        self._desired_controls = self._managed_views()
+
+    def _managed_views(self):
+        return {id(v): (card.id, v) for card in self.cards for v in card.controls if v._managed}
+
+    def watch_events(self, callback):
+        """Poll a service once per workspace tick when no App owns its loop."""
+        if self._closed:
+            raise RuntimeError("workspace is closed")
+        self._event_sources.append(callback)
+        stopped = False
+        def stop():
+            nonlocal stopped
+            if not stopped:
+                stopped = True
+                if callback in self._event_sources:
+                    self._event_sources.remove(callback)
+        return stop
 
     def _tree(self):
         cards, groups, routes, seen = [], [], {}, set()
@@ -282,11 +324,15 @@ class GlassWorkspace:
         if os.name != "nt":
             raise RuntimeError("GlassWorkspace currently requires a local Windows desktop")
         from . import _native_glass
-        if getattr(_native_glass, "glass_protocol_version", None) != 2:
+        if getattr(_native_glass, "glass_protocol_version", None) != 3:
             raise RuntimeError("Rebuild with COMFORTABLE_TUI_BUILD_GLASS=1 for GlassWorkspace")
         self._native = _native_glass.GlassHost(hwnd, inspectable_windows)
         self._dirty = True
-        self.poll()
+        try:
+            self.poll()
+        except BaseException:
+            self.close()
+            raise
         return self
 
     def update(self):
@@ -294,6 +340,7 @@ class GlassWorkspace:
         if self._closed:
             raise RuntimeError("workspace is closed")
         self.snapshot()
+        self._desired_controls = self._managed_views()
         self._dirty = True
 
     def set_cards(self, cards):
@@ -338,7 +385,7 @@ class GlassWorkspace:
         self.update()
 
     def command(self, action, value=""):
-        if action not in ("next", "previous", "select", "focus_terminal", "focus_card", "dismiss", "reflow"):
+        if action not in ("next", "previous", "next_control", "previous_control", "select", "focus_terminal", "focus_card", "dismiss", "reflow"):
             raise ValueError("invalid glass command")
         if action == "select" and value not in {c.id for c in self.cards}:
             raise ValueError("unknown card")
@@ -349,6 +396,10 @@ class GlassWorkspace:
     def poll(self):
         if self._closed:
             return
+        for callback in tuple(self._event_sources):
+            callback()
+            if self._closed:
+                return
         if self._native is None:
             if self._app is None or self._app._terminal is None:
                 return
@@ -383,7 +434,21 @@ class GlassWorkspace:
         attached = [serial for serial in self._pending if serial <= applied]
         if attached:
             self._attached_refs = self._pending[max(attached)]
+            self._active_controls = self._pending_controls[max(attached)]
+            for control, info in self._active_controls:
+                control._attached(info)
         self._pending = {serial: refs for serial, refs in self._pending.items() if serial > applied}
+        self._pending_controls = {serial: refs for serial, refs in self._pending_controls.items() if serial > applied}
+        retained = {id(v) for v, _ in self._active_controls}
+        retained.update(id(v) for controls in self._pending_controls.values() for v, _ in controls)
+        retained.update(self._desired_controls)
+        for token, (_, control) in tuple(self._bound_controls.items()):
+            if token not in retained:
+                control._unmount(self)
+                self._bound_controls.pop(token)
+        windows = {w["id"]: w for w in self._metrics.get("windows", ())}
+        for card_id, control in tuple(self._bound_controls.values()):
+            control._poll(self, windows.get(card_id))
         for raw in self._native.events():
             event = GlassEvent(**raw)
             if event.kind == "selected":
@@ -400,14 +465,17 @@ class GlassWorkspace:
                         control.text = event.text
                     else:
                         control.value = event.value
+                if control._managed and event.kind in ("control_focus_out", "mouse_cancel"):
+                    # Focus/capture loss cannot be canceled by input preview.
+                    control.default_event(event, self)
             consumed = False
             ancestors = routes.get(event.card, ())
             for group in ancestors:
                 if group.on_preview_event and group.on_preview_event(event):
                     consumed = True
                     break
-            if not consumed and control and control.on_event:
-                consumed = bool(control.on_event(event))
+            if not consumed and control:
+                consumed = control.handle_event(event)
             if not consumed and card:
                 consumed = card.handle_event(event)
             if not consumed:
@@ -418,15 +486,29 @@ class GlassWorkspace:
             if not consumed and self.on_event:
                 consumed = bool(self.on_event(event))
             if not consumed and card and not self._closed:
+                if control:
+                    control.default_event(event, self)
                 card.default_event(event, self)
             if event.kind == "close_request" and self._app:
                 self._app.exit()
             if self._closed:
                 return
         if self._dirty and len(self._pending) < 8:
-            serial = self._native.configure(self.snapshot())
-            self._pending[serial] = [v.source for c in self.cards for v in c.controls if v.source]
+            for token, (card_id, control) in self._desired_controls.items():
+                if token not in self._bound_controls:
+                    control._mount(self)
+                self._bound_controls[token] = (card_id, control)
+            controls = [(control, control.source.info) for _, control in self._desired_controls.values()]
             self._dirty = False
+            try:
+                for control, info in controls:
+                    control._attaching(info)
+                serial = self._native.configure(self.snapshot())
+            except BaseException:
+                self._dirty = True
+                raise
+            self._pending[serial] = [v.source for c in self.cards for v in c.controls if v.source]
+            self._pending_controls[serial] = controls
 
     def metrics(self):
         result = self._native.metrics() if self._native and not self._closed else dict(self._metrics)
@@ -445,6 +527,12 @@ class GlassWorkspace:
             self._native = None
         if self._tracker:
             self._tracker.close()
+        for _, control in tuple(self._bound_controls.values()):
+            control._unmount(self)
+        self._bound_controls.clear()
+        self._active_controls.clear()
+        self._pending_controls.clear()
+        self._event_sources.clear()
         self._pending.clear()
         self._attached_refs.clear()
         self._metrics.update(closed=True, windows=[], active=False, backdrop_visible=False, capture_active=False)

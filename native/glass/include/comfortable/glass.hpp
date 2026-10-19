@@ -11,6 +11,8 @@ struct GlassControl {
     std::string id, kind, label, text, fit{"contain"};
     double value{};
     bool enabled{true};
+    float canvas_height{96};
+    bool capture_escape{};
     std::uint64_t acknowledged{}, edit_serial{};
     std::vector<double> series;
     std::vector<std::string> options;
@@ -42,6 +44,13 @@ struct GlassEvent {
     std::string kind, card, control, text;
     double value{}, x{}, y{};
     std::uint64_t sequence{};
+    std::vector<std::string> modifiers;
+    std::int32_t scan_code{};
+    bool repeat{};
+    std::string button{"left"};
+    int buttons{},clicks{1};
+    bool inside_source{true};
+    std::string source_name;
 };
 struct GlassMetrics {
     std::uint64_t applied{}, frames{}, presents{}, canvas_frames{}, dropped_events{};
@@ -53,6 +62,8 @@ struct GlassMetrics {
     std::vector<PixelBox> rects;
     std::vector<std::string> materials;
     std::vector<bool> pinned, draggable;
+    std::vector<bool> visible,enabled;
+    std::vector<std::string> focused_control;
     std::uint64_t capture_frames{}, optical_frames{}, copied_pixels{};
     std::uint64_t unchanged_capture_frames{};
     bool capture_active{};

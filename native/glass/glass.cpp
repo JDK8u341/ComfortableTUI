@@ -45,10 +45,18 @@ float row_height(const std::string &kind) {
     if (kind == "text") return 40;
     return 46;
 }
+float row_height(const GlassControl &c) {return c.kind=="canvas"?c.canvas_height+32:row_height(c.kind);}
+std::vector<std::string> modifiers() {
+    std::vector<std::string> result;
+    if(GetKeyState(VK_CONTROL)&0x8000)result.push_back("ctrl");
+    if(GetKeyState(VK_SHIFT)&0x8000)result.push_back("shift");
+    if(GetKeyState(VK_MENU)&0x8000)result.push_back("alt");
+    return result;
+}
 #include "accessibility.hpp"
 float card_height(const GlassCard &c) {
     float h = 102;
-    for (const auto &v : c.controls) h += row_height(v.kind);
+    for (const auto &v : c.controls) h += row_height(v);
     return h + 20;
 }
 std::string source_signature(const GlassCard &card) {
@@ -56,8 +64,8 @@ std::string source_signature(const GlassCard &card) {
     for(const auto &c:card.controls) {
         if(c.kind=="canvas") signature=c.canvas.source.name+":"+std::to_string(c.canvas.source.width)+":"+
             std::to_string(c.canvas.source.height)+":"+std::to_string(c.canvas.stride)+":"+c.canvas.pixel_format+
-            ":"+c.fit+":"+std::to_string(row);
-        row+=row_height(c.kind);
+            ":"+c.fit+":"+std::to_string(row)+":"+std::to_string(c.canvas_height);
+        row+=row_height(c);
     }
     return signature;
 }
@@ -402,11 +410,11 @@ struct GlassHost::Impl {
             for (const auto &c:spec.controls) {
                 if (c.kind=="canvas") {
                     auto v=c.canvas;v.id=2;v.fit=c.fit;
-                    v.full=v.clip={24*host->dpi,(row+22)*host->dpi,(width-48)*host->dpi,96*host->dpi};
+                    v.full=v.clip={24*host->dpi,(row+22)*host->dpi,(width-48)*host->dpi,c.canvas_height*host->dpi};
                     views.push_back(v);
-                    host->emit({"transform",spec.id,c.id,"",host->dpi,width-48,96});
+                    host->emit({"transform",spec.id,c.id,"",host->dpi,width-48,c.canvas_height});
                 }
-                row+=row_height(c.kind);
+                row+=row_height(c);
             }
             compositor->configure(views,ink.source.width,ink.source.height);
             canvas_signature=source_signature(spec)+(optical?":optical":"");
@@ -444,31 +452,61 @@ struct GlassHost::Impl {
             if (px<20||px>width-20) return -1;
             float row=102;
             for (std::size_t i=0;i<spec.controls.size();i++) {
-                if(py>=row&&py<row+row_height(spec.controls[i].kind)) return static_cast<int>(i);
-                row+=row_height(spec.controls[i].kind);
+                if(py>=row&&py<row+row_height(spec.controls[i])) return static_cast<int>(i);
+                row+=row_height(spec.controls[i]);
             }
             return -1;
         }
         float row_top(int index) {
             float row=102;
-            for(int i=0;i<index;i++) row+=row_height(spec.controls[i].kind);
+            for(int i=0;i<index;i++) row+=row_height(spec.controls[i]);
             return row;
         }
-        void canvas_event(const std::string &kind,int at,float px,float py) {
+        void canvas_event(const std::string &kind,int at,float px,float py,WPARAM flags=0,const std::string &button="left",int clicks=1,double value=0) {
             auto &c=spec.controls[at];
-            double w=width-48,h=96,sw=c.canvas.source.width,sh=c.canvas.source.height;
+            double w=width-48,h=c.canvas_height,sw=c.canvas.source.width,sh=c.canvas.source.height;
             double sx=w/sw,sy=h/sh,ox=0,oy=0;
             if(c.fit!="stretch") {
                 double scale=c.fit=="pixel"?1/host->dpi:c.fit=="cover"?std::max(sx,sy):std::min(sx,sy);
                 sx=sy=scale;ox=(w-sw*scale)/2;oy=(h-sh*scale)/2;
             }
-            host->emit({kind,spec.id,c.id,"",0,(px-24-ox)/sx,(py-row_top(at)-22-oy)/sy});
+            GlassEvent event{kind,spec.id,c.id,"",value,(px-24-ox)/sx,(py-row_top(at)-22-oy)/sy};
+            event.source_name=c.canvas.source.name;
+            event.modifiers=modifiers();event.button=button;event.clicks=clicks;
+            event.buttons=((flags&MK_LBUTTON)?1:0)|((flags&MK_RBUTTON)?2:0)|((flags&MK_MBUTTON)?4:0);
+            event.inside_source=px>=24&&px<width-24&&py>=row_top(at)+22&&py<row_top(at)+22+h&&event.x>=0&&event.x<sw&&event.y>=0&&event.y<sh;
+            host->emit(std::move(event));
+        }
+        bool interactive(int at)const {
+            if(at<0||at>=static_cast<int>(spec.controls.size()))return false;
+            const auto &c=spec.controls[at];return c.enabled&&(c.kind=="button"||c.kind=="toggle"||c.kind=="slider"||c.kind=="input"||c.kind=="choice"||c.kind=="canvas");
+        }
+        void focus_event(const std::string &kind) {
+            if(focused>=0&&focused<static_cast<int>(spec.controls.size()))host->emit({kind,spec.id,spec.controls[focused].id});
+        }
+        void focus_control(int at) {
+            if(at==focused)return;
+            if(GetFocus()==hwnd)focus_event("control_focus_out");
+            focused=at;surrogate=0;input_selected=false;dirty=true;
+            if(GetFocus()==hwnd)focus_event("control_focus_in");
+            NotifyWinEvent(EVENT_OBJECT_FOCUS,hwnd,OBJID_CLIENT,at+1);
+        }
+        void tab(int direction) {
+            int n=static_cast<int>(spec.controls.size());
+            for(int at=focused+direction;at>=0&&at<n;at+=direction)if(interactive(at)){focus_control(at);return;}
+            if(direction<0&&focused>=0){focus_control(-1);return;}
+            host->cycle(direction,direction<0?-2:-1);
+        }
+        void key_event(const std::string &kind,WPARAM key,LPARAM flags) {
+            GlassEvent event{kind,spec.id,spec.controls[focused].id,std::to_string(key)};
+            event.source_name=spec.controls[focused].canvas.source.name;
+            event.modifiers=modifiers();event.scan_code=static_cast<std::int32_t>(flags);event.repeat=kind=="key_down"&&(flags&(1LL<<30))!=0;
+            host->emit(std::move(event));
         }
         void activate(int at,float px=0,float py=0) {
             if(at<0||at>=static_cast<int>(spec.controls.size())) return;
             auto &c=spec.controls[at];if(!c.enabled)return;
-            focused=at;dirty=true;
-            NotifyWinEvent(EVENT_OBJECT_FOCUS,hwnd,OBJID_CLIENT,at+1);
+            focus_control(at);dirty=true;
             if(c.kind=="button")host->emit({"click",spec.id,c.id});
             else if(c.kind=="toggle") {c.value=c.value>=.5?0:1;change(c);}
             else if(c.kind=="slider") {
@@ -477,7 +515,7 @@ struct GlassHost::Impl {
             } else if(c.kind=="choice" && !c.options.empty()) {
                 c.value=std::fmod(c.value+1,static_cast<double>(c.options.size()));
                 change(c);
-            } else if(c.kind=="canvas") canvas_event("mouse_down",at,px,py);
+            } else if(c.kind=="canvas") canvas_event("mouse_down",at,px,py,MK_LBUTTON);
         }
         void change(GlassControl &c) {
             std::string text=c.kind=="choice"?c.options[static_cast<std::size_t>(c.value)]:c.text;
@@ -497,7 +535,7 @@ struct GlassHost::Impl {
         }
         LRESULT message(UINT msg,WPARAM w,LPARAM l) {
             float px=GET_X_LPARAM(l)/host->dpi,py=GET_Y_LPARAM(l)/host->dpi;
-            if(!group_enabled&&(msg==WM_LBUTTONDOWN||msg==WM_LBUTTONUP||msg==WM_MOUSEMOVE||msg==WM_MOUSEWHEEL||msg==WM_KEYDOWN||msg==WM_CHAR))return 0;
+            if(!group_enabled&&((msg>=WM_MOUSEFIRST&&msg<=WM_MOUSELAST)||msg==WM_KEYDOWN||msg==WM_KEYUP||msg==WM_CHAR))return 0;
             switch(msg) {
             case WM_GETOBJECT:
                 if(static_cast<LONG>(l)==OBJID_CLIENT){auto object=new GlassAccessibility<Card>(accessibility);auto result=LresultFromObject(IID_IAccessible,w,object);object->Release();return result;}
@@ -505,8 +543,8 @@ struct GlassHost::Impl {
             case WM_ERASEBKGND:return 1;
             case WM_PAINT:{PAINTSTRUCT p;BeginPaint(hwnd,&p);EndPaint(hwnd,&p);return 0;}
             case WM_SETFOCUS:
-                host->select(spec.id);host->emit({"focus",spec.id});dirty=true;return 0;
-            case WM_KILLFOCUS:dirty=true;return 0;
+                host->select(spec.id);host->emit({"focus",spec.id});focus_event("control_focus_in");dirty=true;return 0;
+            case WM_KILLFOCUS:focus_event("control_focus_out");dirty=true;return 0;
             case WM_MOUSEMOVE: {
                 if(hover_x==px&&hover_y==py)return 0;
                 hover_x=px;hover_y=py;hovered=hit(px,py);dirty=true;
@@ -514,52 +552,64 @@ struct GlassHost::Impl {
                 optical_dirty=true;
                 TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,hwnd,0};TrackMouseEvent(&track);
                 if(dragging&&pressed>=0&&spec.controls[pressed].kind=="slider")activate(pressed,px,py);
-                if(hovered>=0&&spec.controls[hovered].enabled&&spec.controls[hovered].kind=="canvas")canvas_event("mouse_move",hovered,px,py);
+                int target=dragging&&pressed>=0&&spec.controls[pressed].kind=="canvas"?pressed:hovered;
+                if(target>=0&&spec.controls[target].enabled&&spec.controls[target].kind=="canvas")canvas_event("mouse_move",target,px,py,w);
                 return 0;
             }
-            case WM_MOUSELEAVE:hovered=-1;hover_x=hover_y=0;dirty=true;return 0;
+            case WM_MOUSELEAVE:
+                if(hovered>=0&&spec.controls[hovered].enabled&&spec.controls[hovered].kind=="canvas")canvas_event("mouse_leave",hovered,hover_x,hover_y);
+                hovered=-1;hover_x=hover_y=0;dirty=true;return 0;
             case WM_LBUTTONDOWN:
-                SetFocus(hwnd);host->select(spec.id);pressed=hit(px,py);dragging=true;SetCapture(hwnd);
+            case WM_LBUTTONDBLCLK:
+                pressed=hit(px,py);focus_control(interactive(pressed)?pressed:-1);
+                SetFocus(hwnd);host->select(spec.id);dragging=true;SetCapture(hwnd);
                 if(py<38 && px>width-46){dragging=false;ReleaseCapture();host->dismiss();return 0;}
                 if(pressed<0&&py<96)pointer("pointer_down",px,py);
-                if(pressed>=0&&(spec.controls[pressed].kind=="slider"||spec.controls[pressed].kind=="canvas"))activate(pressed,px,py);
+                if(pressed>=0&&spec.controls[pressed].enabled&&spec.controls[pressed].kind=="canvas")canvas_event("mouse_down",pressed,px,py,w,"left",msg==WM_LBUTTONDBLCLK?2:1);
+                else if(pressed>=0&&spec.controls[pressed].kind=="slider")activate(pressed,px,py);
                 dirty=true;return 0;
             case WM_LBUTTONUP: {
                 // ReleaseCapture synchronously sends WM_CAPTURECHANGED, which
                 // clears pressed. Save the click before releasing capture.
                 if(pointer_sequence){pointer("pointer_up",px,py);stop_drag(false);}
                 int clicked=pressed;pressed=-1;dragging=false;ReleaseCapture();
-                if(clicked>=0 && spec.controls[clicked].kind=="canvas"&&spec.controls[clicked].enabled)canvas_event("mouse_up",clicked,px,py);
+                if(clicked>=0 && spec.controls[clicked].kind=="canvas"&&spec.controls[clicked].enabled)canvas_event("mouse_up",clicked,px,py,w);
                 else if(clicked==hit(px,py)&&clicked>=0&&spec.controls[clicked].kind!="slider")activate(clicked,px,py);
                 dirty=true;return 0;
             }
             case WM_CAPTURECHANGED:
                 if(pointer_sequence){host->emit({"pointer_cancel",spec.id});stop_drag(true);}
+                if(pressed>=0&&spec.controls[pressed].kind=="canvas")host->emit({"mouse_cancel",spec.id,spec.controls[pressed].id});
                 dragging=false;pressed=-1;return 0;
-            case WM_MOUSEWHEEL:
+            case WM_RBUTTONDOWN:case WM_MBUTTONDOWN:case WM_RBUTTONUP:case WM_MBUTTONUP: {
+                bool down=msg==WM_RBUTTONDOWN||msg==WM_MBUTTONDOWN;
+                int at=!down&&pressed>=0?pressed:hit(px,py);if(at<0||!spec.controls[at].enabled||spec.controls[at].kind!="canvas")return 0;
+                if(down){focus_control(at);SetFocus(hwnd);host->select(spec.id);pressed=at;dragging=true;SetCapture(hwnd);}
+                canvas_event(down?"mouse_down":"mouse_up",at,px,py,w,(msg==WM_RBUTTONDOWN||msg==WM_RBUTTONUP)?"right":"middle");
+                if(!down&&!(w&(MK_LBUTTON|MK_RBUTTON|MK_MBUTTON))){pressed=-1;dragging=false;ReleaseCapture();}return 0;
+            }
+            case WM_MOUSEWHEEL:case WM_MOUSEHWHEEL:
                 if(hovered>=0&&spec.controls[hovered].kind=="canvas") {
-                    if(spec.controls[hovered].enabled)host->emit({"wheel",spec.id,spec.controls[hovered].id,"",GET_WHEEL_DELTA_WPARAM(w)/120.});
+                    if(spec.controls[hovered].enabled){POINT point{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&point);
+                        canvas_event(msg==WM_MOUSEHWHEEL?"wheel_horizontal":"wheel",hovered,point.x/host->dpi,point.y/host->dpi,w,"left",1,GET_WHEEL_DELTA_WPARAM(w)/120.);}
                 }
                 else host->cycle(GET_WHEEL_DELTA_WPARAM(w)>0?-1:1);
                 return 0;
             case WM_KEYDOWN: {
-                if(w==VK_ESCAPE){if(moving){stop_drag(true);dragging=false;ReleaseCapture();return 0;}SetForegroundWindow(host->owner);host->emit({"escape",spec.id});return 0;}
+                if(w==VK_ESCAPE){if(moving){stop_drag(true);dragging=false;ReleaseCapture();return 0;}
+                    if(interactive(focused)&&spec.controls[focused].kind=="canvas"&&spec.controls[focused].capture_escape){key_event("key_down",w,l);return 0;}
+                    SetForegroundWindow(host->owner);host->emit({"escape",spec.id});return 0;}
                 if(w=='Q'&&(GetKeyState(VK_CONTROL)&0x8000)){host->emit({"close_request",spec.id});return 0;}
+                if(w==VK_F6){SetForegroundWindow(host->owner);return 0;}
                 if(w==VK_TAB) {
                     int direction=(GetKeyState(VK_SHIFT)&0x8000)?-1:1;
                     if(GetKeyState(VK_CONTROL)&0x8000){host->cycle(direction);return 0;}
-                    int n=static_cast<int>(spec.controls.size());
-                    if(focused<0)focused=direction>0?-1:0;
-                    for(int i=0;i<n;i++) {
-                        focused=(focused+direction+n)%n;auto &c=spec.controls[focused];
-                        if(c.enabled&&(c.kind=="button"||c.kind=="toggle"||c.kind=="slider"||c.kind=="input"||c.kind=="choice"||c.kind=="canvas"))break;
-                    }
-                    dirty=true;return 0;
+                    tab(direction);return 0;
                 }
                 if(focused>=0&&focused<static_cast<int>(spec.controls.size())) {
                     auto &c=spec.controls[focused];
                     if(!c.enabled)return 0;
-                    if(c.kind=="canvas") {host->emit({"key_down",spec.id,c.id,std::to_string(w)});return 0;}
+                    if(c.kind=="canvas") {key_event("key_down",w,l);return 0;}
                     if(c.kind=="slider"&&(w==VK_LEFT||w==VK_RIGHT)) {
                         c.value=std::clamp(c.value+(w==VK_RIGHT?.02:-.02),0.,1.);dirty=true;
                         change(c);return 0;
@@ -580,13 +630,19 @@ struct GlassHost::Impl {
                     if(w==VK_RETURN||w==VK_SPACE){activate(focused,28+static_cast<float>(c.value)*(width-56),0);return 0;}
                 }
                 if(w==VK_LEFT||w==VK_RIGHT){host->cycle(w==VK_LEFT?-1:1);return 0;}
-                if(w==VK_F6){SetForegroundWindow(host->owner);return 0;}
+                if(w==VK_UP||w==VK_DOWN){if(focused<0)host->cycle(w==VK_UP?-1:1);else tab(w==VK_UP?-1:1);return 0;}
                 return 0;
             }
             case WM_KEYUP:
-                if(focused>=0&&spec.controls[focused].enabled&&spec.controls[focused].kind=="canvas")host->emit({"key_up",spec.id,spec.controls[focused].id,std::to_string(w)});
+                if(interactive(focused)&&spec.controls[focused].kind=="canvas"&&w!=VK_TAB&&w!=VK_F6)key_event("key_up",w,l);
                 return 0;
             case WM_CHAR:
+                if(interactive(focused)&&spec.controls[focused].kind=="canvas") {
+                    if(w>=0xd800&&w<=0xdbff){surrogate=static_cast<wchar_t>(w);return 0;}
+                    if(w>=32){std::wstring value;if(surrogate&&w>=0xdc00&&w<=0xdfff)value.push_back(surrogate);value.push_back(static_cast<wchar_t>(w));
+                        GlassEvent event{"text",spec.id,spec.controls[focused].id,utf8(value)};event.source_name=spec.controls[focused].canvas.source.name;host->emit(std::move(event));}
+                    surrogate=0;return 0;
+                }
                 if(focused>=0&&spec.controls[focused].kind=="input"&&spec.controls[focused].enabled) {
                     auto &c=spec.controls[focused];auto text=utf16(c.text);
                     if(w>=0xd800&&w<=0xdbff){surrogate=static_cast<wchar_t>(w);return 0;}
@@ -634,7 +690,7 @@ struct GlassHost::Impl {
             p.text(spec.subtitle,24,74,width-48,11,0xa0b1c8);
             float row=102;
             for(std::size_t i=0;i<spec.controls.size();i++) {
-                const auto &c=spec.controls[i];float h=row_height(c.kind);
+                const auto &c=spec.controls[i];float h=row_height(c);
                 bool over=hovered==static_cast<int>(i), focus=focused==static_cast<int>(i)&&GetFocus()==hwnd;
                 float a=c.enabled&&group_enabled?1.f:.42f;
                 auto box=D2D1::RectF(20,row+2,width-20,row+h-6);
@@ -675,7 +731,7 @@ struct GlassHost::Impl {
                     }
                 } else if(c.kind=="canvas") {
                     p.text(c.label,26,row+2,width-50,11,0xb0c3da,a);
-                    p.fill(D2D1::RectF(24,row+22,width-24,row+118),0x060c18,.7f,8);
+                    p.fill(D2D1::RectF(24,row+22,width-24,row+22+c.canvas_height),0x060c18,.7f,8);
                 }
                 row+=h;
             }
@@ -692,13 +748,19 @@ struct GlassHost::Impl {
         for(auto &c:cards)if(c->spec.id==previous||c->spec.id==id)c->dirty=true;
         emit({"selected",id});
     }
-    void cycle(int delta) {
+    void focus_card(Card &card,int entry=-1) {
+        int at=-1;
+        if(entry==-2)for(int i=static_cast<int>(card.spec.controls.size())-1;i>=0;i--)if(card.interactive(i)){at=i;break;}
+        card.focus_control(at);select(card.spec.id);
+        SetForegroundWindow(card.hwnd);SetFocus(card.hwnd);
+    }
+    void cycle(int delta,int entry=-1) {
         if(cards.empty())return;
         auto found=std::find_if(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==scene.selected;});
         int at=found==cards.end()?0:static_cast<int>(found-cards.begin());
         for(std::size_t n=1;n<=cards.size();n++) {
             auto index=(at+delta*static_cast<int>(n)+static_cast<int>(cards.size()))%static_cast<int>(cards.size());
-            if(cards[index]->group_visible&&cards[index]->group_enabled){select(cards[index]->spec.id);return;}
+            if(cards[index]->shown&&cards[index]->group_visible&&cards[index]->group_enabled){focus_card(*cards[index],entry);return;}
         }
     }
     void dismiss() {
@@ -768,6 +830,7 @@ struct GlassHost::Impl {
                     if(spec.controls[i].id==hover_id)card.hovered=static_cast<int>(i);
                     if(spec.controls[i].id==pressed_id)card.pressed=static_cast<int>(i);
                 }
+                if(card.focused>=0&&!card.interactive(card.focused))card.focus_control(-1);
                 card.dirty=true;card.apply_material();
                 if(reflow)card.pinned=false;
                 if(!card.spec.draggable&&card.dragging){card.stop_drag(true);card.dragging=false;if(GetCapture()==card.hwnd)ReleaseCapture();}
@@ -949,7 +1012,7 @@ struct GlassHost::Impl {
             current=this;thread_id=GetCurrentThreadId();
             SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
             CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
-            WNDCLASSW wc{};wc.hInstance=GetModuleHandleW(nullptr);wc.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));
+            WNDCLASSW wc{};wc.style=CS_DBLCLKS;wc.hInstance=GetModuleHandleW(nullptr);wc.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));
             wc.lpfnWndProc=Card::proc;wc.lpszClassName=L"ComfortableGlassCard";RegisterClassW(&wc);
             wc.lpfnWndProc=background_proc;wc.lpszClassName=L"ComfortableGlassBackdrop";RegisterClassW(&wc);
             check(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,IID_PPV_ARGS(&factory)),"Glass D2D factory");
@@ -983,9 +1046,16 @@ struct GlassHost::Impl {
                 if(serial)apply(std::move(next),serial);
                 for(const auto &a:actions) {
                     if(a.kind=="next")cycle(1);else if(a.kind=="previous")cycle(-1);
+                    else if(a.kind=="next_control"||a.kind=="previous_control") {
+                        for(auto &c:cards)if(c->spec.id==scene.selected&&c->shown&&c->group_enabled) {
+                            if(GetFocus()!=c->hwnd){SetForegroundWindow(c->hwnd);SetFocus(c->hwnd);}
+                            c->tab(a.kind=="next_control"?1:-1);
+                            break;
+                        }
+                    }
                     else if(a.kind=="select")select(a.id);
                     else if(a.kind=="focus_terminal")SetForegroundWindow(owner);
-                    else if(a.kind=="focus_card"){for(auto &c:cards)if(c->spec.id==scene.selected&&c->shown&&c->group_enabled)SetForegroundWindow(c->hwnd);}
+                    else if(a.kind=="focus_card"){for(auto &c:cards)if(c->spec.id==scene.selected&&c->shown&&c->group_enabled)focus_card(*c);}
                     else if(a.kind=="dismiss")dismiss();
                     else if(a.kind=="reflow"){for(auto &c:cards)c->pinned=false;}
                     else if(a.kind=="begin_drag"){for(auto &c:cards)if(c->spec.id==a.id)c->begin_drag(a.token);}
@@ -1031,9 +1101,11 @@ struct GlassHost::Impl {
                         if(!cards.empty()){effective_material=cards.front()->actual_material;for(const auto &c:cards)if(c->actual_material!=effective_material){effective_material="mixed";break;}}
                         report.system_animation=system_animation;report.material=effective_material;
                         report.backdrop_visible=background&&IsWindowVisible(background);
-                        report.windows.clear();report.ids.clear();report.rects.clear();report.materials.clear();report.pinned.clear();report.draggable.clear();
+                        report.windows.clear();report.ids.clear();report.rects.clear();report.materials.clear();report.pinned.clear();report.draggable.clear();report.visible.clear();report.enabled.clear();report.focused_control.clear();
                         for(const auto &c:cards){RECT r{};GetWindowRect(c->hwnd,&r);report.windows.push_back(reinterpret_cast<std::uintptr_t>(c->hwnd));report.ids.push_back(c->spec.id);report.rects.push_back({static_cast<float>(r.left),static_cast<float>(r.top),static_cast<float>(r.right-r.left),static_cast<float>(r.bottom-r.top)});
-                            report.materials.push_back(c->actual_material);report.pinned.push_back(c->pinned);report.draggable.push_back(c->spec.draggable);}
+                            report.materials.push_back(c->actual_material);report.pinned.push_back(c->pinned);report.draggable.push_back(c->spec.draggable);
+                            report.visible.push_back(c->shown);report.enabled.push_back(c->group_enabled);
+                            report.focused_control.push_back(GetFocus()==c->hwnd&&c->focused>=0?c->spec.controls[c->focused].id:"");}
                         if(optics){auto s=optics->stats();report.capture_active=s.active;report.capture_frames=s.captures;report.optical_frames=s.rendered;report.copied_pixels=s.copied_pixels;
                             report.unchanged_capture_frames=s.unchanged;
                             report.optics_error=sampling_allowed?s.error:"DDA-only self-exclusion unavailable; optical sampling disabled";}
@@ -1054,7 +1126,7 @@ struct GlassHost::Impl {
         if(hook)UnhookWinEvent(hook);
         cards.clear();background_compositor.reset();background_optical.reset();background_ui.reset();optics.reset();if(background)DestroyWindow(background);
         {std::lock_guard<std::mutex> lock(mutex);stopping=true;report.closed=true;report.active=false;report.backdrop_visible=false;
-            report.windows.clear();report.rects.clear();report.ids.clear();report.materials.clear();report.pinned.clear();report.draggable.clear();report.capture_active=false;}
+            report.windows.clear();report.rects.clear();report.ids.clear();report.materials.clear();report.pinned.clear();report.draggable.clear();report.visible.clear();report.enabled.clear();report.focused_control.clear();report.capture_active=false;}
         current=nullptr;CoUninitialize();SetEvent(finished.value);
     }
 };
@@ -1078,7 +1150,7 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
             !std::isfinite(b.corner_radius)||b.corner_radius<0||b.corner_radius>64))throw std::invalid_argument("invalid card background");
         for(const auto &c:card.controls) {
             if(!kinds.count(c.kind)||c.id.empty()||c.id.size()>128||!controls.insert(c.id).second||c.text.size()>8192||c.label.size()>4096||
-               !std::isfinite(c.value)||c.series.size()>256||c.options.size()>16)throw std::invalid_argument("invalid glass control");
+               !std::isfinite(c.value)||c.series.size()>256||c.options.size()>16||!std::isfinite(c.canvas_height)||c.canvas_height<16||c.canvas_height>1024)throw std::invalid_argument("invalid glass control");
             if((c.kind=="slider"||c.kind=="progress"||c.kind=="toggle")&&(c.value<0||c.value>1))throw std::invalid_argument("control value outside 0..1");
             if(c.kind=="choice"&&(c.options.empty()||c.value<0||c.value>=c.options.size()||std::floor(c.value)!=c.value))throw std::invalid_argument("invalid glass choice");
             if(c.kind=="input"&&utf16(c.text).size()>2048)throw std::invalid_argument("input text too long");
@@ -1118,7 +1190,7 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
     impl_->requested=std::move(scene);auto serial=++impl_->submitted;SetEvent(impl_->changed.value);return serial;
 }
 void GlassHost::command(const std::string &action,const std::string &value) {
-    static const std::set<std::string> allowed{"next","previous","select","focus_terminal","focus_card","dismiss","reflow"};
+    static const std::set<std::string> allowed{"next","previous","next_control","previous_control","select","focus_terminal","focus_card","dismiss","reflow"};
     if(!allowed.count(action)||value.size()>128)throw std::invalid_argument("invalid glass command");
     std::lock_guard<std::mutex> lock(impl_->mutex);
     if(impl_->stopping)throw std::runtime_error("GlassHost is closed");

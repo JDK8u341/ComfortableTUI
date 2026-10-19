@@ -2,6 +2,9 @@
 
 ## Unreleased — Glass Workspace development
 
+- Transfer real keyboard focus across card headers/controls with Tab/Shift+Tab, card cycling and header arrows; retain editing keys and skip hidden/disabled nodes.
+- Host existing OverlayCanvas subclasses, CPU frames and GPU sources through GlassCanvas; make GlassWebView a thin composition of the existing WebView. Reuse canvas events/lifecycle instead of a separate browser-only card path, and add a mixed native/image/web example.
+- Add optional GlassWebView for caller-owned BrowserPages, CPU/shared-GPU frames, logical viewport resizing, scoped input/messages, aggregate visibility and attachment-acknowledged source retirement. Keep browser permissions and the frame transport unchanged; glass control protocol is now 3.
 - Keep orbit/compact-deck slots stable on focus changes, preserve unrelated siblings' stacking order, and fix reversed native window insertion. Explicit focus transitions move only the old/new focus containers; explicit ribbon retains its carousel animation.
 - Add an optional native Windows peripheral-card UI using existing FrameProvider/Compositor infrastructure, without WebView or per-frame Python drawing.
 - Add interruptible orbit/deck/ribbon/focus layouts, independent per-card optical/blur/Mica/solid backgrounds, focus-group backgrounds, nine native control kinds and an MSAA bridge.
