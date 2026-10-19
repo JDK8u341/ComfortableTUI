@@ -13,6 +13,9 @@ Windows 11。光学材质使用 D3D11 feature level 11 和 Desktop Duplication�
 设计来源、技术选型和实施计划见[光学与事件调研](glass-optics-research.md)，实际检查见
 [验证记录](validation/glass/README.md)。
 
+每控件独立效果器、自定义控件/Card 类型及用户动画钩子的后续设计见
+[扩展调研与方案](glass-extensibility-plan.md)；这些新接口尚未实现。
+
 ## 安装和启动
 
 使用与 Python 架构匹配的 Visual Studio 2022 C++ Build Tools、Windows SDK、
