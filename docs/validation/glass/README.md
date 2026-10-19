@@ -1,5 +1,21 @@
 # 玻璃工作区验证
 
+## 单卡与工作区关闭（2026-10-19）
+
+见 [close-results.json](close-results.json) 和[测试指南](../../glass-close-testing.md)。
+关闭按钮此前直接调用工作区 dismiss，语义与单卡关闭不符；本次升级 Glass 控制协议4，
+×/WM_CLOSE 发出可拦截的 card_close_request，由 Card 的默认行为只移除自身。
+
+- CPU/GPU 图像各12项；CPU图像+CPU网页、GPU图像+GPU网页各14项实际窗口检查通过。
+- 检查按钮移出取消、Card/Group 拦截、兄弟 HWND 全程可见、单卡解除消费者、WM_CLOSE、
+  整体隐藏/恢复、末卡关闭停止背景/捕获、动态重建、整体关闭及幂等关闭。
+- 页面单独关闭、工作区关闭时的活跃页面均验证消费者解除及调用方后续关闭页面；GPU
+  网页为 native_gpu_d3d11、cpu_paints=0，并要求已有发布帧；CPU网页要求发生实际 paint。
+- 全库和强制纯 Python：299 passed、1 skipped；Ruff、严格 MkDocs、原生构建及 CTest、
+  源码包和原生 wheel 构建通过。测试只向本夹具 HWND 发消息；没有调用电脑插件或宣称物理点击已验证。
+- 提供 `python examples/verify_glass_close.py --interactive` 手动模式，用单卡 × 与明确
+  标注 Close entire workspace 的原生按钮分别验证。测试宿主不会充当终端模拟器。
+
 ## 跨卡键盘、通用画布与内嵌浏览器（2026-10-19）
 
 见 [webview-results.json](webview-results.json) 和 [GlassWebView 指南](../../glass-webview.md)。

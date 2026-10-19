@@ -13,6 +13,7 @@ nav:
   - 终端周边玻璃工作区: glass-workspace.md
   - 玻璃卡片 WebView 与键盘: glass-webview.md
   - 卡片通用画布: glass-canvas.md
+  - 单卡与工作区关闭测试: glass-close-testing.md
   - 玻璃 UI 调研与计划: glass-research-plan.md
   - 通透材质与事件调研: glass-optics-research.md
   - 效果器、控件与动画扩展方案: glass-extensibility-plan.md

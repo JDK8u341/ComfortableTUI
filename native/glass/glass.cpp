@@ -278,7 +278,7 @@ struct GlassHost::Impl {
         return SUCCEEDED(DwmSetWindowAttribute(hwnd,38,&kind,sizeof(kind))) && style!="solid";
     }
     void update_background(bool visible) {
-        if (!visible || scene.backdrop=="none" || backdrop_dismissed) {
+        if (!visible || cards.empty() || scene.backdrop=="none" || backdrop_dismissed) {
             if (background) {ShowWindow(background,SW_HIDE);background_compositor->visible(false);}
             if(background_optical){background_compositor->configure({},1,1);background_optical.reset();}
             {std::lock_guard<std::mutex> lock(mutex);report.backdrop_material="none";}
@@ -328,7 +328,7 @@ struct GlassHost::Impl {
         Spring x,y;
         float width{},height{}, hover_x{},hover_y{}, reveal{};
         int hovered{-1}, focused{-1}, pressed{-1};
-        bool dirty{true}, dragging{}, shown{}, native_material{};
+        bool dirty{true}, dragging{}, shown{}, native_material{}, close_pressed{};
         bool moving{}, pinned{}, group_visible{true}, group_enabled{true}, before_pinned{};
         double offset_x{},offset_y{},before_offset_x{},before_offset_y{},drag_start_x{},drag_start_y{};
         POINT grab{},last_pointer{};
@@ -563,12 +563,17 @@ struct GlassHost::Impl {
             case WM_LBUTTONDBLCLK:
                 pressed=hit(px,py);focus_control(interactive(pressed)?pressed:-1);
                 SetFocus(hwnd);host->select(spec.id);dragging=true;SetCapture(hwnd);
-                if(py<38 && px>width-46){dragging=false;ReleaseCapture();host->dismiss();return 0;}
+                if(py>=0&&py<38&&px>width-46&&px<width){dragging=false;close_pressed=true;return 0;}
                 if(pressed<0&&py<96)pointer("pointer_down",px,py);
                 if(pressed>=0&&spec.controls[pressed].enabled&&spec.controls[pressed].kind=="canvas")canvas_event("mouse_down",pressed,px,py,w,"left",msg==WM_LBUTTONDBLCLK?2:1);
                 else if(pressed>=0&&spec.controls[pressed].kind=="slider")activate(pressed,px,py);
                 dirty=true;return 0;
             case WM_LBUTTONUP: {
+                if(close_pressed) {
+                    close_pressed=false;pressed=-1;dragging=false;ReleaseCapture();
+                    if(py>=0&&py<38&&px>width-46&&px<width)host->emit({"card_close_request",spec.id});
+                    return 0;
+                }
                 // ReleaseCapture synchronously sends WM_CAPTURECHANGED, which
                 // clears pressed. Save the click before releasing capture.
                 if(pointer_sequence){pointer("pointer_up",px,py);stop_drag(false);}
@@ -578,6 +583,7 @@ struct GlassHost::Impl {
                 dirty=true;return 0;
             }
             case WM_CAPTURECHANGED:
+                close_pressed=false;
                 if(pointer_sequence){host->emit({"pointer_cancel",spec.id});stop_drag(true);}
                 if(pressed>=0&&spec.controls[pressed].kind=="canvas")host->emit({"mouse_cancel",spec.id,spec.controls[pressed].id});
                 dragging=false;pressed=-1;return 0;
@@ -654,7 +660,7 @@ struct GlassHost::Impl {
                     c.text=utf8(text);dirty=true;change(c);
                 }
                 return 0;
-            case WM_CLOSE:host->dismiss();return 0;
+            case WM_CLOSE:host->emit({"card_close_request",spec.id});return 0;
             }
             return DefWindowProcW(hwnd,msg,w,l);
         }
@@ -1068,7 +1074,7 @@ struct GlassHost::Impl {
                     if(!active&&last_active)backdrop_dismissed=false;
                     bounds();
                     bool sample=visible&&sampling_allowed&&(std::any_of(cards.begin(),cards.end(),[](const auto &c){return c->optical&&c->group_visible;})||
-                        (active&&scene.backdrop=="frosted"&&!backdrop_dismissed));
+                        (!cards.empty()&&active&&scene.backdrop=="frosted"&&!backdrop_dismissed));
                     if(optics)optics->update(sample);
                     if(optics) {
                         auto state=optics->stats();bool optical_ready=state.active&&state.image_ready;
@@ -1077,7 +1083,7 @@ struct GlassHost::Impl {
                             if(actual!=card->actual_material){card->actual_material=actual;card->dirty=true;}
                         }
                     }
-                    std::string bg=visible&&active&&!backdrop_dismissed?scene.backdrop:"none";
+                    std::string bg=visible&&active&&!cards.empty()&&!backdrop_dismissed?scene.backdrop:"none";
                     bg+=std::to_string(work.left)+","+std::to_string(work.top)+","+std::to_string(work.right)+","+std::to_string(work.bottom)+(scene.reduced_transparency?"opaque":"");
                     if(optics&&optics->stats().image_ready)bg+="ready";
                     if(bg!=last_background){update_background(visible&&active);last_background=bg;}

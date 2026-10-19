@@ -53,6 +53,8 @@ python examples/verify_glass_windows.py --gpu-provider .build/glass-native/Relea
 python examples/verify_glass_optics.py --report .build/glass-optics.json --hold 30
 python examples/verify_glass_focus.py --report .build/glass-focus.json
 python examples/verify_glass_webview.py --render-mode gpu --report .build/glass-browser.json
+python examples/verify_glass_close.py --interactive
+python examples/verify_glass_close.py --with-browser --report .build/glass-close.json
 ```
 
 需要桌面交互。`--preview` 另建一个明确标注的 Qt **视觉测试宿主**，用于电脑插件检查
@@ -62,6 +64,10 @@ python examples/verify_glass_webview.py --render-mode gpu --report .build/glass-
 仅电脑插件需要分别选中卡片时加 `--inspectable-windows`；该检查模式会把卡片拆成
 独立任务栏窗口，不用于验收正式模式的任务栏联动。
 本目录中的 `__main__.py` 是 `python -m examples.glass_workspace` 入口。
+
+Glass 控制协议4起，×仅请求关闭当前卡，可由事件处理器拦截。整体隐藏使用 Hide cards/
+dismiss，整体退出使用 Quit/Ctrl+Q；独立测试中的 Close entire workspace 按钮验证
+workspace.close()。测试命令与资源寿命见[关闭测试](../../docs/glass-close-testing.md)。
 
 ## 内嵌网页
 

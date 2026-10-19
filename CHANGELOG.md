@@ -2,6 +2,7 @@
 
 ## Unreleased — Glass Workspace development
 
+- Make each card's X/WM_CLOSE issue a routed, cancelable card_close_request; remove only that card after an unconsumed request. Preserve workspace dismiss/close as separate actions, stop backgrounds when the last card leaves, and add interactive/CPU/GPU/WebView closure tests. Rebuild the glass extension for control protocol 4; frame protocol remains 1.
 - Transfer real keyboard focus across card headers/controls with Tab/Shift+Tab, card cycling and header arrows; retain editing keys and skip hidden/disabled nodes.
 - Host existing OverlayCanvas subclasses, CPU frames and GPU sources through GlassCanvas; make GlassWebView a thin composition of the existing WebView. Reuse canvas events/lifecycle instead of a separate browser-only card path, and add a mixed native/image/web example.
 - Add optional GlassWebView for caller-owned BrowserPages, CPU/shared-GPU frames, logical viewport resizing, scoped input/messages, aggregate visibility and attachment-acknowledged source retirement. Keep browser permissions and the frame transport unchanged; glass control protocol is now 3.

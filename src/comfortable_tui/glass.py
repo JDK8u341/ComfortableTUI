@@ -163,7 +163,10 @@ class GlassCard:
 
     def default_event(self, event, workspace):
         """Element-owned behavior, run only after an unconsumed routed event."""
-        if self.draggable and not event.control and event.kind == "pointer_down" and event.text == "header":
+        if event.kind == "card_close_request" and not event.control:
+            if any(card is self for card in workspace.cards):
+                workspace.remove_card(self.id)
+        elif self.draggable and not event.control and event.kind == "pointer_down" and event.text == "header":
             workspace._native.begin_drag(self.id, event.sequence)
 
     def snapshot(self):
@@ -324,7 +327,7 @@ class GlassWorkspace:
         if os.name != "nt":
             raise RuntimeError("GlassWorkspace currently requires a local Windows desktop")
         from . import _native_glass
-        if getattr(_native_glass, "glass_protocol_version", None) != 3:
+        if getattr(_native_glass, "glass_protocol_version", None) != 4:
             raise RuntimeError("Rebuild with COMFORTABLE_TUI_BUILD_GLASS=1 for GlassWorkspace")
         self._native = _native_glass.GlassHost(hwnd, inspectable_windows)
         self._dirty = True
@@ -374,6 +377,38 @@ class GlassWorkspace:
             self.update()
         except Exception:
             self.layout, self.theme, self.backdrop = previous
+            raise
+
+    def remove_card(self, card_id):
+        """Remove one card; native detach is acknowledged before sources retire.
+
+        Groups and sibling instances remain intact. The caller owns the canvas,
+        page and producer; this operation does not close their sources.
+        """
+        if self._closed:
+            raise RuntimeError("workspace is closed")
+        if card_id not in {card.id for card in self.cards}:
+            raise ValueError("unknown card")
+        changes = []
+        def without_card(children):
+            result = []
+            for node in children:
+                if isinstance(node, GlassCardGroup):
+                    new_children = without_card(node.children)
+                    if len(new_children) != len(node.children):
+                        changes.append((node, node.children, new_children))
+                    result.append(node)
+                elif node.id != card_id:
+                    result.append(node)
+            return result
+        roots = without_card(self.children)
+        for group, _, children in changes:
+            group.children = children
+        try:
+            self.set_cards(roots)
+        except BaseException:
+            for group, children, _ in changes:
+                group.children = children
             raise
 
     def show(self):

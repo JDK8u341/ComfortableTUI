@@ -25,7 +25,7 @@ Python 3.10+ 和 pybind11。以下命令在仓库根目录的 PowerShell 中运�
 python -m pip install -e ".[dev,overlay]"
 $env:COMFORTABLE_TUI_BUILD_GLASS = '1'
 python -m pip install --no-build-isolation -e .
-python -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 3"
+python -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 4"
 python -m examples.glass_workspace
 ```
 
@@ -254,6 +254,7 @@ CPU 缓冲区走现有 C++ 上传适配器；GPU 来源走现有共享纹理与�
 | `ready` | card、text 为 HWND 的十进制字符串 |
 | `scene_applied` | text 为场景序号 |
 | `dismissed`, `backdrop_dismissed`, `close_request` | 工作区行为 |
+| `card_close_request` | 当前卡片的 × / WM_CLOSE 请求；可经路由消费，默认移除该卡 |
 | `backdrop_unavailable` | text 为原因 |
 
 此扩展的画布事件是独立 API，首版提供上述鼠标/滚轮/键盘/变换事件；尚未复制旧
@@ -267,7 +268,11 @@ Tab/Shift+Tab 遍历卡片标题和可交互控件，越界进入相邻卡片；
 直接换卡并转移真实键盘焦点。标题上的方向键循环换卡，非编辑控件的上/下遍历控件，
 左/右换卡；输入框保留编辑键，滑块保留左右调值。Escape 返回终端，F6 始终返回。
 GlassWebView 的 Enter/点击进入页面，Escape 先离开页面；具体见[嵌入说明](glass-webview.md)。
-Ctrl+Q 发出 `close_request`，绑定 App 时请求退出。卡片右上角关闭键隐藏整个工作区。
+Ctrl+Q 发出 `close_request`，绑定 App 时请求退出。卡片右上角 × 和该 HWND 的 WM_CLOSE
+发出 `card_close_request`，经原有 preview/bubble 路由，未消费时由 Card 默认行为调用
+`workspace.remove_card(id)`，只移除该卡。关闭按钮在按下并于按钮内松开时生效，移出
+后松开或丢失捕获会取消。关闭最后一张卡后停止背景/捕获，工作区仍可添加新卡。
+隐藏整个工作区使用 dismiss/hide，销毁整个工作区使用 close；见[关闭测试](glass-close-testing.md)。
 提供 MSAA 的名称、角色、值、状态、边界和基础操作，仍需进一步屏幕阅读器兼容测试。
 
 | 方法 | 合约 |
@@ -283,6 +288,7 @@ Ctrl+Q 发出 `close_request`，绑定 App 时请求退出。卡片右上角关�
 | `command(action, value="")` | next / previous（换卡）/ next_control / previous_control（控件焦点环）/ select（卡 id）/ focus_card / focus_terminal / dismiss / reflow |
 | `metrics()` | 有界原生诊断快照 |
 | `close()` | 幂等关闭、等待原生线程退出；释放来源引用 |
+| `remove_card(id)` | 移除单张卡，保留嵌套容器与兄弟实例；等待原生解除后再通知消费者，来源仍由调用方拥有 |
 
 程序可以自行绑定召回快捷键；库不安装全局热键。系统前台窗口限制仍有效，命令不会
 绕过 Windows 的前台权限。`start(..., inspectable_windows=True)` 仅供自有窗口测试：

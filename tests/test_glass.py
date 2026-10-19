@@ -199,6 +199,105 @@ def test_native_events_update_models_and_dispatch_on_poll_thread():
     workspace.close()
 
 
+@pytest.mark.parametrize("consume_at", [None, "card", "preview", "bubble", "workspace"])
+def test_single_card_close_is_routed_and_waits_for_native_detach(consume_at):
+    from comfortable_tui import GlassCanvas, OverlayCanvas
+    events, route = [], []
+    def handler(name):
+        return lambda e: route.append(name) or consume_at == name
+    with FrameBuffer(4, 4) as source:
+        canvas = OverlayCanvas(source, on_event=events.append)
+        closing = GlassCard("closing", "Close", [GlassCanvas("canvas", canvas)], on_event=handler("card"))
+        sibling = GlassCard("keep", "Keep")
+        group = GlassCardGroup("group", [closing, sibling], on_preview_event=handler("preview"),
+                               on_event=handler("bubble"))
+        workspace = GlassWorkspace([group], on_event=handler("workspace"))
+        host = workspace._native = Host()
+        workspace.poll()
+        host.applied = host.serial
+        workspace.poll()
+        host.inbox = [dict(kind="card_close_request", card="closing")]
+        try:
+            workspace.poll()
+            assert workspace.visible and not workspace._closed and not host.closed
+            assert not any(e.kind == "detached" for e in events)
+            assert canvas._surface_host is not None and not source._closed
+            if consume_at is None:
+                assert workspace.children == [group] and group.children == [sibling]
+                assert workspace.selected == "keep"
+                assert route == ["preview", "card", "bubble", "workspace"]
+                host.applied = host.serial
+                workspace.poll()
+                assert [e.kind for e in events].count("detached") == 1
+                assert canvas._surface_host is None and not source._closed
+            else:
+                assert group.children == [closing, sibling] and workspace.selected == "closing"
+                assert route[-1] == consume_at
+        finally:
+            workspace.close()
+            canvas.close()
+
+
+def test_remove_card_preserves_nested_groups_and_rolls_back_failed_update(monkeypatch):
+    closing, keep = GlassCard("closing", "Close"), GlassCard("keep", "Keep")
+    inner = GlassCardGroup("inner", [closing])
+    outer = GlassCardGroup("outer", [inner, keep])
+    workspace = GlassWorkspace([outer])
+    original_children = inner.children
+    def fail():
+        raise ValueError("fixture validation failed")
+    with monkeypatch.context() as patch:
+        patch.setattr(workspace, "update", fail)
+        with pytest.raises(ValueError, match="fixture validation"):
+            workspace.remove_card("closing")
+    assert inner.children is original_children and inner.children == [closing]
+    assert workspace.selected == "closing" and workspace.children == [outer]
+    workspace.remove_card("closing")
+    assert inner.children == [] and outer.children == [inner, keep] and workspace.selected == "keep"
+    with pytest.raises(ValueError, match="unknown card"):
+        workspace.remove_card("missing")
+    workspace.remove_card("keep")
+    assert not workspace.cards and workspace.selected == "" and not workspace._closed
+    workspace.close()
+
+
+def test_close_callback_can_remove_or_replace_the_card_without_double_removal():
+    for replace in (False, True):
+        original, keep = GlassCard("card", "Original"), GlassCard("keep", "Keep")
+        replacement = GlassCard("card", "Replacement")
+        workspace = GlassWorkspace([original, keep])
+        host = workspace._native = Host()
+        def on_close(event):
+            if event.kind == "card_close_request":
+                workspace.set_cards([replacement, keep] if replace else [keep])
+        original.on_event = on_close
+        host.inbox = [dict(kind="card_close_request", card="card")]
+        workspace.poll()
+        assert workspace.cards == ([replacement, keep] if replace else [keep])
+        workspace.close()
+
+
+def test_workspace_close_detaches_all_cards_but_preserves_caller_owned_sources():
+    from comfortable_tui import GlassCanvas, OverlayCanvas
+    events = [[], []]
+    with FrameBuffer(4, 4) as first, FrameBuffer(4, 4) as second:
+        canvases = [OverlayCanvas(source, on_event=events[i].append) for i, source in enumerate((first, second))]
+        workspace = GlassWorkspace([GlassCard(str(i), str(i), [GlassCanvas("canvas", canvas)])
+                                    for i, canvas in enumerate(canvases)])
+        host = workspace._native = Host()
+        workspace.poll()
+        host.applied = host.serial
+        workspace.poll()
+        workspace.close()
+        workspace.close()
+        assert host.closed and workspace.metrics()["closed"] and not workspace.metrics()["capture_active"]
+        assert not workspace._bound_controls and not workspace._pending and not workspace._attached_refs
+        assert all([e.kind for e in items].count("detached") == 1 for items in events)
+        assert not first._closed and not second._closed
+        for canvas in canvases:
+            canvas.close()
+
+
 def test_native_failure_is_reported_even_after_worker_closed():
     workspace = GlassWorkspace([GlassCard("a", "A")])
     host = workspace._native = Host()

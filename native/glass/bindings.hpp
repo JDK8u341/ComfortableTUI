@@ -3,7 +3,7 @@
 namespace comfortable {
 inline void bind_glass(pybind11::module_ &m) {
     namespace py=pybind11;
-    m.attr("glass_protocol_version")=3;
+    m.attr("glass_protocol_version")=4;
     py::class_<GlassHost>(m,"GlassHost")
         .def(py::init([](std::uintptr_t hwnd,bool inspectable){py::gil_scoped_release release;return std::make_unique<GlassHost>(hwnd,inspectable);}),py::arg("hwnd"),py::arg("inspectable_windows")=false)
         .def("configure",[](GlassHost &host,py::dict input){

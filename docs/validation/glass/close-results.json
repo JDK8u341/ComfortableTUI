@@ -1,0 +1,102 @@
+{
+  "date": "2026-10-19",
+  "glass_control_protocol": 4,
+  "frame_protocol": 1,
+  "browser_security_protocol": 2,
+  "unit_tests": {
+    "passed": 299,
+    "skipped": 1,
+    "pure_python": "299 passed, 1 skipped"
+  },
+  "checks": [
+    "three_real_card_windows_and_image_consumer_present",
+    "releasing_close_button_outside_cancels_request",
+    "card_handler_can_cancel_its_close_request",
+    "group_preview_can_cancel_single_card_close",
+    "x_closes_only_one_card_preserving_siblings_and_workspace",
+    "single_card_detaches_once_without_closing_caller_owned_provider",
+    "wm_close_also_targets_only_the_requested_card",
+    "workspace_dismiss_hides_and_recall_preserves_the_window",
+    "closing_last_card_stops_backdrop_and_capture_but_keeps_workspace_reusable",
+    "closed_card_can_be_recreated_using_the_still_open_canvas",
+    "workspace_close_destroys_all_cards_and_consumers_preserving_host_and_sources",
+    "repeated_workspace_close_is_idempotent",
+    "browser_detaches_before_caller_closes_page_and_releases_frames",
+    "workspace_close_detaches_active_browser_before_caller_releases_page"
+  ],
+  "cases": {
+    "cpu": {
+      "result": "passed",
+      "checks": 12,
+      "image_mode": "cpu",
+      "browser_render_mode": null,
+      "browser_frame_stats": [],
+      "detach_count": 2,
+      "workspace_closed": true,
+      "capture_active": false
+    },
+    "gpu": {
+      "result": "passed",
+      "checks": 12,
+      "image_mode": "gpu",
+      "browser_render_mode": null,
+      "browser_frame_stats": [],
+      "detach_count": 2,
+      "workspace_closed": true,
+      "capture_active": false
+    },
+    "web-cpu-mode": {
+      "result": "passed",
+      "checks": 14,
+      "image_mode": "cpu",
+      "browser_render_mode": "cpu",
+      "browser_frame_stats": [
+        {
+          "frame_backend": "native_cpu",
+          "cpu_paints": 1
+        },
+        {
+          "frame_backend": "native_cpu",
+          "cpu_paints": 1
+        }
+      ],
+      "detach_count": 2,
+      "workspace_closed": true,
+      "capture_active": false
+    },
+    "web-gpu": {
+      "result": "passed",
+      "checks": 14,
+      "image_mode": "gpu",
+      "browser_render_mode": "gpu",
+      "browser_frame_stats": [
+        {
+          "frame_backend": "native_gpu_d3d11",
+          "cpu_paints": 0,
+          "published_frames": 1.0
+        },
+        {
+          "frame_backend": "native_gpu_d3d11",
+          "cpu_paints": 0,
+          "published_frames": 1.0
+        }
+      ],
+      "detach_count": 2,
+      "workspace_closed": true,
+      "capture_active": false
+    }
+  },
+  "build_checks": [
+    "ruff",
+    "mkdocs --strict",
+    "native pybind11",
+    "CMake/CTest",
+    "sdist",
+    "native wheel"
+  ],
+  "limitations": [
+    "Own fixture HWND messages, not physical mouse or taskbar automation",
+    "Interactive mode is provided for user verification; Computer Use was not invoked",
+    "Display closure retains caller-owned sources and producer; tests release them afterward"
+  ]
+}
