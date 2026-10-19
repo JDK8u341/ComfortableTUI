@@ -130,12 +130,6 @@ def main():
                     return stats.get("published_frames", 0) > 0
                 assert stats["frame_backend"] == "native_cpu"
                 return stats["cpu_paints"] > 0
-            wait(lambda: len(windows()) == 3 and all(w["visible"] for w in windows().values()))
-            wait(lambda: workspace.metrics().get("canvas_frames", 0) >= 1)
-            if page:
-                wait(lambda: page.loaded and bool(page._attachments))
-                wait(lambda: painted(page))
-            check("three_real_card_windows_and_image_consumer_present")
             if args.interactive:
                 print("Click individual X buttons; use the native Close entire workspace button or close the host to finish.", flush=True)
                 while not workspace.metrics().get("closed") and owner.isVisible():
@@ -143,6 +137,12 @@ def main():
                 workspace.close()
                 check("manual_workspace_close_completed")
             else:
+                wait(lambda: len(windows()) == 3 and all(w["visible"] for w in windows().values()))
+                wait(lambda: workspace.metrics().get("canvas_frames", 0) >= 1)
+                if page:
+                    wait(lambda: page.loaded and bool(page._attachments))
+                    wait(lambda: painted(page))
+                check("three_real_card_windows_and_image_consumer_present")
                 image_hwnd = windows()["image"]["hwnd"]
                 survivors = {name: windows()[name]["hwnd"] for name in ("keep", "extra")}
                 monitored.update(survivors.values())
