@@ -372,7 +372,9 @@
       }
     ],
     "reflows_moved": 30,
-    "resize_and_addition_release_retained_placement": true
+    "resize_and_addition_release_retained_placement": true,
+    "focus_after_deletion_only_moves_previous_and_next_roots": true,
+    "focus_within_retained_group_keeps_group_stationary": true
   },
   "negative_regression": "Physical sibling-rectangle assertion failed before the native fix",
   "focus_regression_checks": 8,

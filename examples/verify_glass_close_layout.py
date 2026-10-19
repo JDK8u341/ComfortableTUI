@@ -14,6 +14,7 @@ from comfortable_tui import GlassCard, GlassCardGroup, GlassControl, GlassTheme,
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, default=Path(".build/glass-close-layout.json"))
+    parser.add_argument("--transitions-only", action="store_true", help="Check resize/add/focus transitions without the layout matrix")
     args = parser.parse_args()
     from PySide6.QtWidgets import QApplication, QWidget
     from comfortable_tui._win32_host import Win32
@@ -79,7 +80,7 @@ def main():
         wait(stable)
 
     try:
-        for maximized in (False, True):
+        for maximized in (() if args.transitions_only else (False, True)):
             if maximized:
                 owner.showMaximized()
             for layout in ("orbit", "deck", "focus", "ribbon"):
@@ -121,7 +122,8 @@ def main():
                                                 selected_close=True, repeated_close=True, value_update=True))
                     save()
                     print(f"PASS {layout}/{topology}/maximized={maximized}", flush=True)
-        assert report["reflows_moved"] > 0, "Explicit reflow must release retained placement"
+        if not args.transitions_only:
+            assert report["reflows_moved"] > 0, "Explicit reflow must release retained placement"
         owner.showNormal()
         owner.setGeometry(350, 180, 430, 220)
         cards = [GlassCard(name, name, [GlassControl("status", "text", text=name)], width=240)
@@ -150,6 +152,39 @@ def main():
         pump(1.2)
         assert positions() == added, "Adding a card must release retained placement"
         report["resize_and_addition_release_retained_placement"] = True
+        workspace.close()
+        workspace = None
+        cards = [GlassCard(name, name, [GlassControl("status", "text", text=name)], width=240)
+                 for name in ("a", "b", "c", "d")]
+        workspace = GlassWorkspace(cards, layout="focus", theme=GlassTheme("solid"))
+        workspace.selected = "b"
+        workspace.start(int(owner.winId()))
+        settle(4)
+        before = positions()
+        workspace.remove_card("b")
+        wait(lambda: set(positions()) == {"a", "c", "d"}, {name: value for name, value in before.items() if name != "b"})
+        pump(.4)
+        workspace.command("select", "c")
+        pump(1.4, {"d": before["d"]})
+        after = positions()
+        assert after["c"] != before["c"], "Explicit focus must still animate after deleting another card"
+        workspace.selected = "d"
+        workspace.update()
+        pump(1.4, {"a": after["a"]})
+        report["focus_after_deletion_only_moves_previous_and_next_roots"] = True
+        workspace.close()
+        workspace = None
+        workspace = GlassWorkspace([GlassCardGroup("row", cards[:3]), cards[3]], layout="focus", theme=GlassTheme("solid"))
+        workspace.selected = "b"
+        workspace.start(int(owner.winId()))
+        settle(4)
+        before = positions()
+        workspace.remove_card("b")
+        expected = {name: value for name, value in before.items() if name != "b"}
+        wait(lambda: set(positions()) == {"a", "c", "d"}, expected)
+        workspace.command("select", "c")
+        pump(.6, expected)
+        report["focus_within_retained_group_keeps_group_stationary"] = True
         workspace.close()
         workspace = None
         report["result"] = "passed"

@@ -751,12 +751,30 @@ struct GlassHost::Impl {
             std::lock_guard<std::mutex> lock(host->mutex);host->report.frames++;
         }
     };
+    std::string layout_root(const Card &card) const {
+        auto root=card.spec.id,parent=card.spec.group;
+        while(!parent.empty()) {
+            auto group=std::find_if(scene.groups.begin(),scene.groups.end(),[&](const auto &g){return g.id==parent;});
+            if(group==scene.groups.end())break;
+            root=group->id;parent=group->parent;
+        }
+        return root;
+    }
+    void selection_layout(const std::string &previous,const std::string &selected) {
+        if(scene.layout=="ribbon")retain_positions=false;
+        else if(scene.layout=="focus"&&retain_positions) {
+            std::vector<std::string> roots;
+            for(const auto &c:cards)if(c->spec.id==previous||c->spec.id==selected)roots.push_back(layout_root(*c));
+            if(roots.size()==2&&roots.front()==roots.back())return;
+            for(auto &c:cards)if(std::find(roots.begin(),roots.end(),layout_root(*c))!=roots.end())c->layout_positioned=false;
+        }
+    }
     void select(const std::string &id) {
         if(scene.selected==id)return;
         auto target=std::find_if(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==id;});
         if(target==cards.end()||!(*target)->group_visible||!(*target)->group_enabled)return;
         auto previous=scene.selected;scene.selected=id;
-        if(scene.layout=="focus"||scene.layout=="ribbon")retain_positions=false;
+        selection_layout(previous,id);
         for(auto &c:cards)if(c->spec.id==previous||c->spec.id==id)c->dirty=true;
         emit({"selected",id});
     }
@@ -839,8 +857,8 @@ struct GlassHost::Impl {
         if(bytes>256*1024*1024)throw std::invalid_argument("Glass UI GPU surface budget exceeds 256 MiB");
         bool compatible=compatible_layout(scene,next);
         bool removing=compatible&&next.cards.size()<scene.cards.size();
-        if(!compatible||(!removing&&next.selected!=scene.selected&&(next.layout=="focus"||next.layout=="ribbon")))
-            retain_positions=false;
+        auto previous_selected=scene.selected;
+        if(!compatible)retain_positions=false;
         else if(removing)retain_positions=true;
         scene=std::move(next);
         for(auto it=cards.begin();it!=cards.end();) {
@@ -889,6 +907,7 @@ struct GlassHost::Impl {
         }
         cards=std::move(ordered);
         if(std::none_of(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==scene.selected;})&&!cards.empty())scene.selected=cards.front()->spec.id;
+        if(!removing&&previous_selected!=scene.selected)selection_layout(previous_selected,scene.selected);
         applied=serial;
         emit({"scene_applied","","",std::to_string(serial)});
     }
