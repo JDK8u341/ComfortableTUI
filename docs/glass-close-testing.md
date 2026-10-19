@@ -21,49 +21,66 @@ $env:COMFORTABLE_TUI_BUILD_GLASS = '1'
 .\.venv\Scripts\python.exe -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 4"
 ```
 
-仍需要本机 Windows 桌面和已有 overlay 依赖；测试宿主使用 Qt，卡片绘制本身仍为原生。
+仍需要本机 Windows 桌面和已有 overlay 依赖；卡片绘制为原生。下面的推荐入口直接附着
+当前终端；只有后面的自动回归夹具使用 Qt 宿主。
 
 ## 手动点击
 
 ```powershell
-.\.venv\Scripts\python.exe examples/verify_glass_close.py --interactive
+.\.venv\Scripts\python.exe -m examples.glass_workspace.closing
+# 嵌套 CardGroup：
+.\.venv\Scripts\python.exe -m examples.glass_workspace.closing --grouped
 ```
 
-测试创建自己的宿主和三张卡，不操作已有终端或其他应用：
+在实际 Windows 终端中运行，TUI 留在该终端，三张卡通过 workspace.bind(app) 附着它；
+不会创建替代终端的 Qt 窗口。
 
-1. 点击 image/extra 卡的 ×，仅该卡消失，其他卡保持显示。
+1. 点击 image/extra 卡的 ×，仅该卡消失，其他卡保持原位置和可见性。
 2. 点击 Workspace controls 卡内的 **Close entire workspace** 按钮，关闭整个工作区。
-3. 若先关掉了 Workspace controls 卡，可关闭测试宿主窗口结束测试。
+3. 终端 TUI 继续运行，可用终端中的 **Recreate cards** 创建新工作区，或 **Quit** / Ctrl+Q 退出。
+4. 即使先关掉 Workspace controls 卡，也可用终端中的 **Close workspace** 完成整体关闭。
 
-可选择与原混合示例一致的 GPU 图像和 WebView 路径：
+真实终端自动检查模式（完成后退出 TUI）：
 
 ```powershell
-.\.venv\Scripts\python.exe examples/verify_glass_close.py --interactive --with-browser --gpu-provider .build/glass-native/Release/ctui_glass_signal.exe
+.\.venv\Scripts\python.exe -m examples.glass_workspace.closing --self-test --report .build/glass-terminal-close.json
+.\.venv\Scripts\python.exe -m examples.glass_workspace.closing --self-test --grouped --report .build/glass-terminal-close-grouped.json
 ```
 
-`--with-browser` 使用已有浏览器运行时发现规则，可用 `--browser PATH` 明确指定。
-默认网页 render-mode 为 gpu；用 `--render-mode cpu` 验证共享内存网页来源。
-手动模式记录结果，但不能代替下面覆盖拦截、资源寿命和撤销操作的自动验证。
+检查实际 GW_OWNER 为终端 HWND、单卡关闭全程的兄弟窗口矩形、关闭后的内容更新，
+以及原生按钮关闭整个工作区后终端和来源仍有效。默认开启弹簧动画，不关闭动画来掩盖位移。
+可用 --layout 选择 orbit/deck/focus/ribbon，--material solid --backdrop none 隔离关闭逻辑。
+
+只删除卡片时保留空位，不重新编号、压缩或居中。普通内容更新和隐藏/恢复也保留该位置。
+添加卡片、改变尺寸/容器结构，或终端尺寸、DPI、显示器工作区变化及显式 reflow 会重新布局；focus/ribbon
+中主动切换焦点仍执行其原定过渡。删除当前选中卡造成的自动焦点回退不会重排兄弟。
+这不把兄弟卡变成手动拖动的 pinned 状态；如需主动收拢空位，调用 workspace.command("reflow")。
 
 ## 自动验证
 
 ```powershell
-# CPU 图像：12项
+# CPU 图像：13项
 .\.venv\Scripts\python.exe examples/verify_glass_close.py --report .build/glass-close-cpu.json
-# 原生 GPU 图像：12项
+# 原生 GPU 图像：13项
 .\.venv\Scripts\python.exe examples/verify_glass_close.py --gpu-provider .build/glass-native/Release/ctui_glass_signal.exe --report .build/glass-close-gpu.json
-# GPU 图像 + GPU 网页：14项
+# GPU 图像 + GPU 网页：15项
 .\.venv\Scripts\python.exe examples/verify_glass_close.py --with-browser --gpu-provider .build/glass-native/Release/ctui_glass_signal.exe --report .build/glass-close-web-gpu.json
-# CPU 图像 + CPU 网页：14项
+# CPU 图像 + CPU 网页：15项
 .\.venv\Scripts\python.exe examples/verify_glass_close.py --with-browser --render-mode cpu --report .build/glass-close-web-cpu-mode.json
+# 32种位置组合：4布局 × 根卡/行/列/嵌套容器 × 普通/最大化宿主，开启弹簧
+.\.venv\Scripts\python.exe examples/verify_glass_close_layout.py --report .build/glass-close-layout.json
 ```
 
-默认材质 liquid、背景 frosted；可用 `--material solid --backdrop none` 单独隔离关闭逻辑。
+本节命令使用明确标注的独立 Qt **自动化夹具**，不用于代替真实终端附着测试。
+verify_glass_close.py 默认材质 liquid、背景 frosted；加 --animated 开启弹簧。可用
+`--material solid --backdrop none` 单独隔离关闭逻辑。
+`--with-browser` 使用已有浏览器运行时发现规则，可用 --browser PATH 指定；默认 GPU，
+--render-mode cpu 验证共享内存网页来源。另有 --interactive 供调试夹具自身。
 自动测试只向本夹具自己的 HWND 发送输入，检查真实窗口状态、模型事件和资源确认，
 不把修改 Python 对象就当作窗口已经消失，也不声称自动化了物理鼠标/系统任务栏点击。
 
 检查内容包括：移出关闭按钮后松开会取消、Card/Group 可拦截、×只产生一次单卡关闭请求、
-其他卡在整个关闭过程中保持可见、WM_CLOSE 单卡语义、单卡消费者解除、隐藏/恢复、
+其他卡在整个关闭过程中保持可见且窗口矩形不变、WM_CLOSE 单卡语义、单卡消费者解除、隐藏/恢复、
 最后一张卡关闭后停止背景/捕获、重新创建，以及工作区整体关闭和幂等关闭。
 浏览器选项额外验证单卡关闭和整体关闭均解除页面消费者，再由调用方关闭页面释放来源。
 

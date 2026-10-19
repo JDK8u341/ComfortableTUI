@@ -272,6 +272,9 @@ Ctrl+Q 发出 `close_request`，绑定 App 时请求退出。卡片右上角 × 
 发出 `card_close_request`，经原有 preview/bubble 路由，未消费时由 Card 默认行为调用
 `workspace.remove_card(id)`，只移除该卡。关闭按钮在按下并于按钮内松开时生效，移出
 后松开或丢失捕获会取消。关闭最后一张卡后停止背景/捕获，工作区仍可添加新卡。
+单卡删除保留其他卡的布局空位，包括嵌套容器和自动焦点回退；内容更新不压缩空位。
+显式 reflow、添加节点、尺寸/容器布局更改和宿主 resize/DPI 变化重新计算布局；
+focus/ribbon 中主动选择卡片仍可触发其布局动画。保留空位不会把卡片改成拖动 pinned 状态。
 隐藏整个工作区使用 dismiss/hide，销毁整个工作区使用 close；见[关闭测试](glass-close-testing.md)。
 提供 MSAA 的名称、角色、值、状态、边界和基础操作，仍需进一步屏幕阅读器兼容测试。
 

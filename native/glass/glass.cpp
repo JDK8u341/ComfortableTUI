@@ -192,6 +192,9 @@ struct GlassHost::Impl {
     RECT owner_rect{}, work{};
     float dpi{1};
     bool active{}, compact{}, contrast{}, system_animation{true}, backdrop_dismissed{};
+    bool retain_positions{};
+    RECT layout_work{};
+    LONG layout_owner_width{},layout_owner_height{};
     HWND last_external{}, last_group_foreground{};
     std::vector<std::string> root_stack,card_stack,last_stack;
     std::string effective_material;
@@ -330,6 +333,8 @@ struct GlassHost::Impl {
         int hovered{-1}, focused{-1}, pressed{-1};
         bool dirty{true}, dragging{}, shown{}, native_material{}, close_pressed{};
         bool moving{}, pinned{}, group_visible{true}, group_enabled{true}, before_pinned{};
+        bool layout_positioned{};
+        float layout_offset_x{},layout_offset_y{};
         double offset_x{},offset_y{},before_offset_x{},before_offset_y{},drag_start_x{},drag_start_y{};
         POINT grab{},last_pointer{};
         std::uint64_t pointer_sequence{};
@@ -751,6 +756,7 @@ struct GlassHost::Impl {
         auto target=std::find_if(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==id;});
         if(target==cards.end()||!(*target)->group_visible||!(*target)->group_enabled)return;
         auto previous=scene.selected;scene.selected=id;
+        if(scene.layout=="focus"||scene.layout=="ribbon")retain_positions=false;
         for(auto &c:cards)if(c->spec.id==previous||c->spec.id==id)c->dirty=true;
         emit({"selected",id});
     }
@@ -787,24 +793,56 @@ struct GlassHost::Impl {
     static void CALLBACK location(HWINEVENTHOOK,DWORD,HWND hwnd,LONG object,LONG child,DWORD,DWORD) {
         if(current&&hwnd==current->owner&&object==OBJID_WINDOW&&child==CHILDID_SELF)current->follow_owner();
     }
+    // Removing nodes leaves gaps. Content/value updates are not layout edits.
+    // Compare the surviving topology so nested containers obey the same rule.
+    static bool compatible_layout(const GlassScene &before,const GlassScene &after) {
+        if(before.layout!=after.layout)return false;
+        auto live=[&](const std::string &id){
+            return std::any_of(after.cards.begin(),after.cards.end(),[&](const auto &c){return c.id==id;})||
+                   std::any_of(after.groups.begin(),after.groups.end(),[&](const auto &g){return g.id==id;});
+        };
+        auto filtered=[&](const std::vector<std::string> &ids){
+            std::vector<std::string> result;for(const auto &id:ids)if(live(id))result.push_back(id);return result;
+        };
+        if(filtered(before.roots)!=after.roots)return false;
+        std::vector<std::string> old_ids,new_ids;
+        for(const auto &c:before.cards)if(live(c.id))old_ids.push_back(c.id);
+        for(const auto &c:after.cards) {
+            new_ids.push_back(c.id);
+            auto old=std::find_if(before.cards.begin(),before.cards.end(),[&](const auto &v){return v.id==c.id;});
+            if(old==before.cards.end()||old->group!=c.group||old->width!=c.width||card_height(*old)!=card_height(c))return false;
+        }
+        if(old_ids!=new_ids)return false;
+        for(const auto &g:after.groups) {
+            auto old=std::find_if(before.groups.begin(),before.groups.end(),[&](const auto &v){return v.id==g.id;});
+            if(old==before.groups.end()||old->parent!=g.parent||old->layout!=g.layout||old->gap!=g.gap||
+               old->padding!=g.padding||filtered(old->children)!=g.children)return false;
+        }
+        return true;
+    }
     void apply(GlassScene next,std::uint64_t serial) {
         if(scene.backdrop!=next.backdrop||(!scene.visible&&next.visible))backdrop_dismissed=false;
         bool reflow=next.layout!=scene.layout;
-        scene=std::move(next);
         if(!optics) {
             try{optics=std::make_unique<glass_detail::OpticalScene>(owner);optical_monitor=MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST);}
             catch(const std::exception &e){std::lock_guard<std::mutex> lock(mutex);report.optics_error=e.what();}
         }
         float scale=GetDpiForWindow(owner)/96.f;
-        if(std::abs(scale-dpi)>.01f) {cards.clear();dpi=scale;}
+        if(std::abs(scale-dpi)>.01f) {cards.clear();dpi=scale;retain_positions=false;}
         double bytes=0;
-        for(auto &c:scene.cards) {
+        for(auto &c:next.cards) {
             c.width=std::min(c.width,(work.right-work.left-24*dpi)/dpi);
             if(c.width<180||card_height(c)*dpi>work.bottom-work.top-24*dpi)
                 throw std::invalid_argument("Glass card is too tall for this monitor; use fewer controls or shorter cards");
             bytes+=c.width*card_height(c)*dpi*dpi*4*5;
         }
         if(bytes>256*1024*1024)throw std::invalid_argument("Glass UI GPU surface budget exceeds 256 MiB");
+        bool compatible=compatible_layout(scene,next);
+        bool removing=compatible&&next.cards.size()<scene.cards.size();
+        if(!compatible||(!removing&&next.selected!=scene.selected&&(next.layout=="focus"||next.layout=="ribbon")))
+            retain_positions=false;
+        else if(removing)retain_positions=true;
+        scene=std::move(next);
         for(auto it=cards.begin();it!=cards.end();) {
             if(std::none_of(scene.cards.begin(),scene.cards.end(),[&](const auto &c){return c.id==(*it)->spec.id;}))it=cards.erase(it);
             else ++it;
@@ -897,6 +935,9 @@ struct GlassHost::Impl {
     }
     void layout(double dt,bool show) {
         bounds();
+        LONG ow=owner_rect.right-owner_rect.left,oh=owner_rect.bottom-owner_rect.top;
+        if(ow!=layout_owner_width||oh!=layout_owner_height||!EqualRect(&work,&layout_work))retain_positions=false;
+        layout_owner_width=ow;layout_owner_height=oh;layout_work=work;
         std::vector<Unit> units;
         if(scene.roots.empty()){for(const auto &c:cards)if(c->spec.group.empty())units.push_back(measure(c->spec.id));}
         else for(const auto &id:scene.roots)units.push_back(measure(id));
@@ -937,6 +978,13 @@ struct GlassHost::Impl {
             }
             tx=std::clamp(tx,work.left+12*dpi,std::max(work.left+12*dpi,work.right-uw-12*dpi))+slot.second.x*dpi;
             ty=std::clamp(ty,work.top+12*dpi,std::max(work.top+12*dpi,work.bottom-uh-12*dpi))+slot.second.y*dpi;
+            // Retain only the live card's owner-relative layout anchor, not a manual
+            // drag pin. Owner translation still follows natively; explicit
+            // reflow, geometry edits and resize can lay out the cards again.
+            if(retain_positions&&c.layout_positioned) {
+                tx=owner_rect.left+c.layout_offset_x;ty=owner_rect.top+c.layout_offset_y;
+            }
+            c.layout_offset_x=tx-owner_rect.left;c.layout_offset_y=ty-owner_rect.top;c.layout_positioned=true;
             if(c.pinned){tx=static_cast<float>(owner_rect.left+c.offset_x);ty=static_cast<float>(owner_rect.top+c.offset_y);}
             tx=std::clamp(tx,work.left+4*dpi,std::max(work.left+4*dpi,work.right-cw-4*dpi));
             ty=std::clamp(ty,work.top+4*dpi,std::max(work.top+4*dpi,work.bottom-ch-4*dpi));
@@ -1044,7 +1092,7 @@ struct GlassHost::Impl {
                     if(submitted>applied){next=requested;serial=submitted;}actions.swap(commands);}
                 if(!IsWindow(owner))break;
                 if(optics&&MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST)!=optical_monitor) {
-                    cards.clear();background_compositor.reset();background_optical.reset();background_ui.reset();
+                    cards.clear();retain_positions=false;background_compositor.reset();background_optical.reset();background_ui.reset();
                     if(background){DestroyWindow(background);background=nullptr;}optics.reset();last_background.clear();
                     bounds();
                     if(!serial){next=scene;serial=applied;}
@@ -1063,7 +1111,7 @@ struct GlassHost::Impl {
                     else if(a.kind=="focus_terminal")SetForegroundWindow(owner);
                     else if(a.kind=="focus_card"){for(auto &c:cards)if(c->spec.id==scene.selected&&c->shown&&c->group_enabled)focus_card(*c);}
                     else if(a.kind=="dismiss")dismiss();
-                    else if(a.kind=="reflow"){for(auto &c:cards)c->pinned=false;}
+                    else if(a.kind=="reflow"){retain_positions=false;for(auto &c:cards)c->pinned=false;}
                     else if(a.kind=="begin_drag"){for(auto &c:cards)if(c->spec.id==a.id)c->begin_drag(a.token);}
                 }
                 double now=clock_ticks()/clock_frequency();

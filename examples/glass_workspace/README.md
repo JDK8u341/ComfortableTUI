@@ -53,8 +53,10 @@ python examples/verify_glass_windows.py --gpu-provider .build/glass-native/Relea
 python examples/verify_glass_optics.py --report .build/glass-optics.json --hold 30
 python examples/verify_glass_focus.py --report .build/glass-focus.json
 python examples/verify_glass_webview.py --render-mode gpu --report .build/glass-browser.json
-python examples/verify_glass_close.py --interactive
+python -m examples.glass_workspace.closing
+python -m examples.glass_workspace.closing --grouped --self-test --report .build/glass-terminal-close.json
 python examples/verify_glass_close.py --with-browser --report .build/glass-close.json
+python examples/verify_glass_close_layout.py --report .build/glass-close-layout.json
 ```
 
 需要桌面交互。`--preview` 另建一个明确标注的 Qt **视觉测试宿主**，用于电脑插件检查
@@ -65,6 +67,9 @@ python examples/verify_glass_close.py --with-browser --report .build/glass-close
 独立任务栏窗口，不用于验收正式模式的任务栏联动。
 本目录中的 `__main__.py` 是 `python -m examples.glass_workspace` 入口。
 
+closing 入口附着当前真实终端，可分别点击单卡 ×、Close entire workspace 和终端内的
+Recreate cards；不会创建 Qt 替代宿主。verify_glass_close*.py 是独立自动化夹具。
+单卡删除保留其他卡的空位；显式 reflow 或布局/尺寸更改可以重新排布。
 Glass 控制协议4起，×仅请求关闭当前卡，可由事件处理器拦截。整体隐藏使用 Hide cards/
 dismiss，整体退出使用 Quit/Ctrl+Q；独立测试中的 Close entire workspace 按钮验证
 workspace.close()。测试命令与资源寿命见[关闭测试](../../docs/glass-close-testing.md)。

@@ -14,6 +14,7 @@
     "card_handler_can_cancel_its_close_request",
     "group_preview_can_cancel_single_card_close",
     "x_closes_only_one_card_preserving_siblings_and_workspace",
+    "surviving_card_rectangles_stay_identical_throughout_close",
     "single_card_detaches_once_without_closing_caller_owned_provider",
     "wm_close_also_targets_only_the_requested_card",
     "workspace_dismiss_hides_and_recall_preserves_the_window",
@@ -27,7 +28,7 @@
   "cases": {
     "cpu": {
       "result": "passed",
-      "checks": 12,
+      "checks": 13,
       "image_mode": "cpu",
       "browser_render_mode": null,
       "browser_frame_stats": [],
@@ -37,7 +38,7 @@
     },
     "gpu": {
       "result": "passed",
-      "checks": 12,
+      "checks": 13,
       "image_mode": "gpu",
       "browser_render_mode": null,
       "browser_frame_stats": [],
@@ -47,7 +48,7 @@
     },
     "web-cpu-mode": {
       "result": "passed",
-      "checks": 14,
+      "checks": 15,
       "image_mode": "cpu",
       "browser_render_mode": "cpu",
       "browser_frame_stats": [
@@ -66,7 +67,7 @@
     },
     "web-gpu": {
       "result": "passed",
-      "checks": 14,
+      "checks": 15,
       "image_mode": "gpu",
       "browser_render_mode": "gpu",
       "browser_frame_stats": [
@@ -86,6 +87,295 @@
       "capture_active": false
     }
   },
+  "real_terminal_cases": {
+    "roots": {
+      "result": "passed",
+      "terminal_class": "CASCADIA_HOSTING_WINDOW_CLASS",
+      "checks": [
+        "all_cards_owned_by_the_actual_terminal_window",
+        "single_card_close_preserves_sibling_rectangles_visibility_and_source",
+        "content_update_keeps_the_retained_positions",
+        "native_workspace_button_closes_all_cards_preserving_terminal_and_source"
+      ],
+      "all_survivor_rectangles_identical": true
+    },
+    "grouped": {
+      "result": "passed",
+      "terminal_class": "CASCADIA_HOSTING_WINDOW_CLASS",
+      "checks": [
+        "all_cards_owned_by_the_actual_terminal_window",
+        "single_card_close_preserves_sibling_rectangles_visibility_and_source",
+        "content_update_keeps_the_retained_positions",
+        "native_workspace_button_closes_all_cards_preserving_terminal_and_source"
+      ],
+      "all_survivor_rectangles_identical": true
+    }
+  },
+  "layout_regression": {
+    "result": "passed",
+    "cases": [
+      {
+        "layout": "orbit",
+        "topology": "roots",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "orbit",
+        "topology": "row",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "orbit",
+        "topology": "column",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "orbit",
+        "topology": "nested",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "deck",
+        "topology": "roots",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "deck",
+        "topology": "row",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "deck",
+        "topology": "column",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "deck",
+        "topology": "nested",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "focus",
+        "topology": "roots",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "focus",
+        "topology": "row",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "focus",
+        "topology": "column",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "focus",
+        "topology": "nested",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "ribbon",
+        "topology": "roots",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "ribbon",
+        "topology": "row",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "ribbon",
+        "topology": "column",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "ribbon",
+        "topology": "nested",
+        "maximized": false,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "orbit",
+        "topology": "roots",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "orbit",
+        "topology": "row",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "orbit",
+        "topology": "column",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "orbit",
+        "topology": "nested",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "deck",
+        "topology": "roots",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "deck",
+        "topology": "row",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "deck",
+        "topology": "column",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "deck",
+        "topology": "nested",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "focus",
+        "topology": "roots",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "focus",
+        "topology": "row",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "focus",
+        "topology": "column",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "focus",
+        "topology": "nested",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "ribbon",
+        "topology": "roots",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "ribbon",
+        "topology": "row",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "ribbon",
+        "topology": "column",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      },
+      {
+        "layout": "ribbon",
+        "topology": "nested",
+        "maximized": true,
+        "selected_close": true,
+        "repeated_close": true,
+        "value_update": true
+      }
+    ],
+    "reflows_moved": 30,
+    "resize_and_addition_release_retained_placement": true
+  },
+  "negative_regression": "Physical sibling-rectangle assertion failed before the native fix",
+  "focus_regression_checks": 8,
   "build_checks": [
     "ruff",
     "mkdocs --strict",
@@ -95,7 +385,7 @@
     "native wheel"
   ],
   "limitations": [
-    "Own fixture HWND messages, not physical mouse or taskbar automation",
+    "Directed messages to this application card HWNDs, not physical mouse or taskbar automation",
     "Interactive mode is provided for user verification; Computer Use was not invoked",
     "Display closure retains caller-owned sources and producer; tests release them afterward"
   ]

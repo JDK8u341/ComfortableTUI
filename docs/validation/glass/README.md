@@ -6,15 +6,22 @@
 关闭按钮此前直接调用工作区 dismiss，语义与单卡关闭不符；本次升级 Glass 控制协议4，
 ×/WM_CLOSE 发出可拦截的 card_close_request，由 Card 的默认行为只移除自身。
 
-- CPU/GPU 图像各12项；CPU图像+CPU网页、GPU图像+GPU网页各14项实际窗口检查通过。
-- 检查按钮移出取消、Card/Group 拦截、兄弟 HWND 全程可见、单卡解除消费者、WM_CLOSE、
+- CPU/GPU 图像各13项；CPU图像+CPU网页、GPU图像+GPU网页各15项实际窗口检查通过。
+- 新增位置断言先在旧实现上失败，确认删除会压缩容器/重排根卡。修复后保留兄弟布局空位，
+  不将其转成拖动 pinned；显式 reflow、尺寸变化及布局编辑仍可重新布局。
+- 32组位置回归通过：4布局 × 根卡/行/列/嵌套 × 普通/最大化宿主，开启弹簧；覆盖删除
+  选中卡、连续删除、内容更新、显式 reflow，以及额外的 resize/添加节点后解除保留。
+- 真实 Windows Terminal 中，根卡和嵌套容器各4项通过；实际 GW_OWNER 指向终端，
+  关闭单卡后兄弟矩形完全一致，原生整体关闭按钮关闭卡片而保留终端/来源。
+- 检查按钮移出取消、Card/Group 拦截、兄弟 HWND 全程可见且矩形不变、单卡解除消费者、WM_CLOSE、
   整体隐藏/恢复、末卡关闭停止背景/捕获、动态重建、整体关闭及幂等关闭。
 - 页面单独关闭、工作区关闭时的活跃页面均验证消费者解除及调用方后续关闭页面；GPU
   网页为 native_gpu_d3d11、cpu_paints=0，并要求已有发布帧；CPU网页要求发生实际 paint。
 - 全库和强制纯 Python：299 passed、1 skipped；Ruff、严格 MkDocs、原生构建及 CTest、
   源码包和原生 wheel 构建通过。测试只向本夹具 HWND 发消息；没有调用电脑插件或宣称物理点击已验证。
-- 提供 `python examples/verify_glass_close.py --interactive` 手动模式，用单卡 × 与明确
-  标注 Close entire workspace 的原生按钮分别验证。测试宿主不会充当终端模拟器。
+- 推荐 `python -m examples.glass_workspace.closing` 手动模式，直接附着当前真实终端，
+  用单卡 × 与明确标注 Close entire workspace 的原生按钮分别验证；--self-test 可自动检查。
+  verify_glass_close*.py 保留为独立 Qt 自动回归夹具；本轮未使用电脑插件或物理鼠标自动化。
 
 ## 跨卡键盘、通用画布与内嵌浏览器（2026-10-19）
 

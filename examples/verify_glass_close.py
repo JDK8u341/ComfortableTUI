@@ -24,6 +24,7 @@ def main():
     parser.add_argument("--material", choices=("liquid", "solid", "frosted"), default="liquid")
     parser.add_argument("--backdrop", choices=("none", "frosted"), default="frosted")
     parser.add_argument("--interactive", action="store_true", help="Leave own test windows open for manual clicks")
+    parser.add_argument("--animated", action="store_true", help="Keep springs enabled during close checks")
     args = parser.parse_args()
     from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
     from comfortable_tui._win32_host import Win32
@@ -42,6 +43,11 @@ def main():
     workspace = None
     report, events, canvas_events = dict(result="running", checks=[]), [], []
     monitored = set()
+    fixed_rects = {}
+    def rect(hwnd):
+        value = wintypes.RECT()
+        assert api.user.GetWindowRect(hwnd, ctypes.byref(value))
+        return value.left, value.top, value.right, value.bottom
     def save():
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -91,7 +97,7 @@ def main():
                 events.append(event)
                 if event.kind == "click" and event.control == "close_workspace":
                     workspace.close()
-            workspace = stack.enter_context(GlassWorkspace([group], theme=GlassTheme(args.material, reduced_motion=True),
+            workspace = stack.enter_context(GlassWorkspace([group], theme=GlassTheme(args.material, reduced_motion=not args.animated),
                                             backdrop=args.backdrop, on_event=on_event))
             workspace.start(int(owner.winId()))
             def windows():
@@ -103,6 +109,8 @@ def main():
                     workspace.poll()
                     for hwnd in monitored:
                         assert api.user.IsWindow(hwnd) and api.user.IsWindowVisible(hwnd), "A sibling disappeared during single-card close"
+                        if hwnd in fixed_rects:
+                            assert rect(hwnd) == fixed_rects[hwnd], "A sibling moved during single-card close"
                     time.sleep(.004)
             def wait(callback, timeout=12):
                 end = time.perf_counter() + timeout
@@ -143,9 +151,11 @@ def main():
                     wait(lambda: page.loaded and bool(page._attachments))
                     wait(lambda: painted(page))
                 check("three_real_card_windows_and_image_consumer_present")
+                pump(2)  # Settle opening springs before recording physical window rectangles.
                 image_hwnd = windows()["image"]["hwnd"]
                 survivors = {name: windows()[name]["hwnd"] for name in ("keep", "extra")}
                 monitored.update(survivors.values())
+                fixed_rects.update({hwnd: rect(hwnd) for hwnd in survivors.values()})
                 click_close("image", release_inside=False)
                 assert len(windows()) == 3 and not any(e.kind == "card_close_request" for e in events)
                 check("releasing_close_button_outside_cancels_request")
@@ -166,7 +176,9 @@ def main():
                 assert workspace.visible and not workspace.metrics()["closed"]
                 assert not any(e.kind in ("dismissed", "close_request") for e in events)
                 assert sum(e.kind == "card_close_request" and e.card == "image" for e in events) == 1
+                pump(1)
                 check("x_closes_only_one_card_preserving_siblings_and_workspace")
+                check("surviving_card_rectangles_stay_identical_throughout_close")
                 assert sum(e.kind == "detached" for e in canvas_events) == 1
                 source._check_open()
                 if provider:
@@ -177,6 +189,7 @@ def main():
                 wait(lambda: "extra" not in windows())
                 assert not api.user.IsWindow(survivors["extra"]) and len(windows()) == 1
                 check("wm_close_also_targets_only_the_requested_card")
+                pump(1)
                 if page:
                     wait(lambda: not page._attachments and not page._widgets)
                     assert not page._closed and not page.source._closed
@@ -185,6 +198,7 @@ def main():
                     assert page.source._closed
                     check("browser_detaches_before_caller_closes_page_and_releases_frames")
                 monitored.clear()
+                fixed_rects.clear()
                 keep_hwnd = survivors["keep"]
                 workspace.command("dismiss")
                 wait(lambda: not api.user.IsWindowVisible(keep_hwnd))

@@ -2,6 +2,7 @@
 
 ## Unreleased — Glass Workspace development
 
+- Keep surviving cards in their existing positions when a card is removed, including nested groups and selected-card fallback; release retained placement on explicit reflow or geometry changes. Add a real-terminal closure example and physical-window rectangle regressions with springs enabled.
 - Make each card's X/WM_CLOSE issue a routed, cancelable card_close_request; remove only that card after an unconsumed request. Preserve workspace dismiss/close as separate actions, stop backgrounds when the last card leaves, and add interactive/CPU/GPU/WebView closure tests. Rebuild the glass extension for control protocol 4; frame protocol remains 1.
 - Transfer real keyboard focus across card headers/controls with Tab/Shift+Tab, card cycling and header arrows; retain editing keys and skip hidden/disabled nodes.
 - Host existing OverlayCanvas subclasses, CPU frames and GPU sources through GlassCanvas; make GlassWebView a thin composition of the existing WebView. Reuse canvas events/lifecycle instead of a separate browser-only card path, and add a mixed native/image/web example.
