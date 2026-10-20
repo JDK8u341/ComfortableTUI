@@ -38,14 +38,11 @@ std::string utf8(const std::wstring &s) {
     WideCharToMultiByte(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), out.data(), n, nullptr, nullptr);
     return out;
 }
-float row_height(const std::string &kind) {
-    if (kind == "canvas") return 128;
-    if (kind == "sparkline") return 84;
-    if (kind == "slider" || kind == "progress") return 58;
-    if (kind == "text") return 40;
-    return 46;
+float row_height(const GlassControl &c) {
+    auto h=glass_control_type(c).measure(c);
+    if(!std::isfinite(h)||h<16||h>1056)throw std::invalid_argument("invalid measured control height");
+    return h;
 }
-float row_height(const GlassControl &c) {return c.kind=="canvas"?c.canvas_height+32:row_height(c.kind);}
 std::vector<std::string> modifiers() {
     std::vector<std::string> result;
     if(GetKeyState(VK_CONTROL)&0x8000)result.push_back("ctrl");
@@ -166,6 +163,22 @@ struct UiSurface {
 };
 } // namespace
 
+namespace {
+struct ControlPainter final : GlassPainter {
+    UiSurface &p;float ox,oy;
+    ControlPainter(UiSurface &surface,float x,float y):p(surface),ox(x),oy(y){}
+    void fill(float x,float y,float w,float h,std::uint32_t rgb,float a,float radius)override {
+        if(w>0&&h>0)p.fill(D2D1::RectF(ox+x,oy+y,ox+x+w,oy+y+h),rgb,a,radius);
+    }
+    void text(const std::string &s,float x,float y,float w,float size,std::uint32_t rgb,float a,bool bold)override {p.text(s,ox+x,oy+y,w,size,rgb,a,bold);}
+    void line(float x,float y,float x2,float y2,std::uint32_t rgb,float a,float thickness)override {
+        p.brush->SetColor(color(rgb,a));p.dc->DrawLine(D2D1::Point2F(ox+x,oy+y),D2D1::Point2F(ox+x2,oy+y2),p.brush.Get(),thickness);
+    }
+    void circle(float x,float y,float radius,std::uint32_t rgb,float a)override {
+        p.brush->SetColor(color(rgb,a));p.dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ox+x,oy+y),radius,radius),p.brush.Get());
+    }
+};
+}
 struct GlassHost::Impl {
     struct Card;
     HWND owner{};
@@ -181,6 +194,8 @@ struct GlassHost::Impl {
     std::uint64_t submitted{}, applied{}, event_serial{};
     struct Action {std::string kind,id;std::uint64_t token{};};
     std::deque<Action> commands;
+    struct Presentation {std::string card,control;std::uint64_t generation{};float opacity{1};};
+    std::vector<Presentation> presentations;
     std::deque<GlassEvent> output;
     GlassMetrics report;
     std::vector<std::unique_ptr<Card>> cards;
@@ -242,6 +257,11 @@ struct GlassHost::Impl {
     std::uint64_t emit(GlassEvent e) {
         std::lock_guard<std::mutex> lock(mutex);
         auto serial=e.sequence=++event_serial;
+        for(const auto &card:scene.cards)if(card.id==e.card) {
+            e.generation=card.generation;
+            if(!e.control.empty())for(const auto &control:card.controls)if(control.id==e.control)e.generation=control.generation;
+            break;
+        }
         if ((e.kind=="mouse_move"||e.kind=="pointer_move"||e.kind=="drag") && !output.empty() && output.back().kind==e.kind &&
             output.back().card==e.card && output.back().control==e.control) output.back()=std::move(e);
         else {
@@ -472,7 +492,8 @@ struct GlassHost::Impl {
             if (px<20||px>width-20) return -1;
             float row=102;
             for (std::size_t i=0;i<spec.controls.size();i++) {
-                if(py>=row&&py<row+row_height(spec.controls[i])) return static_cast<int>(i);
+                auto &c=spec.controls[i];float h=row_height(c);
+                if(py>=row&&py<row+h&&glass_control_type(c).hit_test(c,px-20,py-row,width-40,h))return static_cast<int>(i);
                 row+=row_height(spec.controls[i]);
             }
             return -1;
@@ -497,9 +518,16 @@ struct GlassHost::Impl {
             event.inside_source=px>=24&&px<width-24&&py>=row_top(at)+22&&py<row_top(at)+22+h&&event.x>=0&&event.x<sw&&event.y>=0&&event.y<sh;
             host->emit(std::move(event));
         }
+        void control_pointer(const char *kind,int at,float px,float py,WPARAM flags=0) {
+            if(at<0||at>=static_cast<int>(spec.controls.size()))return;
+            auto &c=spec.controls[at];if(!c.enabled||c.kind=="canvas")return;
+            GlassEvent event{kind,spec.id,c.id,"",0,px-20,py-row_top(at)};
+            event.buttons=((flags&MK_LBUTTON)?1:0)|((flags&MK_RBUTTON)?2:0)|((flags&MK_MBUTTON)?4:0);
+            event.modifiers=modifiers();host->emit(std::move(event));
+        }
         bool interactive(int at)const {
             if(at<0||at>=static_cast<int>(spec.controls.size()))return false;
-            const auto &c=spec.controls[at];return c.enabled&&(c.kind=="button"||c.kind=="toggle"||c.kind=="slider"||c.kind=="input"||c.kind=="choice"||c.kind=="canvas");
+            const auto &c=spec.controls[at];return c.enabled&&glass_control_type(c).focusable;
         }
         void focus_event(const std::string &kind) {
             if(focused>=0&&focused<static_cast<int>(spec.controls.size()))host->emit({kind,spec.id,spec.controls[focused].id});
@@ -527,15 +555,16 @@ struct GlassHost::Impl {
             if(at<0||at>=static_cast<int>(spec.controls.size())) return;
             auto &c=spec.controls[at];if(!c.enabled)return;
             focus_control(at);dirty=true;
-            if(c.kind=="button")host->emit({"click",spec.id,c.id});
-            else if(c.kind=="toggle") {c.value=c.value>=.5?0:1;change(c);}
-            else if(c.kind=="slider") {
-                c.value=std::clamp((px-28)/(width-56),0.f,1.f);
-                change(c);
-            } else if(c.kind=="choice" && !c.options.empty()) {
-                c.value=std::fmod(c.value+1,static_cast<double>(c.options.size()));
-                change(c);
-            } else if(c.kind=="canvas") canvas_event("mouse_down",at,px,py,MK_LBUTTON);
+            if(c.kind=="canvas") {canvas_event("mouse_down",at,px,py,MK_LBUTTON);return;}
+            dispatch_input(at,{"activate",px-20,py-row_top(at),width-40,row_height(c),0});
+        }
+        bool dispatch_input(int at,const GlassControlInput &input) {
+            auto &c=spec.controls[at];auto &type=glass_control_type(c);
+            auto result=type.input?type.input(c,input):GlassControlAction::none;
+            if(!std::isfinite(c.value))throw std::invalid_argument("control input produced non-finite value");
+            if(result==GlassControlAction::change){dirty=true;change(c);}
+            if(result==GlassControlAction::click)host->emit({"click",spec.id,c.id});
+            return result!=GlassControlAction::none;
         }
         void change(GlassControl &c) {
             std::string text=c.kind=="choice"?c.options[static_cast<std::size_t>(c.value)]:c.text;
@@ -567,7 +596,10 @@ struct GlassHost::Impl {
             case WM_KILLFOCUS:focus_event("control_focus_out");dirty=true;return 0;
             case WM_MOUSEMOVE: {
                 if(hover_x==px&&hover_y==py)return 0;
+                int previous_hover=hovered;
                 hover_x=px;hover_y=py;hovered=hit(px,py);dirty=true;
+                if(previous_hover!=hovered){control_pointer("pointer_leave",previous_hover,px,py,w);control_pointer("pointer_enter",hovered,px,py,w);}
+                control_pointer("pointer_move",hovered,px,py,w);
                 if(dragging&&pressed<0&&(w&MK_LBUTTON)){pointer("pointer_move",px,py);move_drag();}
                 optical_dirty=true;
                 TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,hwnd,0};TrackMouseEvent(&track);
@@ -577,11 +609,12 @@ struct GlassHost::Impl {
                 return 0;
             }
             case WM_MOUSELEAVE:
+                control_pointer("pointer_leave",hovered,hover_x,hover_y);
                 if(hovered>=0&&spec.controls[hovered].enabled&&spec.controls[hovered].kind=="canvas")canvas_event("mouse_leave",hovered,hover_x,hover_y);
                 hovered=-1;hover_x=hover_y=0;dirty=true;return 0;
             case WM_LBUTTONDOWN:
             case WM_LBUTTONDBLCLK:
-                pressed=hit(px,py);focus_control(interactive(pressed)?pressed:-1);
+                pressed=hit(px,py);control_pointer("pointer_down",pressed,px,py,w);focus_control(interactive(pressed)?pressed:-1);
                 SetFocus(hwnd);host->select(spec.id);dragging=true;SetCapture(hwnd);
                 if(py>=0&&py<38&&px>width-46&&px<width){dragging=false;close_pressed=true;return 0;}
                 if(pressed<0&&py<96)pointer("pointer_down",px,py);
@@ -597,6 +630,7 @@ struct GlassHost::Impl {
                 // ReleaseCapture synchronously sends WM_CAPTURECHANGED, which
                 // clears pressed. Save the click before releasing capture.
                 if(pointer_sequence){pointer("pointer_up",px,py);stop_drag(false);}
+                control_pointer("pointer_up",pressed,px,py,w);
                 int clicked=pressed;pressed=-1;dragging=false;ReleaseCapture();
                 if(clicked>=0 && spec.controls[clicked].kind=="canvas"&&spec.controls[clicked].enabled)canvas_event("mouse_up",clicked,px,py,w);
                 else if(clicked==hit(px,py)&&clicked>=0&&spec.controls[clicked].kind!="slider")activate(clicked,px,py);
@@ -604,6 +638,7 @@ struct GlassHost::Impl {
             }
             case WM_CAPTURECHANGED:
                 close_pressed=false;
+                control_pointer("pointer_cancel",pressed,hover_x,hover_y);
                 if(pointer_sequence){host->emit({"pointer_cancel",spec.id});stop_drag(true);}
                 if(pressed>=0&&spec.controls[pressed].kind=="canvas")host->emit({"mouse_cancel",spec.id,spec.controls[pressed].id});
                 dragging=false;pressed=-1;return 0;
@@ -636,10 +671,7 @@ struct GlassHost::Impl {
                     auto &c=spec.controls[focused];
                     if(!c.enabled)return 0;
                     if(c.kind=="canvas") {key_event("key_down",w,l);return 0;}
-                    if(c.kind=="slider"&&(w==VK_LEFT||w==VK_RIGHT)) {
-                        c.value=std::clamp(c.value+(w==VK_RIGHT?.02:-.02),0.,1.);dirty=true;
-                        change(c);return 0;
-                    }
+                    if(dispatch_input(focused,{"key",0,0,width-40,row_height(c),static_cast<unsigned>(w)}))return 0;
                     if(c.kind=="input") {
                         if(w=='A'&&(GetKeyState(VK_CONTROL)&0x8000)){input_selected=true;dirty=true;return 0;}
                         if(w=='V'&&(GetKeyState(VK_CONTROL)&0x8000)&&OpenClipboard(hwnd)) {
@@ -718,47 +750,17 @@ struct GlassHost::Impl {
             for(std::size_t i=0;i<spec.controls.size();i++) {
                 const auto &c=spec.controls[i];float h=row_height(c);
                 bool over=hovered==static_cast<int>(i), focus=focused==static_cast<int>(i)&&GetFocus()==hwnd;
-                float a=c.enabled&&group_enabled?1.f:.42f;
+                float a=(c.enabled&&group_enabled?1.f:.42f)*c.opacity;
                 auto box=D2D1::RectF(20,row+2,width-20,row+h-6);
                 if(over||focus)p.fill(box,host->scene.accent,(pressed==static_cast<int>(i)?.19f:.09f)*a,10);
                 if(focus){p.brush->SetColor(color(host->scene.accent,.7f));p.dc->DrawRoundedRectangle(D2D1::RoundedRect(box,10,10),p.brush.Get(),1);}
-                if(c.kind=="text") {
-                    p.text(c.label,24,row+2,width-48,11,0x9db0c9,a);
-                    p.text(c.text,24,row+17,width-48,14,0xe5efff,a);
-                } else if(c.kind=="button") {
-                    p.fill(box,host->scene.accent,(over?.24f:.14f)*a,10);
-                    p.text(c.label,34,row+11,width-75,13,0xe4fff8,a,true);
-                    p.text("↗",width-45,row+9,20,17,host->scene.accent,a);
-                } else if(c.kind=="toggle") {
-                    p.text(c.label,26,row+10,width-110,13,0xe0ebfb,a);
-                    p.fill(D2D1::RectF(width-69,row+10,width-27,row+32),c.value>=.5?host->scene.accent:0x526078,.85f*a,11);
-                    float knob=c.value>=.5?width-39:width-57;
-                    p.brush->SetColor(color(c.value>=.5?0x12332f:0xdde8f9,a));
-                    p.dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(knob,row+21),7,7),p.brush.Get());
-                } else if(c.kind=="input"||c.kind=="choice") {
-                    p.fill(box,0x060b14,.3f*a,10);
-                    if(c.kind=="input"&&focus&&input_selected)p.fill(D2D1::RectF(28,row+9,width-28,row+32),host->scene.accent,.27f,2);
-                    std::string content=c.kind=="choice"&&!c.options.empty()?c.options[static_cast<std::size_t>(c.value)]:c.text;
-                    p.text(content.empty()?c.label:content,30,row+11,width-66,13,content.empty()?0x8a9cb4:0xe4efff,a);
-                } else if(c.kind=="slider"||c.kind=="progress") {
-                    p.text(c.label,26,row+3,width-100,12,0xb0c3da,a);
-                    p.text(std::to_string(static_cast<int>(c.value*100))+"%",width-66,row+3,42,12,host->scene.accent,a,true);
-                    p.fill(D2D1::RectF(28,row+32,width-28,row+36),0x60748d,.25f,2);
-                    float at=28+(width-56)*static_cast<float>(c.value);
-                    p.fill(D2D1::RectF(28,row+32,at,row+36),host->scene.accent,a,2);
-                    if(c.kind=="slider") {p.brush->SetColor(color(0xe1fff7,a));p.dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(at,row+34),5,5),p.brush.Get());}
-                } else if(c.kind=="sparkline") {
-                    p.text(c.label,26,row+3,width-50,12,0xb0c3da,a);
-                    p.fill(D2D1::RectF(24,row+25,width-24,row+72),0x061522,.32f,8);
-                    p.brush->SetColor(color(host->scene.accent,a));
-                    for(std::size_t j=1;j<c.series.size();j++) {
-                        float x0=28+(width-56)*static_cast<float>(j-1)/(c.series.size()-1),x1=28+(width-56)*static_cast<float>(j)/(c.series.size()-1);
-                        p.dc->DrawLine(D2D1::Point2F(x0,row+68-static_cast<float>(c.series[j-1])*36),D2D1::Point2F(x1,row+68-static_cast<float>(c.series[j])*36),p.brush.Get(),1.6f);
-                    }
-                } else if(c.kind=="canvas") {
-                    p.text(c.label,26,row+2,width-50,11,0xb0c3da,a);
-                    p.fill(D2D1::RectF(24,row+22,width-24,row+22+c.canvas_height),0x060c18,.7f,8);
-                }
+                ControlPainter painter(p,20,row);
+                GlassControlPaint state{width-40,h,host->dpi,a,host->scene.accent,over,focus,pressed==static_cast<int>(i),input_selected,
+                    host->scene.reduced_motion||!host->system_animation};
+                // Keep extension ink local: visual overdraw never changes hit/semantics.
+                p.dc->PushAxisAlignedClip(D2D1::RectF(20,row,width-20,row+h),D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                glass_control_type(c).paint(painter,c,state);
+                p.dc->PopAxisAlignedClip();
                 row+=h;
             }
             p.fill(D2D1::RectF(24,height-12,width-24,height-11),host->scene.accent,selected?.28f:.08f);
@@ -894,7 +896,7 @@ struct GlassHost::Impl {
                 auto old_controls=card.spec.controls;
                 card.spec=spec;card.focused=-1;card.hovered=-1;card.pressed=-1;
                 for(auto &control:card.spec.controls) {
-                    auto old=std::find_if(old_controls.begin(),old_controls.end(),[&](const auto &v){return v.id==control.id&&v.kind==control.kind;});
+                    auto old=std::find_if(old_controls.begin(),old_controls.end(),[&](const auto &v){return v.id==control.id&&v.kind==control.kind&&v.generation==control.generation;});
                     if(old!=old_controls.end()) {
                         control.edit_serial=old->edit_serial;
                         if(control.acknowledged<old->edit_serial&&(control.kind!="choice"||control.options==old->options)) {
@@ -903,9 +905,9 @@ struct GlassHost::Impl {
                     }
                 }
                 for(std::size_t i=0;i<spec.controls.size();i++) {
-                    if(spec.controls[i].id==focus_id)card.focused=static_cast<int>(i);
-                    if(spec.controls[i].id==hover_id)card.hovered=static_cast<int>(i);
-                    if(spec.controls[i].id==pressed_id)card.pressed=static_cast<int>(i);
+                    if(spec.controls[i].id==focus_id&&std::any_of(old_controls.begin(),old_controls.end(),[&](const auto &old){return old.id==focus_id&&old.generation==spec.controls[i].generation;}))card.focused=static_cast<int>(i);
+                    if(spec.controls[i].id==hover_id&&std::any_of(old_controls.begin(),old_controls.end(),[&](const auto &old){return old.id==hover_id&&old.generation==spec.controls[i].generation;}))card.hovered=static_cast<int>(i);
+                    if(spec.controls[i].id==pressed_id&&std::any_of(old_controls.begin(),old_controls.end(),[&](const auto &old){return old.id==pressed_id&&old.generation==spec.controls[i].generation;}))card.pressed=static_cast<int>(i);
                 }
                 if(card.focused>=0&&!card.interactive(card.focused))card.focus_control(-1);
                 card.dirty=true;card.apply_material();
@@ -1121,9 +1123,9 @@ struct GlassHost::Impl {
             bool last_active=false;
             for(;;) {
                 while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}
-                GlassScene next;std::uint64_t serial{};std::deque<Action> actions;
+                GlassScene next;std::uint64_t serial{};std::deque<Action> actions;std::vector<Presentation> deltas;
                 {std::lock_guard<std::mutex> lock(mutex);if(stopping)break;
-                    if(submitted>applied){next=requested;serial=submitted;}actions.swap(commands);}
+                    if(submitted>applied){next=requested;serial=submitted;}actions.swap(commands);deltas.swap(presentations);}
                 if(!IsWindow(owner))break;
                 if(optics&&MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST)!=optical_monitor) {
                     cards.clear();retain_positions=false;background_compositor.reset();background_optical.reset();background_ui.reset();
@@ -1133,6 +1135,8 @@ struct GlassHost::Impl {
                     if(!serial){next=scene;serial=applied;}
                 }
                 if(serial)apply(std::move(next),serial);
+                for(const auto &delta:deltas)for(auto &card:cards)if(card->spec.id==delta.card)for(auto &control:card->spec.controls)
+                    if(control.id==delta.control&&control.generation==delta.generation&&control.opacity!=delta.opacity){control.opacity=delta.opacity;card->dirty=true;}
                 for(const auto &a:actions) {
                     if(a.kind=="next")cycle(1);else if(a.kind=="previous")cycle(-1);
                     else if(a.kind=="next_control"||a.kind=="previous_control") {
@@ -1244,10 +1248,10 @@ GlassHost::GlassHost(std::uintptr_t owner,bool inspectable):impl_(std::make_uniq
 GlassHost::~GlassHost(){close();}
 std::uint64_t GlassHost::configure(GlassScene scene) {
     static const std::set<std::string> layouts{"orbit","deck","ribbon","focus"},materials{"glass","liquid","frosted","mica","solid","transparent"},backdrops{"none","dim","frosted","mica"};
-    static const std::set<std::string> kinds{"text","button","toggle","slider","input","choice","progress","sparkline","canvas"};
     if(scene.cards.size()>12||scene.accent>0xffffff||!layouts.count(scene.layout)||!materials.count(scene.material)||!backdrops.count(scene.backdrop))throw std::invalid_argument("invalid glass scene or resource limit");
     std::set<std::string> ids,channels;
-    for(const auto &card:scene.cards) {
+    for(auto &card:scene.cards) {
+        for(auto &control:card.controls)control.type=&glass_control_type(control.kind);
         if(card.id.empty()||card.id.size()>128||!ids.insert(card.id).second||card.controls.size()>32||
            !std::isfinite(card.width)||card.width<220||card.width>1600||card_height(card)>1200||
            card.title.size()>4096||card.subtitle.size()>4096||card.eyebrow.size()>256)throw std::invalid_argument("invalid glass card");
@@ -1258,14 +1262,15 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
             !std::isfinite(b.refraction)||b.refraction<0||b.refraction>48||!std::isfinite(b.dispersion)||b.dispersion<0||b.dispersion>3||
             !std::isfinite(b.corner_radius)||b.corner_radius<0||b.corner_radius>64))throw std::invalid_argument("invalid card background");
         for(const auto &c:card.controls) {
-            if(!kinds.count(c.kind)||c.id.empty()||c.id.size()>128||!controls.insert(c.id).second||c.text.size()>8192||c.label.size()>4096||
-               !std::isfinite(c.value)||c.series.size()>256||c.options.size()>16||!std::isfinite(c.canvas_height)||c.canvas_height<16||c.canvas_height>1024)throw std::invalid_argument("invalid glass control");
+            if(c.id.empty()||c.id.size()>128||!controls.insert(c.id).second||c.text.size()>8192||c.label.size()>4096||
+               !std::isfinite(c.opacity)||c.opacity<0||c.opacity>1||!std::isfinite(c.value)||c.series.size()>256||c.options.size()>16||!std::isfinite(c.canvas_height)||c.canvas_height<16||c.canvas_height>1024)throw std::invalid_argument("invalid glass control");
             if((c.kind=="slider"||c.kind=="progress"||c.kind=="toggle")&&(c.value<0||c.value>1))throw std::invalid_argument("control value outside 0..1");
             if(c.kind=="choice"&&(c.options.empty()||c.value<0||c.value>=c.options.size()||std::floor(c.value)!=c.value))throw std::invalid_argument("invalid glass choice");
             if(c.kind=="input"&&utf16(c.text).size()>2048)throw std::invalid_argument("input text too long");
             for(double v:c.series)if(!std::isfinite(v)||v<0||v>1)throw std::invalid_argument("invalid sparkline samples");
             for(const auto &s:c.options)if(s.size()>1024)throw std::invalid_argument("choice text too long");
             if(c.kind=="canvas") {
+                if(c.opacity!=1)throw std::invalid_argument("Canvas opacity requires compositor effects");
                 if(++canvases>1||!channels.insert(c.canvas.source.name).second)throw std::invalid_argument("one canvas per card and one card per channel required");
                 if(c.fit!="contain"&&c.fit!="cover"&&c.fit!="stretch"&&c.fit!="pixel")throw std::invalid_argument("invalid canvas fit");
                 if(!c.canvas.source.width||!c.canvas.source.height||c.canvas.source.width>16384||c.canvas.source.height>16384)throw std::invalid_argument("invalid canvas dimensions");
@@ -1312,6 +1317,19 @@ void GlassHost::begin_drag(const std::string &card,std::uint64_t sequence) {
     if(impl_->stopping)throw std::runtime_error("GlassHost is closed");
     if(impl_->commands.size()>=64)throw std::runtime_error("glass command queue full");
     impl_->commands.push_back({"begin_drag",card,sequence});SetEvent(impl_->changed.value);
+}
+void GlassHost::present(const std::string &card,const std::string &control,std::uint64_t generation,float opacity) {
+    if(card.empty()||card.size()>128||control.empty()||control.size()>128||!generation||!std::isfinite(opacity)||opacity<0||opacity>1)
+        throw std::invalid_argument("invalid Glass presentation delta");
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    if(impl_->stopping)throw std::runtime_error("GlassHost is closed");
+    for(const auto &c:impl_->requested.cards)if(c.id==card)for(const auto &v:c.controls)if(v.id==control) {
+        if(v.kind=="canvas")throw std::invalid_argument("Canvas opacity requires compositor effects; not available in control ink deltas");
+        if(v.generation!=generation)return;
+        for(auto &pending:impl_->presentations)if(pending.card==card&&pending.control==control){pending.generation=generation;pending.opacity=opacity;SetEvent(impl_->changed.value);return;}
+        if(impl_->presentations.size()>=384)throw std::runtime_error("Glass presentation queue full");
+        impl_->presentations.push_back({card,control,generation,opacity});SetEvent(impl_->changed.value);return;
+    }
 }
 std::vector<GlassEvent> GlassHost::events(){std::lock_guard<std::mutex> lock(impl_->mutex);std::vector<GlassEvent> r(impl_->output.begin(),impl_->output.end());impl_->output.clear();return r;}
 GlassMetrics GlassHost::metrics()const{std::lock_guard<std::mutex> lock(impl_->mutex);return impl_->report;}

@@ -8,7 +8,7 @@
 
 ## 运行示例
 
-先按[玻璃工作区安装说明](glass-workspace.md)构建 `_native_glass` 协议4，并准备已有
+先按[玻璃工作区安装说明](glass-workspace.md)构建 `_native_glass` 协议5，并准备已有
 [浏览器运行时](webview.md)。本次不需要修改或重新编译 CEF 服务。
 
 ```powershell

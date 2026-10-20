@@ -1,0 +1,340 @@
+{
+  "date": "2026-10-20",
+  "scope": "Glass control protocol 5: first implementation batch, not the full effect/animation proposal",
+  "python": {
+    "normal": "314 passed, 1 skipped",
+    "forced_pure": "314 passed, 1 skipped",
+    "native_extension_directory": ".build/glass-controls"
+  },
+  "native_controls": {
+    "result": "passed",
+    "checks": [
+      "native_type_paints_and_updates_only_its_own_instance",
+      "custom_hit_shape_excludes_row_corners",
+      "registered_control_participates_in_tab_and_directional_input",
+      "custom_control_publishes_registered_accessibility_role_value_and_action",
+      "native_paint_does_not_require_python_poll_or_gil",
+      "pointer_hooks_carry_control_instance_generation",
+      "presentation_delta_redraws_without_scene_submission",
+      "settled_controls_do_not_keep_redrawing",
+      "same_id_replacement_ignores_retired_generation"
+    ],
+    "host": "Qt_fixture",
+    "metrics": {
+      "applied": 2,
+      "frames": 11,
+      "tick_ms": 0.022299995180219412,
+      "dropped_events": 0,
+      "active": false,
+      "compact": false,
+      "backdrop_visible": false,
+      "high_contrast": false,
+      "system_animation": true,
+      "material": "solid",
+      "error": "",
+      "windows": [
+        {
+          "id": "a",
+          "hwnd": 789696,
+          "rect": [
+            1222.0,
+            267.0,
+            350.0,
+            328.0
+          ],
+          "material": "solid",
+          "pinned": false,
+          "draggable": true,
+          "visible": true,
+          "enabled": true,
+          "focused_control": ""
+        },
+        {
+          "id": "b",
+          "hwnd": 6098132,
+          "rect": [
+            350.0,
+            267.0,
+            350.0,
+            328.0
+          ],
+          "material": "solid",
+          "pinned": false,
+          "draggable": true,
+          "visible": true,
+          "enabled": true,
+          "focused_control": ""
+        }
+      ],
+      "closed": false,
+      "presents": 11,
+      "canvas_frames": 0,
+      "capture_active": false,
+      "capture_frames": 0,
+      "optical_frames": 0,
+      "copied_pixels": 0,
+      "optics_error": "",
+      "close_hide_ms": 0.0,
+      "close_join_ms": 0.0,
+      "close_surfaces_ms": 0.0,
+      "close_windows_ms": 0.0,
+      "close_resources_ms": 0.0,
+      "unchanged_capture_frames": 0,
+      "backdrop_material": "none",
+      "pane_available": true,
+      "pane_error": ""
+    }
+  },
+  "focus_regression": {
+    "result": "passed",
+    "checks": [
+      "automatic_compact_deck_focus_preserves_positions_and_other_siblings_order",
+      "explicit_deck_focus_only_raises_selected_card",
+      "group_focus_raises_container_without_repositioning_its_children",
+      "explicit_focus_transition_only_moves_previous_and_new_focus",
+      "explicit_ribbon_carousel_retains_selection_animation",
+      "restored_owner_focus_preserves_orbit_or_compact_positions",
+      "enabled_springs_do_not_animate_unrelated_cards_on_focus",
+      "native_windows_close_after_focus_regression"
+    ]
+  },
+  "terminal_attachment": {
+    "metrics": {
+      "applied": 2,
+      "frames": 2,
+      "tick_ms": 0.45950000640004873,
+      "dropped_events": 0,
+      "active": false,
+      "compact": true,
+      "backdrop_visible": false,
+      "high_contrast": false,
+      "system_animation": true,
+      "material": "liquid",
+      "error": "",
+      "windows": [
+        {
+          "id": "left",
+          "hwnd": 855290,
+          "rect": [
+            1198.0,
+            179.0,
+            350.0,
+            328.0
+          ],
+          "material": "liquid",
+          "pinned": false,
+          "draggable": true,
+          "visible": true,
+          "enabled": true,
+          "focused_control": ""
+        },
+        {
+          "id": "right",
+          "hwnd": 68870,
+          "rect": [
+            1217.0,
+            209.0,
+            350.0,
+            328.0
+          ],
+          "material": "liquid",
+          "pinned": false,
+          "draggable": true,
+          "visible": true,
+          "enabled": true,
+          "focused_control": ""
+        }
+      ],
+      "closed": false,
+      "presents": 460,
+      "canvas_frames": 0,
+      "capture_active": true,
+      "capture_frames": 306,
+      "optical_frames": 472,
+      "copied_pixels": 338476971,
+      "optics_error": "",
+      "close_hide_ms": 0.0,
+      "close_join_ms": 0.0,
+      "close_surfaces_ms": 0.0,
+      "close_windows_ms": 0.0,
+      "close_resources_ms": 0.0,
+      "unchanged_capture_frames": 7,
+      "backdrop_material": "none",
+      "pane_available": true,
+      "pane_error": ""
+    },
+    "owners": [
+      "CASCADIA_HOSTING_WINDOW_CLASS",
+      "CASCADIA_HOSTING_WINDOW_CLASS"
+    ],
+    "result": "passed"
+  },
+  "canvas_regression": {
+    "checks": [
+      "native_ui_and_external_frames_presented",
+      "settled_ui_does_not_redraw_continuously",
+      "capture_release_preserves_exactly_one_click",
+      "native_control_change_reaches_python",
+      "stale_scene_cannot_erase_unacknowledged_native_edit",
+      "generic_canvas_keeps_standard_events_and_transform",
+      "canvas_source_coordinates_and_mouse_pair",
+      "native_motion_continues_while_python_holds_gil",
+      "interruptible_orbit_focus_ribbon_deck_layouts",
+      "opaque_and_reduced_motion_preferences",
+      "canvas_replacement_ack_preserves_native_window",
+      "native_owner_translation_follows_without_python_geometry",
+      "maximized_owner_uses_bounded_compact_deck",
+      "background_follows_focus_group_cards_survive_inactivity_and_escape",
+      "dismiss_and_recall",
+      "owner_minimize_restore",
+      "owner_destroy_closes_windows_and_consumers"
+    ],
+    "idle_settle_seconds": 0.9163588999654166,
+    "idle_ui_draws_in_300ms": 0,
+    "initial_metrics": {
+      "applied": 1,
+      "frames": 2,
+      "tick_ms": 0.38789998507127166,
+      "dropped_events": 0,
+      "active": false,
+      "compact": false,
+      "backdrop_visible": false,
+      "high_contrast": false,
+      "system_animation": true,
+      "material": "liquid",
+      "error": "",
+      "windows": [
+        {
+          "id": "main",
+          "hwnd": 593164,
+          "rect": [
+            1187.0,
+            145.0,
+            350.0,
+            428.0
+          ],
+          "material": "liquid",
+          "pinned": false,
+          "draggable": true,
+          "visible": true,
+          "enabled": true,
+          "focused_control": ""
+        },
+        {
+          "id": "side",
+          "hwnd": 2034978,
+          "rect": [
+            252.0,
+            145.0,
+            325.0,
+            210.0
+          ],
+          "material": "liquid",
+          "pinned": false,
+          "draggable": true,
+          "visible": true,
+          "enabled": true,
+          "focused_control": ""
+        }
+      ],
+      "closed": false,
+      "presents": 61,
+      "canvas_frames": 1,
+      "capture_active": true,
+      "capture_frames": 64,
+      "optical_frames": 61,
+      "copied_pixels": 59417799,
+      "optics_error": "",
+      "close_hide_ms": 0.0,
+      "close_join_ms": 0.0,
+      "close_surfaces_ms": 0.0,
+      "close_windows_ms": 0.0,
+      "close_resources_ms": 0.0,
+      "unchanged_capture_frames": 2,
+      "backdrop_material": "none",
+      "pane_available": true,
+      "pane_error": ""
+    },
+    "gil_held_seconds": 0.45,
+    "motion_during_gil_pixels": 608.0,
+    "translation_error_pixels": [
+      0.0,
+      0.0
+    ],
+    "metrics": {
+      "applied": 13,
+      "frames": 41,
+      "tick_ms": 0.21299999207258224,
+      "dropped_events": 0,
+      "active": true,
+      "compact": false,
+      "backdrop_visible": false,
+      "high_contrast": false,
+      "system_animation": true,
+      "material": "solid",
+      "error": "",
+      "windows": [
+        {
+          "id": "main",
+          "hwnd": 593164,
+          "rect": [
+            1287.0,
+            333.0,
+            350.0,
+            428.0
+          ],
+          "material": "solid",
+          "pinned": false,
+          "draggable": true,
+          "visible": true,
+          "enabled": true,
+          "focused_control": ""
+        },
+        {
+          "id": "side",
+          "hwnd": 2034978,
+          "rect": [
+            1305.0,
+            363.0,
+            325.0,
+            210.0
+          ],
+          "material": "solid",
+          "pinned": false,
+          "draggable": true,
+          "visible": true,
+          "enabled": true,
+          "focused_control": ""
+        }
+      ],
+      "closed": false,
+      "presents": 263,
+      "canvas_frames": 1,
+      "capture_active": false,
+      "capture_frames": 147,
+      "optical_frames": 235,
+      "copied_pixels": 170383173,
+      "optics_error": "",
+      "close_hide_ms": 0.0,
+      "close_join_ms": 0.0,
+      "close_surfaces_ms": 0.0,
+      "close_windows_ms": 0.0,
+      "close_resources_ms": 0.0,
+      "unchanged_capture_frames": 37,
+      "backdrop_material": "none",
+      "pane_available": true,
+      "pane_error": ""
+    },
+    "source": "cpu_framebuffer",
+    "result": "passed"
+  },
+  "failed_attempts": [
+    "First direct focus fixture: owner became minimized after first check; rerun passed all eight.",
+    "Direct CPU Canvas regression: 13 checks passed, then Windows denied foreground activation; whole run failed. Relaunch in own Windows Terminal passed all 17 without changing assertions."
+  ],
+  "limits": [
+    "No Computer Use or full visual inspection this round; directed messages only to own test HWNDs.",
+    "No EffectType, arbitrary shaders, local Canvas-prefix effects, per-node resource lifecycle, native frame subscriptions or Card layout/transform hooks implemented.",
+    "No before/after GPU throughput benchmark; idle counters and direct-draw structure do not establish a frame-time speedup."
+  ]
+}

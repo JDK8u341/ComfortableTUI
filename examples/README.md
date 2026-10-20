@@ -1,5 +1,8 @@
 # Examples
 
+Glass自定义原生旋钮与动画：`python -m examples.glass_workspace.controls`，
+先按[控件SDK](../docs/glass-controls-sdk.md)编译示例扩展。
+
 浏览器上层服务示例：`python examples/webview.py`（Windows 终端附加层）。
 需要可选 CEF/原生宿主，详见 [WebView 指南](../docs/webview.md)。
 Linux WindowHost 和 WebView 图形运行路径已经暂停；旧 Linux GUI 验证脚本仅为历史资料。

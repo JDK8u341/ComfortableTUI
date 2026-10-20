@@ -1,5 +1,9 @@
 # Glass Workspace
 
+自定义控件与动画示例：`python -m examples.glass_workspace.controls`。
+先按[原生控件SDK](../../docs/glass-controls-sdk.md)编译独立旋钮模块；示例附加真实终端，
+展示可复用MixerCard、独立控件值与按需动画。完整图像效果器仍按扩展计划实施。
+
 自有 C++ UI 库的周边卡片示例：终端内记录笔记，周围放置专注计时、外部实时画布、
 原生 tick 曲线、材质与空间布局控制。无需浏览器，不执行 shell 任务；笔记只在本次
 运行的内存中保存，计时与原生性能数据是真实采样。

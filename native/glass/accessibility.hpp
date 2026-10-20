@@ -30,18 +30,16 @@ template<class Card> class GlassAccessibility final : public IAccessible {
     }
     HRESULT STDMETHODCALLTYPE get_accValue(VARIANT v,BSTR *out)override {
         if(!c())return CO_E_OBJNOTCONNECTED;int i=index(v);if(i<0)return string(out,"");auto &x=c()->spec.controls[i];
-        if(x.kind=="choice")return string(out,x.options[static_cast<std::size_t>(x.value)]);
-        if(x.kind=="input"||x.kind=="text")return string(out,x.text);
-        return string(out,std::to_string(x.value));
+        try{return string(out,glass_control_type(x).accessible_value(x));}catch(...){return E_FAIL;}
     }
     HRESULT STDMETHODCALLTYPE get_accDescription(VARIANT v,BSTR *out)override{return string(out,index(v)<0&&c()?c()->spec.subtitle:"");}
     HRESULT STDMETHODCALLTYPE get_accRole(VARIANT v,VARIANT *out)override {
         if(!out)return E_POINTER;VariantInit(out);out->vt=VT_I4;int i=index(v);out->lVal=ROLE_SYSTEM_PANE;
-        if(i>=0){auto &k=c()->spec.controls[i].kind;out->lVal=k=="button"?ROLE_SYSTEM_PUSHBUTTON:k=="toggle"?ROLE_SYSTEM_CHECKBUTTON:k=="slider"?ROLE_SYSTEM_SLIDER:k=="input"?ROLE_SYSTEM_TEXT:k=="choice"?ROLE_SYSTEM_COMBOBOX:k=="progress"?ROLE_SYSTEM_PROGRESSBAR:k=="text"?ROLE_SYSTEM_STATICTEXT:ROLE_SYSTEM_GRAPHIC;}return S_OK;
+        if(i>=0)out->lVal=glass_control_type(c()->spec.controls[i]).accessibility_role;return S_OK;
     }
     HRESULT STDMETHODCALLTYPE get_accState(VARIANT v,VARIANT *out)override {
         if(!out)return E_POINTER;VariantInit(out);out->vt=VT_I4;out->lVal=0;int i=index(v);
-        if(i>=0){auto &x=c()->spec.controls[i];out->lVal=STATE_SYSTEM_FOCUSABLE;
+        if(i>=0){auto &x=c()->spec.controls[i];out->lVal=glass_control_type(x).focusable?STATE_SYSTEM_FOCUSABLE:0;
             if(!x.enabled)out->lVal|=STATE_SYSTEM_UNAVAILABLE;
             if(c()->focused==i&&GetFocus()==c()->hwnd)out->lVal|=STATE_SYSTEM_FOCUSED;
             if(x.kind=="toggle"&&x.value>=.5)out->lVal|=STATE_SYSTEM_CHECKED;}
@@ -52,15 +50,16 @@ template<class Card> class GlassAccessibility final : public IAccessible {
     HRESULT STDMETHODCALLTYPE get_accKeyboardShortcut(VARIANT,BSTR *out)override{return string(out,"");}
     HRESULT STDMETHODCALLTYPE get_accFocus(VARIANT *out)override{if(!out)return E_POINTER;VariantInit(out);out->vt=VT_I4;out->lVal=c()?c()->focused+1:0;return S_OK;}
     HRESULT STDMETHODCALLTYPE get_accSelection(VARIANT *out)override{if(!out)return E_POINTER;VariantInit(out);return S_FALSE;}
-    HRESULT STDMETHODCALLTYPE get_accDefaultAction(VARIANT v,BSTR *out)override{return string(out,index(v)>=0?"Press":"");}
+    HRESULT STDMETHODCALLTYPE get_accDefaultAction(VARIANT v,BSTR *out)override{int i=index(v);return string(out,i>=0&&glass_control_type(c()->spec.controls[i]).default_action?glass_control_type(c()->spec.controls[i]).default_action:"");}
     HRESULT STDMETHODCALLTYPE accSelect(LONG flags,VARIANT v)override {
         int i=index(v);if(!c()||i<0)return E_INVALIDARG;
-        if(flags&SELFLAG_TAKEFOCUS){SetForegroundWindow(c()->hwnd);SetFocus(c()->hwnd);c()->focused=i;c()->dirty=true;NotifyWinEvent(EVENT_OBJECT_FOCUS,c()->hwnd,OBJID_CLIENT,i+1);}return S_OK;
+        if(!c()->interactive(i))return E_INVALIDARG;
+        if(flags&SELFLAG_TAKEFOCUS){SetForegroundWindow(c()->hwnd);SetFocus(c()->hwnd);c()->focus_control(i);}return S_OK;
     }
     HRESULT STDMETHODCALLTYPE accLocation(LONG *x,LONG *y,LONG *w,LONG *h,VARIANT v)override {
         if(!c())return CO_E_OBJNOTCONNECTED;if(!x||!y||!w||!h)return E_POINTER;
         RECT r{};GetWindowRect(c()->hwnd,&r);int i=index(v);*x=r.left;*y=r.top;*w=r.right-r.left;*h=r.bottom-r.top;
-        if(i>=0){*x+=static_cast<LONG>(20*c()->host->dpi);*y+=static_cast<LONG>(c()->row_top(i)*c()->host->dpi);*w=static_cast<LONG>((c()->width-40)*c()->host->dpi);*h=static_cast<LONG>(row_height(c()->spec.controls[i])*c()->host->dpi);}return S_OK;
+        try{if(i>=0){*x+=static_cast<LONG>(20*c()->host->dpi);*y+=static_cast<LONG>(c()->row_top(i)*c()->host->dpi);*w=static_cast<LONG>((c()->width-40)*c()->host->dpi);*h=static_cast<LONG>(row_height(c()->spec.controls[i])*c()->host->dpi);}}catch(...){return E_FAIL;}return S_OK;
     }
     HRESULT STDMETHODCALLTYPE accNavigate(LONG direction,VARIANT from,VARIANT *out)override {
         if(!out||!c())return E_INVALIDARG;VariantInit(out);int i=index(from)+1,n=static_cast<int>(c()->spec.controls.size());
@@ -68,12 +67,13 @@ template<class Card> class GlassAccessibility final : public IAccessible {
         if(i<1||i>n)return S_FALSE;out->vt=VT_I4;out->lVal=i;return S_OK;
     }
     HRESULT STDMETHODCALLTYPE accHitTest(LONG x,LONG y,VARIANT *out)override {
-        if(!c()||!out)return E_INVALIDARG;POINT p{x,y};ScreenToClient(c()->hwnd,&p);int i=c()->hit(p.x/c()->host->dpi,p.y/c()->host->dpi);
+        if(!c()||!out)return E_INVALIDARG;POINT p{x,y};ScreenToClient(c()->hwnd,&p);int i;
+        try{i=c()->hit(p.x/c()->host->dpi,p.y/c()->host->dpi);}catch(...){return E_FAIL;}
         VariantInit(out);out->vt=VT_I4;out->lVal=i+1;return S_OK;
     }
     HRESULT STDMETHODCALLTYPE accDoDefaultAction(VARIANT v)override {
-        int i=index(v);if(!c()||i<0)return E_INVALIDARG;
-        SetForegroundWindow(c()->hwnd);SetFocus(c()->hwnd);c()->activate(i,28+static_cast<float>(c()->spec.controls[i].value)*(c()->width-56),c()->row_top(i)+16);return S_OK;
+        int i=index(v);if(!c()||i<0||!c()->interactive(i))return E_INVALIDARG;
+        try{SetForegroundWindow(c()->hwnd);SetFocus(c()->hwnd);c()->activate(i,28+static_cast<float>(c()->spec.controls[i].value)*(c()->width-56),c()->row_top(i)+16);}catch(...){return E_FAIL;}return S_OK;
     }
     HRESULT STDMETHODCALLTYPE put_accName(VARIANT,BSTR)override{return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE put_accValue(VARIANT v,BSTR value)override {

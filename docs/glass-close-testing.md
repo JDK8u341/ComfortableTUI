@@ -18,7 +18,7 @@
 ```powershell
 $env:COMFORTABLE_TUI_BUILD_GLASS = '1'
 .\.venv\Scripts\python.exe -m pip install --no-build-isolation -e .
-.\.venv\Scripts\python.exe -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 4"
+.\.venv\Scripts\python.exe -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 5"
 ```
 
 仍需要本机 Windows 桌面和已有 overlay 依赖；卡片绘制为原生。下面的推荐入口直接附着
@@ -123,7 +123,7 @@ close 的耗时；不可见时间是 Win32 状态采样，不是显示器实际�
 关闭后 metrics 增加 close_hide_ms、close_join_ms（各卡合成线程等待之和）、
 close_surfaces_ms、close_windows_ms、close_resources_ms（隐藏之后整个原生清理阶段）。
 resources 包含 join/surfaces/windows，不能将这些值重复相加；完整 API 耗时以基准的 close_ms 为准。
-需按上面的构建步骤重编原生扩展；Glass 控制协议仍为4，底层帧协议仍为1。
+需按上面的构建步骤重编原生扩展；当前Glass控制协议为5（本次关闭性能改动时为4），底层帧协议仍为1。
 
 ## 单元测试与资源边界
 

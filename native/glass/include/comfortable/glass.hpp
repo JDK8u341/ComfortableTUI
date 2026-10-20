@@ -1,5 +1,6 @@
 #pragma once
 #include "comfortable/compositor.hpp"
+#include "comfortable/glass_control.hpp"
 
 namespace comfortable {
 struct GlassBackground {
@@ -17,13 +18,18 @@ struct GlassControl {
     std::vector<double> series;
     std::vector<std::string> options;
     NativeView canvas;
+    std::uint64_t generation{};
+    float opacity{1};
+    const GlassControlType *type{};
 };
+inline const GlassControlType &glass_control_type(const GlassControl &c){return c.type?*c.type:glass_control_type(c.kind);}
 struct GlassCard {
     std::string id, title, subtitle, eyebrow, group;
     float width{320};
     std::vector<GlassControl> controls;
     GlassBackground background;
     bool has_background{}, draggable{true};
+    std::uint64_t generation{};
 };
 struct GlassGroup {
     std::string id,parent,layout{"row"};
@@ -51,6 +57,7 @@ struct GlassEvent {
     int buttons{},clicks{1};
     bool inside_source{true};
     std::string source_name;
+    std::uint64_t generation{};
 };
 struct GlassMetrics {
     std::uint64_t applied{}, frames{}, presents{}, canvas_frames{}, dropped_events{};
@@ -79,6 +86,7 @@ class GlassHost {
     std::uint64_t configure(GlassScene);
     void command(const std::string &action, const std::string &value = "");
     void begin_drag(const std::string &card,std::uint64_t pointer_sequence);
+    void present(const std::string &card,const std::string &control,std::uint64_t generation,float opacity);
     std::vector<GlassEvent> events();
     GlassMetrics metrics() const;
     void close();

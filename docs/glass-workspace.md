@@ -14,7 +14,8 @@ Windows 11。光学材质使用 D3D11 feature level 11 和 Desktop Duplication�
 [验证记录](validation/glass/README.md)。
 
 每控件独立效果器、自定义控件/Card 类型及用户动画钩子的后续设计见
-[扩展调研与方案](glass-extensibility-plan.md)；这些新接口尚未实现。
+[扩展调研与方案](glass-extensibility-plan.md)。第一批[原生控件SDK和按需动画钩子](glass-controls-sdk.md)
+已实现；完整效果器、变换及原生帧订阅仍待实现。
 
 ## 安装和启动
 
@@ -25,7 +26,7 @@ Python 3.10+ 和 pybind11。以下命令在仓库根目录的 PowerShell 中运�
 python -m pip install -e ".[dev,overlay]"
 $env:COMFORTABLE_TUI_BUILD_GLASS = '1'
 python -m pip install --no-build-isolation -e .
-python -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 4"
+python -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 5"
 python -m examples.glass_workspace
 ```
 

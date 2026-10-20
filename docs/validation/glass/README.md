@@ -1,5 +1,22 @@
 # 玻璃工作区验证
 
+## 控件 SDK 与基础帧钩子（2026-10-20）
+
+第一批实现范围见[控件SDK](../../glass-controls-sdk.md)，原始结果见
+[control-sdk.json](control-sdk.json)。完整效果器/布局动画方案尚未全部实现。
+
+- 全库正常及强制纯Python均为314 passed、1 skipped，包含独立扩展的ABI不匹配、
+  禁止覆盖、批次原子性检查；CI新增独立模块编译与无需GPU的注册测试。
+- 原生旋钮9项检查通过：实例独立、圆形命中、Tab/方向键、真实MSAA角色/值/动作、
+  持有GIL时继续绘制、带代号的指针钩子、无需configure的增量、静止不重绘、同ID替换。
+- 原有焦点8项、CPU画布17项通过，画布静止300ms记录0次UI重绘。
+  首次焦点夹具意外最小化超时；重跑通过。直接启动的画布夹具完成13项后因Windows
+  前台激活限制超时，不能计为通过；从自己的Windows Terminal重启后17项全部通过。
+- 真实Windows Terminal运行新控件示例，两个卡片均实际由同一
+  CASCADIA_HOSTING_WINDOW_CLASS宿主拥有，非WindowHost替代窗口。
+- 原生构建/CTest、Ruff和严格文档构建通过。没有调用电脑插件或做本轮完整视觉验收。
+  没有新增逐控件离屏纹理，但未测绘制吞吐前后对照，不能宣称GPU加速比例。
+
 ## 批量关闭性能（2026-10-20）
 
 见 [close-performance.json](close-performance.json) 和[关闭基准说明](../../glass-close-testing.md)。

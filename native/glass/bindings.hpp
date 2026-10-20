@@ -1,9 +1,32 @@
 #pragma once
 #include "comfortable/glass.hpp"
+#include <cmath>
 namespace comfortable {
 inline void bind_glass(pybind11::module_ &m) {
     namespace py=pybind11;
-    m.attr("glass_protocol_version")=4;
+    m.attr("glass_protocol_version")=5;
+    auto owners=py::list();
+    m.def("register_controls",[owners](py::object owner,py::capsule capsule)mutable {
+        if(!capsule.name()||std::string(capsule.name())!=glass_extension_capsule)throw std::invalid_argument("invalid Glass extension capsule");
+        auto extension=static_cast<const GlassControlExtension *>(capsule.get_pointer());
+        if(!extension)throw std::invalid_argument("empty Glass extension capsule");
+        register_glass_controls(*extension);owners.append(owner);owners.append(capsule);
+        py::list out;
+        for(std::size_t i=0;i<extension->count;i++)out.append(py::str(extension->types[i].name));
+        return out;
+    });
+    m.def("measure_control",[](const std::string &name,py::object model){
+        GlassControl c;c.kind=name;
+        if(!model.is_none()) {
+            auto d=py::cast<py::dict>(model);
+            c.id=py::cast<std::string>(d["id"]);c.label=py::cast<std::string>(d["label"]);c.text=py::cast<std::string>(d["text"]);
+            c.value=py::cast<double>(d["value"]);c.enabled=py::cast<bool>(d["enabled"]);c.canvas_height=py::cast<float>(d["canvas_height"]);
+            c.series=py::cast<std::vector<double>>(d["series"]);c.options=py::cast<std::vector<std::string>>(d["options"]);
+        }
+        auto height=glass_control_type(name).measure(c);
+        if(!std::isfinite(height)||height<16||height>1056)throw std::invalid_argument("invalid measured control height");
+        return height;
+    },py::arg("name"),py::arg("model")=py::none());
     py::class_<GlassHost>(m,"GlassHost")
         .def(py::init([](std::uintptr_t hwnd,bool inspectable){py::gil_scoped_release release;return std::make_unique<GlassHost>(hwnd,inspectable);}),py::arg("hwnd"),py::arg("inspectable_windows")=false)
         .def("configure",[](GlassHost &host,py::dict input){
@@ -26,6 +49,7 @@ inline void bind_glass(pybind11::module_ &m) {
                 card.id=py::cast<std::string>(d["id"]);card.title=py::cast<std::string>(d["title"]);
                 card.subtitle=py::cast<std::string>(d["subtitle"]);card.eyebrow=py::cast<std::string>(d["eyebrow"]);
                 card.width=py::cast<float>(d["width"]);
+                card.generation=py::cast<std::uint64_t>(d["generation"]);
                 card.group=py::cast<std::string>(d["group"]);
                 card.draggable=py::cast<bool>(d["draggable"]);
                 if(!d["background"].is_none()) {
@@ -41,6 +65,8 @@ inline void bind_glass(pybind11::module_ &m) {
                 for(auto cv:py::cast<py::list>(d["controls"])) {
                     auto c=py::cast<py::dict>(cv);GlassControl control;
                     control.id=py::cast<std::string>(c["id"]);control.kind=py::cast<std::string>(c["kind"]);
+                    control.generation=py::cast<std::uint64_t>(c["generation"]);
+                    control.opacity=py::cast<float>(c["opacity"]);
                     control.label=py::cast<std::string>(c["label"]);control.text=py::cast<std::string>(c["text"]);
                     control.value=py::cast<double>(c["value"]);control.enabled=py::cast<bool>(c["enabled"]);
                     control.canvas_height=py::cast<float>(c["canvas_height"]);
@@ -65,6 +91,7 @@ inline void bind_glass(pybind11::module_ &m) {
         })
         .def("command",&GlassHost::command,py::arg("action"),py::arg("value")="",py::call_guard<py::gil_scoped_release>())
         .def("begin_drag",&GlassHost::begin_drag,py::call_guard<py::gil_scoped_release>())
+        .def("present",&GlassHost::present,py::call_guard<py::gil_scoped_release>())
         .def("close",&GlassHost::close,py::call_guard<py::gil_scoped_release>())
         .def("metrics",[](GlassHost &h){
             GlassMetrics s;{py::gil_scoped_release release;s=h.metrics();}
@@ -90,7 +117,7 @@ inline void bind_glass(pybind11::module_ &m) {
             std::vector<GlassEvent> events;{py::gil_scoped_release release;events=h.events();}
             py::list out;
             for(const auto &e:events){py::dict d;d["kind"]=e.kind;d["card"]=e.card;d["control"]=e.control;
-                d["text"]=e.text;d["value"]=e.value;d["position"]=py::make_tuple(e.x,e.y);d["sequence"]=e.sequence;
+                d["text"]=e.text;d["value"]=e.value;d["position"]=py::make_tuple(e.x,e.y);d["sequence"]=e.sequence;d["generation"]=e.generation;
                 d["modifiers"]=py::tuple(py::cast(e.modifiers));d["scan_code"]=e.scan_code;d["repeat"]=e.repeat;
                 d["button"]=e.button;d["buttons"]=e.buttons;d["clicks"]=e.clicks;d["inside_source"]=e.inside_source;d["source_name"]=e.source_name;out.append(d);}
             return out;

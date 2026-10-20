@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import math
 import os
+import itertools
+import time
 from typing import Callable
 
 from .gpu import GpuFrameInfo, GpuFrameSource
@@ -11,6 +13,53 @@ from .overlay import FrameBuffer, TerminalHost
 
 _KINDS = {"text", "button", "toggle", "slider", "input", "choice", "progress", "sparkline", "canvas"}
 _HEIGHTS = {"text": 40, "slider": 58, "progress": 58, "sparkline": 84, "canvas": 128}
+_GENERATIONS = itertools.count(1)
+_EXTENSIONS = set()
+_CUSTOM_KINDS = set()
+
+
+def register_glass_controls(module):
+    """Register an explicitly imported, trusted native extension. No DLL scanning.
+
+    module.glass_controls() returns the capsule defined in glass_control.hpp.
+    Registration is process-wide and immutable; the runtime retains the module.
+    """
+    if module in _EXTENSIONS:
+        return
+    from . import _native_glass
+    if getattr(_native_glass, "glass_protocol_version", None) != 5:
+        raise RuntimeError("Rebuild Glass runtime for control protocol 5")
+    names = _native_glass.register_controls(module, module.glass_controls())
+    _KINDS.update(names)
+    _CUSTOM_KINDS.update(names)
+    for name in names:
+        _HEIGHTS[name] = _native_glass.measure_control(name)
+    _EXTENSIONS.add(module)
+
+
+@dataclass(frozen=True)
+class GlassFrame:
+    """An opt-in callback's monotonic clock, in seconds; first dt is zero."""
+    time: float
+    dt: float
+    elapsed: float
+    index: int
+    reduced_motion: bool
+
+
+class _FrameRequest:
+    def __init__(self, workspace, callback, node):
+        self.workspace, self.callback, self.node = workspace, callback, node
+        self.started = self.last = None
+        self.index = 0
+        self.cancelled = False
+
+    def cancel(self):
+        if self.cancelled:
+            return
+        self.cancelled = True
+        self.workspace._frames.pop(id(self), None)
+        self.callback = self.node = self.workspace = None
 
 
 def _text(value, limit, name):
@@ -76,6 +125,7 @@ class GlassEvent:
     clicks: int = 1
     inside_source: bool = True
     source_name: str = ""
+    generation: int = 0
 
 
 @dataclass
@@ -95,6 +145,8 @@ class GlassControl:
     _acknowledged: int = field(default=0, init=False, repr=False, compare=False)
     canvas_height: float = 96.
     capture_escape: bool = False
+    opacity: float = 1.
+    _generation: int = field(default_factory=lambda: next(_GENERATIONS), init=False, repr=False, compare=False)
     _managed = False  # Opt-in view lifecycle; ordinary controls have no per-tick hooks.
 
     def handle_event(self, event):
@@ -130,6 +182,10 @@ class GlassControl:
             raise ValueError("canvas_height must be in 16..1024 logical pixels")
         if type(self.capture_escape) is not bool:
             raise ValueError("capture_escape must be a bool")
+        if not isinstance(self.opacity, (int, float)) or not math.isfinite(self.opacity) or not 0 <= self.opacity <= 1:
+            raise ValueError("control opacity must be in 0..1")
+        if self.kind == "canvas" and self.opacity != 1:
+            raise ValueError("Canvas opacity needs compositor effects, not control ink opacity")
         source = None
         if self.kind == "canvas":
             if not isinstance(self.source, (FrameBuffer, GpuFrameSource)):
@@ -143,7 +199,8 @@ class GlassControl:
         return dict(id=self.id, kind=self.kind, label=self.label, text=self.text, value=float(self.value),
                     enabled=bool(self.enabled), series=list(self.series), options=list(self.options),
                     source=source, fit=self.fit, acknowledged=self._acknowledged,
-                    canvas_height=float(self.canvas_height), capture_escape=self.capture_escape)
+                    canvas_height=float(self.canvas_height), capture_escape=self.capture_escape,
+                    generation=self._generation, opacity=float(self.opacity))
 
 
 @dataclass
@@ -157,6 +214,7 @@ class GlassCard:
     background: GlassBackground | None = None
     draggable: bool = True
     on_event: Callable[[GlassEvent], bool | None] | None = field(default=None, repr=False, compare=False)
+    _generation: int = field(default_factory=lambda: next(_GENERATIONS), init=False, repr=False, compare=False)
 
     def handle_event(self, event):
         return bool(self.on_event(event)) if self.on_event else False
@@ -183,7 +241,12 @@ class GlassCard:
             raise ValueError("control ids must be unique within a card")
         if sum(v["kind"] == "canvas" for v in controls) > 1:
             raise ValueError("each card supports one canvas")
-        if 122 + sum(v["canvas_height"] + 32 if v["kind"] == "canvas" else _HEIGHTS.get(v["kind"], 46) for v in controls) > 1200:
+        def height(v):
+            if v["kind"] in _CUSTOM_KINDS:
+                from . import _native_glass
+                return _native_glass.measure_control(v["kind"], v)
+            return v["canvas_height"] + 32 if v["kind"] == "canvas" else _HEIGHTS.get(v["kind"], 46)
+        if 122 + sum(height(v) for v in controls) > 1200:
             raise ValueError("card content exceeds 1200 logical pixels")
         if type(self.draggable) is not bool:
             raise ValueError("draggable must be a bool")
@@ -191,7 +254,8 @@ class GlassCard:
             raise TypeError("background must be a GlassBackground or None")
         return dict(id=self.id, title=self.title, subtitle=self.subtitle, eyebrow=self.eyebrow,
                     width=float(self.width), controls=controls, draggable=self.draggable,
-                    background=self.background.snapshot() if self.background is not None else None)
+                    background=self.background.snapshot() if self.background is not None else None,
+                    generation=self._generation)
 
 
 @dataclass
@@ -231,6 +295,7 @@ class GlassWorkspace:
         self._attached_refs = []
         self._dirty, self._closed = True, False
         self._metrics = {}
+        self._frames = {}
         self.snapshot()
         self._desired_controls = self._managed_views()
 
@@ -327,7 +392,7 @@ class GlassWorkspace:
         if os.name != "nt":
             raise RuntimeError("GlassWorkspace currently requires a local Windows desktop")
         from . import _native_glass
-        if getattr(_native_glass, "glass_protocol_version", None) != 4:
+        if getattr(_native_glass, "glass_protocol_version", None) != 5:
             raise RuntimeError("Rebuild with COMFORTABLE_TUI_BUILD_GLASS=1 for GlassWorkspace")
         self._native = _native_glass.GlassHost(hwnd, inspectable_windows)
         self._dirty = True
@@ -428,6 +493,75 @@ class GlassWorkspace:
             raise RuntimeError("workspace is not running")
         self._native.command(action, value)
 
+    def request_frames(self, callback, *, node=None):
+        """Run callback(GlassFrame) on poll's thread while it returns True.
+
+        Bind to a Card/control instance to stop on removal or replacement. There
+        is no callback when idle. cancel() is idempotent; newly requested frames
+        begin on the next poll. This is an application hook, not a render thread.
+        """
+        if self._closed:
+            raise RuntimeError("workspace is closed")
+        if not callable(callback):
+            raise TypeError("frame callback must be callable")
+        if node is not None and not any(node is c or any(node is v for v in c.controls) for c in self.cards):
+            raise ValueError("frame node must belong to this workspace")
+        request = _FrameRequest(self, callback, node)
+        self._frames[id(request)] = request
+        return request
+
+    def present(self, card, control, *, opacity):
+        """Submit control ink opacity without rebuilding/configuring the scene.
+
+        Accept instances (not IDs), protecting replacements from late callbacks.
+        This changes neither geometry nor hit/semantics. Canvas uses its own
+        compositor layer and deliberately rejects this ink-only operation.
+        """
+        if self._closed or self._native is None:
+            raise RuntimeError("workspace is not running")
+        if not any(card is c for c in self.cards) or not any(control is v for v in card.controls):
+            raise ValueError("presentation target was removed or replaced")
+        if control.kind == "canvas":
+            raise ValueError("Canvas opacity needs compositor effects")
+        if not isinstance(opacity, (int, float)) or not math.isfinite(opacity) or not 0 <= opacity <= 1:
+            raise ValueError("opacity must be in 0..1")
+        self._native.present(card.id, control.id, control._generation, float(opacity))
+        control.opacity = float(opacity)
+
+    def _advance_frames(self):
+        if not self._frames:
+            return
+        now = time.perf_counter()
+        reduced = self.theme.reduced_motion or not self._metrics.get("system_animation", True)
+        windows = self._metrics.get("windows")
+        visible = {w["id"] for w in windows if w["visible"]} if windows is not None else None
+        for request in tuple(self._frames.values()):
+            if request.cancelled:
+                continue
+            if request.node is not None and not any(request.node is c or any(request.node is v for v in c.controls) for c in self.cards):
+                request.cancel()
+                continue
+            owner = next((c for c in self.cards if request.node is c or
+                          any(request.node is v for v in c.controls)), None) if request.node else None
+            node_hidden = visible is not None and (owner.id not in visible if owner else not visible)
+            if not self.visible or not self._pane_visible or node_hidden:
+                request.last = None
+                continue
+            if request.started is None:
+                request.started = now
+            frame = GlassFrame(now, 0. if request.last is None else now-request.last,
+                               now-request.started, request.index, reduced)
+            request.last, request.index = now, request.index+1
+            try:
+                keep = request.callback(frame)
+            except BaseException:
+                request.cancel()
+                raise
+            if self._closed:
+                return
+            if keep is not True or reduced:
+                request.cancel()
+
     def poll(self):
         if self._closed:
             return
@@ -486,13 +620,16 @@ class GlassWorkspace:
             control._poll(self, windows.get(card_id))
         for raw in self._native.events():
             event = GlassEvent(**raw)
+            leaves, _, routes = self._tree()
+            card = next((c for c in leaves if c.id == event.card), None)
+            control = next((v for v in card.controls if v.id == event.control), None) if card else None
+            target = control if event.control else card
+            if event.generation and (target is None or event.generation != target._generation):
+                continue
             if event.kind == "selected":
                 self.selected = event.card
             elif event.kind == "dismissed":
                 self.visible = False
-            leaves, _, routes = self._tree()
-            card = next((c for c in leaves if c.id == event.card), None)
-            control = next((v for v in card.controls if v.id == event.control), None) if card else None
             if control:
                 if event.kind == "change":
                     control._acknowledged = event.sequence
@@ -544,6 +681,9 @@ class GlassWorkspace:
                 raise
             self._pending[serial] = [v.source for c in self.cards for v in c.controls if v.source]
             self._pending_controls[serial] = controls
+        # Configuration is queued first so a first-frame presentation delta can
+        # target the node on the same native wake, without a full scene per frame.
+        self._advance_frames()
 
     def metrics(self):
         result = self._native.metrics() if self._native and not self._closed else dict(self._metrics)
@@ -570,6 +710,8 @@ class GlassWorkspace:
         self._active_controls.clear()
         self._pending_controls.clear()
         self._event_sources.clear()
+        for request in tuple(self._frames.values()):
+            request.cancel()
         self._pending.clear()
         self._attached_refs.clear()
         self._metrics.update(closed=True, windows=[], active=False, backdrop_visible=False, capture_active=False)
