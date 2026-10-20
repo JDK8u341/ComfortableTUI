@@ -82,6 +82,8 @@ inline void bind_glass(pybind11::module_ &m) {
             d["windows"]=windows;d["closed"]=s.closed;d["presents"]=s.presents;d["canvas_frames"]=s.canvas_frames;
             d["capture_active"]=s.capture_active;d["capture_frames"]=s.capture_frames;d["optical_frames"]=s.optical_frames;
             d["copied_pixels"]=s.copied_pixels;d["optics_error"]=s.optics_error;
+            d["close_hide_ms"]=s.close_hide_ms;d["close_join_ms"]=s.close_join_ms;
+            d["close_surfaces_ms"]=s.close_surfaces_ms;d["close_windows_ms"]=s.close_windows_ms;d["close_resources_ms"]=s.close_resources_ms;
             d["unchanged_capture_frames"]=s.unchanged_capture_frames;d["backdrop_material"]=s.backdrop_material;return d;
         })
         .def("events",[](GlassHost &h){

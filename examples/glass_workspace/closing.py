@@ -61,8 +61,11 @@ def main():
             try:
                 def close_workspace():
                     if workspace:
+                        close_start = time.perf_counter()
                         workspace.close()
-                        log.write("Workspace closed. The terminal and caller-owned image buffer remain open.")
+                        report["workspace_close_ms"] = (time.perf_counter() - close_start) * 1000
+                        report["native_teardown"] = {k: v for k, v in workspace.metrics().items() if k.startswith("close_")}
+                        log.write(f"Workspace closed in {report['workspace_close_ms']:.1f}ms. Terminal and image buffer remain open.")
 
                 def on_event(event):
                     if event.kind == "card_close_request":

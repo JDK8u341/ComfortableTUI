@@ -89,6 +89,42 @@ verify_glass_close.py 默认材质 liquid、背景 frosted；加 --animated 开�
 已关闭的卡不会因 show() 自动重建；使用 set_cards() 添加后才重新出现。
 最后一张卡关闭后，工作区可继续使用，背景/捕获停止。
 
+## 关闭耗时
+
+工作区关闭先用 Win32 批量隐藏全部卡片和背景，再通知所有合成线程停止，最后等待消费者
+释放并销毁资源。UI 绘图设备在同一工作区内按 GPU 复用，绘制仍由原来的原生 UI 线程负责。
+UIA 跟踪器也提前收到停止信号，与原生清理重叠。`close()` 返回时，消费者已释放；
+这没有把资源清理改成调用方不可见的后台任务，来源仍由调用方管理。
+
+真实终端基准，默认每种卡片数测3次，完成后自动退出 TUI：
+
+```powershell
+.\.venv\Scripts\python.exe examples/benchmark_glass_close.py --report .build/glass-close-benchmark.json
+# 明确使用独立 Qt 夹具进行对照：
+.\.venv\Scripts\python.exe examples/benchmark_glass_close.py --fixture --cards 3 8 12 --repeat 3
+```
+
+`glass_workspace.closing` 也会在终端日志和报告中记录 workspace_close_ms。
+基准分别记录卡片 HWND 全部不可见、全部销毁、原生 close、跟踪器 close 和整个 Python
+close 的耗时；不可见时间是 Win32 状态采样，不是显示器实际出光延迟。
+
+2026-10-20 同一本机 Qt 夹具的前后对比，liquid/frosted，各3次的中位数（毫秒）：
+
+| 卡片数 | 优化前 close | 优化后 close | 优化后卡片全部不可见 |
+| --- | ---: | ---: | ---: |
+| 3 | 116.9 | 78.8 | 2.0 |
+| 8 | 272.2 | 155.7 | 2.0 |
+| 12 | 428.8 | 190.8 | 1.9 |
+
+真实 Windows Terminal 的独立验证中，12卡 close 中位数157.4毫秒，卡片全部不可见10.4毫秒。
+这是本机样本，驱动和桌面负载会影响结果；完整清理仍需要时间。
+原始样本与验证结果见 [close-performance.json](validation/glass/close-performance.json)。
+
+关闭后 metrics 增加 close_hide_ms、close_join_ms（各卡合成线程等待之和）、
+close_surfaces_ms、close_windows_ms、close_resources_ms（隐藏之后整个原生清理阶段）。
+resources 包含 join/surfaces/windows，不能将这些值重复相加；完整 API 耗时以基准的 close_ms 为准。
+需按上面的构建步骤重编原生扩展；Glass 控制协议仍为4，底层帧协议仍为1。
+
 ## 单元测试与资源边界
 
 ```powershell

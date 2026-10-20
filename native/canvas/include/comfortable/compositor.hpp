@@ -36,6 +36,9 @@ class Compositor {
     void configure(std::vector<NativeView> views, std::uint32_t width, std::uint32_t height);
     void visible(bool enabled);
     CompositorMetrics metrics() const;
+    // Signal before joining a batch of compositors so their workers can stop
+    // concurrently. close() still joins and releases consumer ownership.
+    void request_close();
     void close();
 
   private:

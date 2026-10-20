@@ -556,6 +556,8 @@ class GlassWorkspace:
         self._closed = True
         if self._unsubscribe:
             self._unsubscribe()
+        if self._tracker:
+            self._tracker.request_close()
         if self._native:
             self._native.close()
             self._metrics = self._native.metrics()

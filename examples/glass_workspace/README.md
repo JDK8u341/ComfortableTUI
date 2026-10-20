@@ -74,6 +74,10 @@ Glass 控制协议4起，×仅请求关闭当前卡，可由事件处理器拦�
 dismiss，整体退出使用 Quit/Ctrl+Q；独立测试中的 Close entire workspace 按钮验证
 workspace.close()。测试命令与资源寿命见[关闭测试](../../docs/glass-close-testing.md)。
 
+关闭先批量隐藏卡片，再同步释放消费者；closing 示例会显示关闭毫秒数。
+用 `python examples/benchmark_glass_close.py` 在真实终端测试3/8/12卡的关闭耗时，
+默认各测3次；只有显式 --fixture 才使用独立 Qt 基准宿主。
+
 ## 内嵌网页
 
 准备好已有 CEF 浏览器运行时后，可运行独立的双网页卡片示例：

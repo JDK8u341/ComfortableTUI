@@ -98,9 +98,6 @@ struct UiSurface {
     float dpi{1};
     bool glyph_shadow{};
     UiSurface(unsigned w, unsigned h, ID2D1Factory1 *factory, IDWriteFactory *fonts, float scale,
-              std::uint32_t low = 0, std::int32_t high = 0)
-        : UiSurface(w, h, factory, fonts, scale, create_device(low, high)) {}
-    UiSurface(unsigned w, unsigned h, ID2D1Factory1 *factory, IDWriteFactory *fonts, float scale,
               ComPtr<ID3D11Device1> d3d)
         : provider(w,h,d3d.Get()), write(fonts), dpi(scale) {
         ComPtr<IDXGIDevice> dx;
@@ -187,6 +184,9 @@ struct GlassHost::Impl {
     std::deque<GlassEvent> output;
     GlassMetrics report;
     std::vector<std::unique_ptr<Card>> cards;
+    // All card ink is drawn on this worker. Share a producer device per GPU,
+    // instead of creating/tearing down an independent D3D device per card.
+    std::map<std::pair<std::uint32_t,std::int32_t>,ComPtr<ID3D11Device1>> ui_devices;
     ComPtr<ID2D1Factory1> factory;
     ComPtr<IDWriteFactory> write;
     RECT owner_rect{}, work{};
@@ -204,6 +204,7 @@ struct GlassHost::Impl {
     std::unique_ptr<glass_detail::OpticalScene> optics;
     std::unique_ptr<glass_detail::OpticalPanel> background_optical;
     bool sampling_allowed{true};
+    double close_join_ms{},close_surfaces_ms{},close_windows_ms{};
     HMONITOR optical_monitor{};
     static thread_local Impl *current;
 
@@ -217,6 +218,11 @@ struct GlassHost::Impl {
         }
     }
     ~Impl() { close(); }
+    ComPtr<ID3D11Device1> ui_device(std::uint32_t low,std::int32_t high) {
+        auto &device=ui_devices[{low,high}];
+        if(!device)device=create_device(low,high);
+        return device;
+    }
     void close() {
         {std::lock_guard<std::mutex> lock(mutex);stopping=true;}
         SetEvent(changed.value);
@@ -296,7 +302,8 @@ struct GlassHost::Impl {
                 0,0,1,1,nullptr,nullptr,GetModuleHandleW(nullptr),this);
             if (!background) throw std::runtime_error("Cannot create glass backdrop");
             if(!glass_detail::OpticalScene::exclude(background))sampling_allowed=false;
-            background_ui=std::make_unique<UiSurface>(1u,1u,factory.Get(),write.Get(),1.f);
+            auto adapter=optics?optics->adapter():LUID{};
+            background_ui=std::make_unique<UiSurface>(1u,1u,factory.Get(),write.Get(),1.f,ui_device(adapter.LowPart,adapter.HighPart));
             auto d=background_ui->provider.descriptor();
             background_compositor=std::make_unique<Compositor>(reinterpret_cast<std::uintptr_t>(background),d.adapter_low,d.adapter_high);
         }
@@ -358,7 +365,7 @@ struct GlassHost::Impl {
                     low=c.canvas.source.adapter_low;high=c.canvas.source.adapter_high;
                 }
                 ui=std::make_unique<UiSurface>(static_cast<unsigned>(std::round(width*h->dpi)),
-                    static_cast<unsigned>(std::round(height*h->dpi)),h->factory.Get(),h->write.Get(),h->dpi,low,high);
+                    static_cast<unsigned>(std::round(height*h->dpi)),h->factory.Get(),h->write.Get(),h->dpi,h->ui_device(low,high));
                 auto d=ui->provider.descriptor();
                 compositor=std::make_unique<Compositor>(reinterpret_cast<std::uintptr_t>(hwnd),d.adapter_low,d.adapter_high);
                 x.x=x.target=(h->owner_rect.left+h->owner_rect.right)/2.f-width*h->dpi/2;
@@ -370,10 +377,18 @@ struct GlassHost::Impl {
         }
         ~Card() {
             *accessibility=nullptr;
+            if (hwnd) ShowWindow(hwnd,SW_HIDE);
+            auto start=clock_ticks();
             if (compositor) compositor->close();
+            auto joined=clock_ticks();
             optical.reset();
             ui.reset();
+            auto surfaces=clock_ticks();
             if (hwnd) DestroyWindow(hwnd);
+            auto end=clock_ticks();
+            host->close_join_ms+=(joined-start)*1000/clock_frequency();
+            host->close_surfaces_ms+=(surfaces-joined)*1000/clock_frequency();
+            host->close_windows_ms+=(end-surfaces)*1000/clock_frequency();
         }
         void apply_material() {
             background=spec.background;
@@ -1112,6 +1127,7 @@ struct GlassHost::Impl {
                 if(!IsWindow(owner))break;
                 if(optics&&MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST)!=optical_monitor) {
                     cards.clear();retain_positions=false;background_compositor.reset();background_optical.reset();background_ui.reset();
+                    ui_devices.clear();
                     if(background){DestroyWindow(background);background=nullptr;}optics.reset();last_background.clear();
                     bounds();
                     if(!serial){next=scene;serial=applied;}
@@ -1197,8 +1213,28 @@ struct GlassHost::Impl {
             std::lock_guard<std::mutex> lock(mutex);if(IsWindow(owner))report.error=e.what();ready=true;started.notify_all();
         }
         if(hook)UnhookWinEvent(hook);
-        cards.clear();background_compositor.reset();background_optical.reset();background_ui.reset();optics.reset();if(background)DestroyWindow(background);
+        auto close_start=clock_ticks();
+        close_join_ms=close_surfaces_ms=close_windows_ms=0;
+        // Make the entire workspace disappear before GPU/COM teardown, and
+        // wake every compositor before joining any of them. Sequential close
+        // would otherwise accumulate a device/DComp teardown per visible card.
+        auto batch=BeginDeferWindowPos(static_cast<int>(cards.size())+(background?1:0));
+        constexpr UINT hide_flags=SWP_HIDEWINDOW|SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOOWNERZORDER;
+        for(auto &card:cards)if(batch&&card->hwnd)batch=DeferWindowPos(batch,card->hwnd,nullptr,0,0,0,0,hide_flags);
+        if(batch&&background)batch=DeferWindowPos(batch,background,nullptr,0,0,0,0,hide_flags);
+        if(!batch||!EndDeferWindowPos(batch)) {
+            for(auto &card:cards)if(card->hwnd)ShowWindow(card->hwnd,SW_HIDE);
+            if(background)ShowWindow(background,SW_HIDE);
+        }
+        auto hidden=clock_ticks();
+        for(auto &card:cards)if(card->compositor)card->compositor->request_close();
+        if(background_compositor)background_compositor->request_close();
+        cards.clear();background_compositor.reset();background_optical.reset();background_ui.reset();optics.reset();ui_devices.clear();if(background)DestroyWindow(background);
+        auto released=clock_ticks();
         {std::lock_guard<std::mutex> lock(mutex);stopping=true;report.closed=true;report.active=false;report.backdrop_visible=false;
+            report.close_hide_ms=(hidden-close_start)*1000/clock_frequency();
+            report.close_join_ms=close_join_ms;report.close_surfaces_ms=close_surfaces_ms;report.close_windows_ms=close_windows_ms;
+            report.close_resources_ms=(released-hidden)*1000/clock_frequency();
             report.windows.clear();report.rects.clear();report.ids.clear();report.materials.clear();report.pinned.clear();report.draggable.clear();report.visible.clear();report.enabled.clear();report.focused_control.clear();report.capture_active=false;}
         current=nullptr;CoUninitialize();SetEvent(finished.value);
     }

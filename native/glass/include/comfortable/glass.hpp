@@ -55,6 +55,8 @@ struct GlassEvent {
 struct GlassMetrics {
     std::uint64_t applied{}, frames{}, presents{}, canvas_frames{}, dropped_events{};
     double draw_ms{}, tick_ms{};
+    // Published after synchronous shutdown; sums across cards where applicable.
+    double close_hide_ms{}, close_join_ms{}, close_surfaces_ms{}, close_windows_ms{}, close_resources_ms{};
     bool active{}, compact{}, backdrop_visible{}, high_contrast{}, system_animation{true}, closed{};
     std::string error, material;
     std::vector<std::uintptr_t> windows;

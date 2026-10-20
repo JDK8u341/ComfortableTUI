@@ -195,6 +195,17 @@ buffer_attached在原生线程成功打开源之后提供；detached在原生线
 保留连接但不取新帧；共用源时应按可见订阅数决定是否暂停。App关闭先停止原生线程。
 本地用户会话的默认对象权限保护通道；这不是面向不可信跨用户客户端的远程服务协议。
 
+C++ 的多个 Compositor 可先统一 request_close()，再逐个 close()，使停止过程重叠：
+
+```cpp
+for (auto *renderer : renderers) renderer->request_close();
+for (auto *renderer : renderers) renderer->close();
+```
+
+request_close() 仅发出停止请求，后续 configure/visible 被拒绝；close() 仍须等待线程退出，
+返回后才能释放来源和 HWND。Glass 工作区使用此方式关闭多个消费者；帧提供者接口和共享内存
+协议没有改变。此新增 C++ SDK 方法需要重新构建 SDK/宿主，原有独立帧提供者不受影响。
+
 设备丢失、弃用keyed mutex、旧消费者带着读租约崩溃、LUID不匹配会报错，要求新建
 FrameProvider并重新握手。不会复用不一致纹理，也不承诺自动TDR恢复。
 

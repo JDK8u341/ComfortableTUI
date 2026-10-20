@@ -403,8 +403,12 @@ class HostTracker:
         return bool(user.IsWindow(hwnd) and user.IsWindowVisible(hwnd) and not user.IsIconic(hwnd)
                     and not getattr(self.api, "cloaked", lambda handle: False)(hwnd))
 
-    def close(self):
+    def request_close(self):
+        """Wake the tracker before waiting for other independent workers."""
         self._stop.set()
+
+    def close(self):
+        self.request_close()
         if self._thread:
             self._thread.join(timeout=0.5)
 

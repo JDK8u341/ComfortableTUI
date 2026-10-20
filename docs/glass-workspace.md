@@ -328,6 +328,8 @@ tick_ms 是最近一次原生控制 tick 的 CPU 时间，不是屏幕延迟；�
 optical_frames、copied_pixels（GPU 区域复制的像素量）、unchanged_capture_frames、
 optics_error、backdrop_material，以及 windows 每卡 material/pinned/draggable。
 每卡另报告 visible、enabled、focused_control，便于验证可见性和真实控件焦点。
+close() 后保留 close_hide_ms、close_join_ms、close_surfaces_ms、close_windows_ms、
+close_resources_ms 诊断；工作区先批量隐藏，再等待资源释放，详见[关闭耗时基准](glass-close-testing.md)。
 请在退出前采样性能。
 
 限制为最多12卡、24组、8层容器，节点 id 全局唯一，不允许环/共享子树。

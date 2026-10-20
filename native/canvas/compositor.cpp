@@ -535,14 +535,19 @@ CompositorMetrics Compositor::metrics() const {
     std::lock_guard<std::mutex> lock(impl_->mutex);
     return impl_->report;
 }
-void Compositor::close() {
-    if (impl_ && impl_->worker.joinable()) {
+void Compositor::request_close() {
+    if (impl_) {
         {
             std::lock_guard<std::mutex> lock(impl_->mutex);
             impl_->closed = true;
             impl_->acknowledged.notify_all();
         }
         SetEvent(impl_->stop.value);
+    }
+}
+void Compositor::close() {
+    request_close();
+    if (impl_ && impl_->worker.joinable()) {
         impl_->worker.join();
     }
 }

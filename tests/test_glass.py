@@ -298,6 +298,34 @@ def test_workspace_close_detaches_all_cards_but_preserves_caller_owned_sources()
             canvas.close()
 
 
+def test_close_stops_independent_tracker_before_native_join_and_detaches_afterward():
+    from comfortable_tui import GlassCanvas, OverlayCanvas
+    order = []
+    class Tracker:
+        def request_close(self):
+            order.append("tracker stop")
+        def close(self):
+            assert host.closed
+            order.append("tracker join")
+    class ClosingHost(Host):
+        def close(self):
+            assert order == ["tracker stop"]
+            assert canvas._surface_host is not None and not source._closed
+            order.append("native joined")
+            super().close()
+    with FrameBuffer(4, 4) as source:
+        canvas = OverlayCanvas(source, on_event=lambda e: order.append(e.kind) if e.kind == "detached" else None)
+        workspace = GlassWorkspace([GlassCard("a", "A", [GlassCanvas("view", canvas)])])
+        host = workspace._native = ClosingHost()
+        workspace.poll()
+        workspace._tracker = Tracker()
+        workspace.close()
+        workspace.close()
+        assert order == ["tracker stop", "native joined", "tracker join", "detached"]
+        assert not source._closed
+        canvas.close()
+
+
 def test_native_failure_is_reported_even_after_worker_closed():
     workspace = GlassWorkspace([GlassCard("a", "A")])
     host = workspace._native = Host()
@@ -335,6 +363,8 @@ def test_first_binding_discovers_host_without_an_existing_overlay(monkeypatch):
         def snapshot(self):
             return SimpleNamespace(available=True, error="")
         def close(self):
+            pass
+        def request_close(self):
             pass
     monkeypatch.setattr(_win32_host, "resolve_host", lambda *a, **k: SimpleNamespace(hwnd=42))
     monkeypatch.setattr(_win32_host, "HostTracker", Tracker)
