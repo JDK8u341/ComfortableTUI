@@ -1,12 +1,20 @@
 #pragma once
 #include "comfortable/compositor.hpp"
 #include "comfortable/glass_control.hpp"
+#include "comfortable/glass_effect.hpp"
 
 namespace comfortable {
 struct GlassBackground {
     std::string kind{"liquid"};
     std::uint32_t tint{0xffffff};
     float opacity{.04f}, blur{1.2f}, refraction{20}, dispersion{.45f}, corner_radius{24};
+};
+struct GlassEffectBinding {
+    std::string type;
+    std::string target{"overlay"};
+    std::vector<float> parameters;
+    std::uint32_t tint{0xffffff};
+    float opacity{1}, blur{}, refraction{}, dispersion{}, intensity{1}, radius{}, progress{};
 };
 struct GlassControl {
     std::string id, kind, label, text, fit{"contain"};
@@ -17,6 +25,7 @@ struct GlassControl {
     std::uint64_t acknowledged{}, edit_serial{};
     std::vector<double> series;
     std::vector<std::string> options;
+    std::vector<GlassEffectBinding> effects;
     NativeView canvas;
     std::uint64_t generation{};
     float opacity{1};
@@ -28,6 +37,7 @@ struct GlassCard {
     float width{320};
     std::vector<GlassControl> controls;
     GlassBackground background;
+    std::vector<GlassEffectBinding> effects;
     bool has_background{}, draggable{true};
     std::uint64_t generation{};
 };
@@ -73,7 +83,7 @@ struct GlassMetrics {
     std::vector<bool> pinned, draggable;
     std::vector<bool> visible,enabled;
     std::vector<std::string> focused_control;
-    std::uint64_t capture_frames{}, optical_frames{}, copied_pixels{};
+    std::uint64_t capture_frames{}, optical_frames{}, copied_pixels{}, effects_rendered{};
     std::uint64_t unchanged_capture_frames{};
     bool capture_active{};
     std::string optics_error,backdrop_material{"none"};
@@ -87,6 +97,8 @@ class GlassHost {
     void command(const std::string &action, const std::string &value = "");
     void begin_drag(const std::string &card,std::uint64_t pointer_sequence);
     void present(const std::string &card,const std::string &control,std::uint64_t generation,float opacity);
+    void set_effect_parameters(const std::string &card,const std::string &node,std::uint64_t generation,
+                               std::size_t index,const std::string &type,const std::vector<float> &parameters);
     std::vector<GlassEvent> events();
     GlassMetrics metrics() const;
     void close();
