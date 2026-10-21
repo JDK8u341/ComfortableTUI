@@ -749,11 +749,29 @@ struct GlassHost::Impl {
             auto &p=*ui;bool selected=host->scene.selected==spec.id;
             bool solid=actual_material=="solid";
             float alpha=solid?1:actual_material=="mica"?.06f:0;
+            std::uint64_t effects_rendered=0;
+            auto paint_effect=[&](const GlassEffectBinding &effect,const D2D1_RECT_F &box,float radius,bool overlay) {
+                float amount=effect.opacity;
+                if(!effect.parameters.empty())amount*=std::clamp(effect.parameters.front(),0.f,1.f);
+                if(effect.type=="tint") {
+                    p.fill(box,effect.tint,amount,radius);effects_rendered++;
+                } else if(effect.type=="glow") {
+                    float intensity=std::clamp(effect.intensity,0.f,4.f);
+                    if(effect.parameters.size()>0)intensity=std::clamp(effect.parameters.front(),0.f,4.f);
+                    p.brush->SetColor(color(effect.tint,std::clamp(.08f*amount*intensity,0.f,.8f)));
+                    p.dc->DrawRoundedRectangle(D2D1::RoundedRect(box,radius,radius),p.brush.Get(),
+                                                std::max(1.f,std::min(8.f,effect.radius>0?effect.radius/8.f:2.f)));
+                    effects_rendered++;
+                }
+                (void)overlay;
+            };
             // Match the system-rounded surface: a larger ink radius would
             // expose an untinted Acrylic wedge outside the self-drawn rim.
             float radius=background.corner_radius;
             p.glyph_shadow=!solid;
             p.fill(D2D1::RectF(0,0,width,height),solid?(background.kind=="solid"?background.tint:0x192130):0x121a2a,alpha,radius);
+            for(const auto &effect:spec.effects)if(effect.target=="background")
+                paint_effect(effect,D2D1::RectF(0,0,width,height),radius,false);
             // Local readability treatment; the card centre stays clear.
             if(!solid){p.fill(D2D1::RectF(18,40,width-18,95),0x08101b,.18f,14);}
             // Wide grazing highlight, concentrated rim and a quiet accent pool.
@@ -781,6 +799,8 @@ struct GlassHost::Impl {
                 float a=(c.enabled&&group_enabled?1.f:.42f)*c.opacity;
                 auto box=D2D1::RectF(20,row+2,width-20,row+h-6);
                 if(over||focus)p.fill(box,host->scene.accent,(pressed==static_cast<int>(i)?.19f:.09f)*a,10);
+                for(const auto &effect:c.effects)if(effect.target=="background"||effect.target=="content")
+                    paint_effect(effect,box,10,false);
                 if(focus){p.brush->SetColor(color(host->scene.accent,.7f));p.dc->DrawRoundedRectangle(D2D1::RoundedRect(box,10,10),p.brush.Get(),1);}
                 ControlPainter painter(p,20,row);
                 GlassControlPaint state{width-40,h,host->dpi,a,host->scene.accent,over,focus,pressed==static_cast<int>(i),input_selected,
@@ -789,11 +809,13 @@ struct GlassHost::Impl {
                 p.dc->PushAxisAlignedClip(D2D1::RectF(20,row,width-20,row+h),D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                 glass_control_type(c).paint(painter,c,state);
                 p.dc->PopAxisAlignedClip();
+                for(const auto &effect:c.effects)if(effect.target=="overlay")
+                    paint_effect(effect,box,10,true);
                 row+=h;
             }
             p.fill(D2D1::RectF(24,height-12,width-24,height-11),host->scene.accent,selected?.28f:.08f);
             ui->end(f);dirty=false;
-            std::lock_guard<std::mutex> lock(host->mutex);host->report.frames++;
+            std::lock_guard<std::mutex> lock(host->mutex);host->report.frames++;host->report.effects_rendered+=effects_rendered;
         }
     };
     std::string layout_root(const Card &card) const {

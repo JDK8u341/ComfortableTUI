@@ -6,9 +6,9 @@
 输入钩子、按需帧回调、控件墨水透明度增量。完整EffectType、任意Shader、局部背景采样、
 可替换Card布局动画仍未实现。没有提前发布占位的effects/shader API。
 
-当前分支已加入效果实例的模型和原生参数通道。它们用于建立每个节点独立状态的契约，
-仍未提供可视的 blur/liquid/glow GPU pass；只有完成实际 compositor 接入并通过验证后，
-才会把某个效果标记为可用。
+当前分支已加入效果实例的模型和原生参数通道。`tint` 与 `glow` 已接入卡片表面的
+D2D 绘制 pass；`blur`/`liquid` 仍只有 schema、独立实例状态和更新通道，尚未接入
+需要离屏纹理的采样 pass，不能把它们当作已完成的视觉效果。
 
 ```python
 from comfortable_tui import GlassCard, GlassControl, GlassEffect
