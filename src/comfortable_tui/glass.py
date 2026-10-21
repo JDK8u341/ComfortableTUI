@@ -615,10 +615,10 @@ class GlassWorkspace:
         if any(not math.isfinite(value) for value in values):
             raise ValueError("effect parameters must be finite")
         binding = effects[effect]
-        binding.parameters = values
         self._native.set_effect_parameters(card.id, "" if node is card else node.id,
                                            card._generation if node is card else node._generation,
                                            effect, binding.type, list(values))
+        binding.parameters = values
 
     def _advance_frames(self):
         if not self._frames:
