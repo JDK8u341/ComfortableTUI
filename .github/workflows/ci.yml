@@ -82,9 +82,10 @@ jobs:
           COMFORTABLE_TUI_BUILD_GLASS: '1'
       - name: Check import and control plane without hardware
         run: |
-          python -c "from comfortable_tui import _native_gpu, _native_glass; assert _native_gpu.protocol_version == 1; assert _native_glass.glass_protocol_version == 5; assert not hasattr(_native_gpu, 'GlassHost')"
+          python -c "from comfortable_tui import _native_gpu, _native_glass; assert _native_gpu.protocol_version == 1; assert _native_glass.glass_protocol_version == 6; assert not hasattr(_native_gpu, 'GlassHost')"
           python examples/glass_workspace/native_controls/setup.py build_ext --build-lib build/glass-controls --build-temp build/glass-controls-temp
-          python -m pytest tests/test_gpu.py tests/test_glass.py tests/test_glass_extensions.py tests/test_glass_native_extensions.py tests/test_overlay_qt.py -q
+          python -m pytest tests/test_gpu.py tests/test_glass.py tests/test_glass_extensions.py tests/test_glass_native_extensions.py tests/test_glass_effects.py tests/test_overlay_qt.py -q
+          ctest --test-dir build/gpu -C Release -R glass_effect_pixels --output-on-failure
         env:
           QT_QPA_PLATFORM: offscreen
           COMFORTABLE_GLASS_EXTENSION: build/glass-controls

@@ -18,7 +18,7 @@
 ```powershell
 $env:COMFORTABLE_TUI_BUILD_GLASS = '1'
 .\.venv\Scripts\python.exe -m pip install --no-build-isolation -e .
-.\.venv\Scripts\python.exe -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 5"
+.\.venv\Scripts\python.exe -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 6"
 ```
 
 仍需要本机 Windows 桌面和已有 overlay 依赖；卡片绘制为原生。下面的推荐入口直接附着

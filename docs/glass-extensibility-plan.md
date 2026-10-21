@@ -2,12 +2,11 @@
 
 日期：2026-10-19。基线：`b5c35bb`，分支 `codex/liquid-glass-cards`。
 
-**状态：分批实施中，2026-10-20已落地第一批控件注册与基础动画钩子。**
-实际API和限制见[控件SDK](glass-controls-sdk.md)。阶段1的无状态注册、内置控件统一分派，
-及阶段2的Python按需时钟、墨水透明度增量已实现。逐节点资源生命周期、原生帧订阅、
-布局目标/变换钩子、EffectType与图像效果合成仍待实现。
-下文其余新类、参数和事件名仍是拟议接口。当前运行时接口另见 [GlassWorkspace](glass-workspace.md)、
-[GlassCanvas](glass-canvas.md)和[WebView](glass-webview.md)。
+**状态：2026-10-21第二批独立效果链与原生Shader SDK已实现。**
+实际API见[控件SDK](glass-controls-sdk.md)和[效果SDK](glass-effects-sdk.md)。
+第一批的无状态控件注册、Python帧钩子继续保留；本批已完成每节点效果绑定、真实GPU
+图像处理、扩展设备资源生命周期及动态替换。原生帧订阅、布局目标/变换钩子、独立
+HLSL包格式及控件局部容器树仍属于后续范围，本文对应条目保留为设计目标，不冒充已实现API。
 
 ## 结论与需求边界
 

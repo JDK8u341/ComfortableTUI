@@ -63,7 +63,7 @@ template<Builtin K> void paint(GlassPainter &p,const GlassControl &c,const Glass
     if constexpr(K==canvas){p.text(c.label,6,2,w-10,11,0xb0c3da,a);p.fill(4,22,w-8,c.canvas_height,0x060c18,.7f*a,8);}
 }
 template<Builtin K> GlassControlType builtin(const char *name,bool focusable,long role,const char *verb="") {
-    return {name,1,focusable,role,verb,measure<K>,paint<K>,rectangle,action<K>,value};
+    return {name,2,focusable,role,verb,measure<K>,paint<K>,rectangle,action<K>,value};
 }
 struct Registry {
     std::mutex mutex;
@@ -86,7 +86,7 @@ void register_glass_controls(const GlassControlExtension &extension) {
     std::map<std::string,GlassControlType> additions;
     for(std::size_t i=0;i<extension.count;i++) {
         auto t=extension.types[i];std::string name=t.name?t.name:"";
-        if(name.empty()||name.size()>128||t.version!=1||!t.measure||!t.paint||!t.hit_test||!t.accessible_value||
+        if(name.empty()||name.size()>128||t.version!=2||!t.measure||!t.paint||!t.hit_test||!t.accessible_value||
            t.accessibility_role<1||t.accessibility_role>0x40||
            (t.focusable&&(!t.input||!t.default_action))||r.types.count(name)||!additions.emplace(name,t).second)
             throw std::invalid_argument("invalid or duplicate Glass control type");

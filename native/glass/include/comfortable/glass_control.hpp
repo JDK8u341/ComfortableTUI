@@ -29,7 +29,7 @@ struct GlassControlInput {
 };
 struct GlassControlType {
     const char *name{};
-    std::uint32_t version{1};
+    std::uint32_t version{2};
     bool focusable{};
     long accessibility_role{0x28}; // ROLE_SYSTEM_GRAPHIC
     const char *default_action{};
@@ -41,9 +41,9 @@ struct GlassControlType {
 };
 // Capsule contains an immutable table. The binding retains its Python owner for
 // the interpreter lifetime; no DLL scanning, unregistering or hot unloading.
-inline constexpr const char *glass_extension_capsule="comfortable.glass.controls.v1";
+inline constexpr const char *glass_extension_capsule="comfortable.glass.controls.v2";
 struct GlassControlExtension {
-    std::uint32_t abi{1}, structure_size{sizeof(GlassControlType)}, pointer_size{sizeof(void *)};
+    std::uint32_t abi{2}, structure_size{sizeof(GlassControlType)}, pointer_size{sizeof(void *)};
 #ifdef _MSC_VER
     std::uint32_t compiler{_MSC_VER};
 #else

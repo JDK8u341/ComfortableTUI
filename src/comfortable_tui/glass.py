@@ -1,7 +1,7 @@
 """Optional native Windows cards; UI rendering remains independent of browser services."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 import os
 import itertools
@@ -28,8 +28,8 @@ def register_glass_controls(module):
     if module in _EXTENSIONS:
         return
     from . import _native_glass
-    if getattr(_native_glass, "glass_protocol_version", None) != 5:
-        raise RuntimeError("Rebuild Glass runtime for control protocol 5")
+    if getattr(_native_glass, "glass_protocol_version", None) != 6:
+        raise RuntimeError("Rebuild Glass runtime for control protocol 6")
     names = _native_glass.register_controls(module, module.glass_controls())
     _KINDS.update(names)
     _CUSTOM_KINDS.update(names)
@@ -43,8 +43,8 @@ def register_glass_effects(module):
     if module in _EFFECT_EXTENSIONS:
         return
     from . import _native_glass
-    if getattr(_native_glass, "glass_protocol_version", None) != 5:
-        raise RuntimeError("Rebuild Glass runtime for effect protocol 5")
+    if getattr(_native_glass, "glass_protocol_version", None) != 6:
+        raise RuntimeError("Rebuild Glass runtime for effect protocol 6")
     names = _native_glass.register_effects(module, module.glass_effects())
     _EFFECT_EXTENSIONS.add(module)
     return tuple(names)
@@ -107,7 +107,7 @@ class GlassBackground:
                     corner_radius=float(self.corner_radius))
 
 
-@dataclass
+@dataclass(frozen=True)
 class GlassEffect:
     """An independent, trusted native effect instance attached to a node.
 
@@ -116,39 +116,35 @@ class GlassEffect:
     may be shared by the native implementation.
     """
     type: str
-    target: str = "overlay"
+    target: str = "content"
     parameters: tuple[float, ...] = ()
     tint: int = 0xFFFFFF
     opacity: float = 1.
-    blur: float = 0.
-    refraction: float = 0.
-    dispersion: float = 0.
-    intensity: float = 1.
-    radius: float = 0.
-    progress: float = 0.
+
+    def __post_init__(self):
+        object.__setattr__(self, "parameters", tuple(self.parameters))
 
     def snapshot(self):
         _text(self.type, 128, "effect type")
-        if self.type not in ("tint", "blur", "liquid", "glow") and not self.type:
+        if not self.type:
             raise ValueError("effect type cannot be empty")
         if self.target not in ("background", "content", "overlay"):
             raise ValueError("effect target must be background, content or overlay")
+        if self.type == "liquid" and self.target != "background":
+            raise ValueError("liquid only supports background; no content hit-test mapping")
         if len(self.parameters) > 16 or any(not isinstance(v, (int, float)) or not math.isfinite(v)
                                             for v in self.parameters):
             raise ValueError("effect parameters must contain at most 16 finite numbers")
         if type(self.tint) is not int or not 0 <= self.tint <= 0xFFFFFF:
             raise ValueError("effect tint must be an RGB integer")
-        for key, maximum in (("opacity", 1), ("blur", 40), ("refraction", 48),
-                             ("dispersion", 3), ("intensity", 4), ("radius", 128),
-                             ("progress", 1)):
+        for key, maximum in (("opacity", 1),):
             value = getattr(self, key)
             if not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= maximum:
                 raise ValueError(f"effect {key} must be in 0..{maximum}")
+        if self.type in ("blur", "liquid") and self.opacity != 1:
+            raise ValueError("blur/liquid opacity must be 1; use a tint pass for color mixing")
         return dict(type=self.type, target=self.target, parameters=[float(v) for v in self.parameters],
-                    tint=self.tint, opacity=float(self.opacity), blur=float(self.blur),
-                    refraction=float(self.refraction), dispersion=float(self.dispersion),
-                    intensity=float(self.intensity), radius=float(self.radius),
-                    progress=float(self.progress))
+                    tint=self.tint, opacity=float(self.opacity))
 
 
 @dataclass
@@ -206,6 +202,9 @@ class GlassControl:
     effects: list[GlassEffect] = field(default_factory=list)
     _generation: int = field(default_factory=lambda: next(_GENERATIONS), init=False, repr=False, compare=False)
     _managed = False  # Opt-in view lifecycle; ordinary controls have no per-tick hooks.
+
+    def __post_init__(self):
+        self.effects = list(self.effects)
 
     def handle_event(self, event):
         return bool(self.on_event(event)) if self.on_event else False
@@ -277,6 +276,9 @@ class GlassCard:
     on_event: Callable[[GlassEvent], bool | None] | None = field(default=None, repr=False, compare=False)
     effects: list[GlassEffect] = field(default_factory=list)
     _generation: int = field(default_factory=lambda: next(_GENERATIONS), init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        self.effects = list(self.effects)
 
     def handle_event(self, event):
         return bool(self.on_event(event)) if self.on_event else False
@@ -457,7 +459,7 @@ class GlassWorkspace:
         if os.name != "nt":
             raise RuntimeError("GlassWorkspace currently requires a local Windows desktop")
         from . import _native_glass
-        if getattr(_native_glass, "glass_protocol_version", None) != 5:
+        if getattr(_native_glass, "glass_protocol_version", None) != 6:
             raise RuntimeError("Rebuild with COMFORTABLE_TUI_BUILD_GLASS=1 for GlassWorkspace")
         self._native = _native_glass.GlassHost(hwnd, inspectable_windows)
         self._dirty = True
@@ -618,7 +620,7 @@ class GlassWorkspace:
         self._native.set_effect_parameters(card.id, "" if node is card else node.id,
                                            card._generation if node is card else node._generation,
                                            effect, binding.type, list(values))
-        binding.parameters = values
+        effects[effect] = replace(binding, parameters=values)
 
     def _advance_frames(self):
         if not self._frames:

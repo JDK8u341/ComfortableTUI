@@ -9,13 +9,6 @@ struct GlassBackground {
     std::uint32_t tint{0xffffff};
     float opacity{.04f}, blur{1.2f}, refraction{20}, dispersion{.45f}, corner_radius{24};
 };
-struct GlassEffectBinding {
-    std::string type;
-    std::string target{"overlay"};
-    std::vector<float> parameters;
-    std::uint32_t tint{0xffffff};
-    float opacity{1}, blur{}, refraction{}, dispersion{}, intensity{1}, radius{}, progress{};
-};
 struct GlassControl {
     std::string id, kind, label, text, fit{"contain"};
     double value{};

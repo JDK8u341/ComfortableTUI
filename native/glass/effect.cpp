@@ -1,4 +1,9 @@
 #include "comfortable/glass_effect.hpp"
+#include "../canvas/internal.hpp"
+#include <d3dcompiler.h>
+#include <algorithm>
+#include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <map>
@@ -7,62 +12,304 @@
 #include <stdexcept>
 
 namespace comfortable {
+using namespace detail;
 namespace {
 struct Registry {
     std::mutex mutex;
     std::map<std::string, GlassEffectType> types;
     Registry() {
-        static const GlassEffectParameter tint_params[]={{"amount",0,1,.35f}};
-        static const GlassEffectParameter blur_params[]={{"radius",0,24,6.f}};
-        static const GlassEffectParameter liquid_params[]={{"refraction",0,48,12.f},{"dispersion",0,3,.35f}};
-        static const GlassEffectParameter glow_params[]={{"intensity",0,4,1.f},{"radius",0,64,18.f}};
-        auto noop=[](void *,const GlassEffectPaint &){return true;};
-        types.emplace("tint",GlassEffectType{"tint",1,1,tint_params,1,0,nullptr,nullptr,noop});
-        types.emplace("blur",GlassEffectType{"blur",1,2,blur_params,1,24,nullptr,nullptr,noop});
-        types.emplace("liquid",GlassEffectType{"liquid",1,3,liquid_params,2,24,nullptr,nullptr,noop});
-        types.emplace("glow",GlassEffectType{"glow",1,4,glow_params,2,64,nullptr,nullptr,noop});
+        static const GlassEffectParameter tint[]={{"amount",0,1,.35f}};
+        static const GlassEffectParameter blur[]={{"radius",0,24,6}};
+        static const GlassEffectParameter liquid[]={{"refraction",0,48,12},{"dispersion",0,3,.35f}};
+        static const GlassEffectParameter glow[]={{"intensity",0,4,1},{"radius",0,64,18}};
+        // Builtins dispatch to real GPU programs below, not successful no-ops.
+        types.emplace("tint",GlassEffectType{"tint",2,1,tint,1,0});
+        types.emplace("blur",GlassEffectType{"blur",2,2,blur,1,24});
+        types.emplace("liquid",GlassEffectType{"liquid",2,3,liquid,2,51});
+        types.emplace("glow",GlassEffectType{"glow",2,4,glow,2,64});
     }
 };
-Registry &registry() { static Registry value; return value; }
+Registry &registry(){static Registry value;return value;}
+const char *program=R"(
+cbuffer P:register(b0){float4 crop;float4 params;float4 tint;float4 info;};
+Texture2D image:register(t0);Texture2D original:register(t1);
+SamplerState sampleLinear:register(s0);
+struct V{float4 pos:SV_POSITION;float2 uv:TEXCOORD;};
+V vs(uint id:SV_VertexID){float2 p=float2((id<<1)&2,id&2);V o;o.pos=float4(p.x*2-1,1-p.y*2,0,1);o.uv=p;return o;}
+float4 copyImage(V v):SV_TARGET{
+ float2 uv=crop.xy+v.uv*crop.zw;
+ if(info.w>.5&&(any(uv<0)||any(uv>1)))return 0;
+ if(info.w>.5&&(any(v.uv<info.xy)||any(v.uv>info.xy+params.xy)))return 0;
+ float4 c=image.SampleLevel(sampleLinear,uv,0);
+ if(info.z>.5)c.rgb*=c.a;return c;
 }
+float4 tintImage(V v):SV_TARGET{
+ float4 c=image.SampleLevel(sampleLinear,v.uv,0);
+ c.rgb=lerp(c.rgb,tint.rgb*c.a,saturate(params.x*tint.a));return c;
+}
+float4 blurImage(V v):SV_TARGET{
+ float4 sum=0;float total=0;
+ [unroll]for(int n=-12;n<=12;n++){
+  float k=exp(-float(n*n)/32.);
+  sum+=image.SampleLevel(sampleLinear,v.uv+info.xy*(params.x/12.)*float(n),0)*k;total+=k;
+ }return sum/total;
+}
+float4 glowImage(V v):SV_TARGET{
+ float4 c=original.SampleLevel(sampleLinear,v.uv,0);
+ float a=saturate(image.SampleLevel(sampleLinear,v.uv,0).a*params.y*tint.a);
+ return c+float4(tint.rgb*a,a)*(1-c.a);
+}
+float sdf(float2 p){
+ float r=min(20.*info.w,min(crop.z,crop.w)*.5);
+ float2 q=abs(p-crop.xy-crop.zw*.5)-(crop.zw*.5-r);
+ return length(max(q,0))+min(max(q.x,q.y),0)-r;
+}
+float4 liquidImage(V v):SV_TARGET{
+ uint w,h;image.GetDimensions(w,h);float2 size=float2(w,h),p=v.uv*size;
+ float d=sdf(p),edge=saturate(1+d/max(1.,24.*info.w));
+ float2 normal=float2(sdf(p+float2(.5,0))-sdf(p-float2(.5,0)),
+                      sdf(p+float2(0,.5))-sdf(p-float2(0,.5)));
+ normal/=max(length(normal),.001);
+ float2 shift=-normal*(params.x*info.w*edge*sqrt(max(0.,1-edge)))/size;
+ float4 c=image.SampleLevel(sampleLinear,v.uv+shift,0);
+ float2 chroma=normal*(params.y*info.w*edge)/size;
+ c.r=image.SampleLevel(sampleLinear,v.uv+shift+chroma,0).r;
+ c.b=image.SampleLevel(sampleLinear,v.uv+shift-chroma,0).b;
+ c.rgb=min(c.rgb,c.aaa);return c;
+}
+)";
+struct Programs {
+    ComPtr<ID3D11VertexShader> vs;
+    ComPtr<ID3D11PixelShader> copy,tint,blur,glow,liquid;
+    ComPtr<ID3D11Buffer> constants;
+    ComPtr<ID3D11SamplerState> sampler;
+    ComPtr<ID3D11RasterizerState> raster;
+    explicit Programs(ID3D11Device *device){
+        auto compile=[&](const char *entry,const char *profile){
+            ComPtr<ID3DBlob> code,errors;
+            auto hr=D3DCompile(program,std::strlen(program),nullptr,nullptr,nullptr,entry,profile,
+                              D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);
+            if(FAILED(hr))throw std::runtime_error(errors?static_cast<const char *>(errors->GetBufferPointer()):"effect shader compile failed");
+            return code;
+        };
+        auto v=compile("vs","vs_4_0");check(device->CreateVertexShader(v->GetBufferPointer(),v->GetBufferSize(),nullptr,&vs),"effect VS");
+        for(auto pair:{std::make_pair("copyImage",std::addressof(copy)),{"tintImage",std::addressof(tint)},{"blurImage",std::addressof(blur)},
+                       {"glowImage",std::addressof(glow)},{"liquidImage",std::addressof(liquid)}}){
+            auto p=compile(pair.first,"ps_4_0");
+            check(device->CreatePixelShader(p->GetBufferPointer(),p->GetBufferSize(),nullptr,pair.second->GetAddressOf()),"effect PS");
+        }
+        D3D11_BUFFER_DESC bd{};bd.ByteWidth=64;bd.Usage=D3D11_USAGE_DEFAULT;bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+        check(device->CreateBuffer(&bd,nullptr,&constants),"effect constants");
+        D3D11_SAMPLER_DESC sd{};sd.Filter=D3D11_FILTER_MIN_MAG_MIP_LINEAR;sd.AddressU=sd.AddressV=sd.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;sd.MaxLOD=D3D11_FLOAT32_MAX;
+        check(device->CreateSamplerState(&sd,&sampler),"effect sampler");
+        D3D11_RASTERIZER_DESC rd{};rd.FillMode=D3D11_FILL_SOLID;rd.CullMode=D3D11_CULL_NONE;rd.DepthClipEnable=TRUE;
+        check(device->CreateRasterizerState(&rd,&raster),"effect rasterizer");
+    }
+};
+std::shared_ptr<Programs> programs(ID3D11Device *device){
+    static std::mutex mutex;
+    static std::map<ID3D11Device *,std::weak_ptr<Programs>> cache;
+    std::lock_guard<std::mutex> lock(mutex);
+    for(auto it=cache.begin();it!=cache.end();)if(it->second.expired())it=cache.erase(it);else ++it;
+    auto result=cache[device].lock();
+    if(!result){result=std::make_shared<Programs>(device);cache[device]=result;}return result;
+}
+struct Target {
+    ComPtr<ID3D11Texture2D> texture;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    UINT width{},height{};
+    Target()=default;
+    Target(ID3D11Device *device,UINT w,UINT h):width(w),height(h){
+        D3D11_TEXTURE2D_DESC d{};d.Width=w;d.Height=h;d.MipLevels=d.ArraySize=1;
+        d.Format=DXGI_FORMAT_B8G8R8A8_UNORM;d.SampleDesc.Count=1;d.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+        check(device->CreateTexture2D(&d,nullptr,&texture),"effect texture");
+        check(device->CreateShaderResourceView(texture.Get(),nullptr,&srv),"effect SRV");
+        check(device->CreateRenderTargetView(texture.Get(),nullptr,&rtv),"effect RTV");
+    }
+};
+std::atomic<std::uint64_t> surface_bytes{};
+struct CustomResource {
+    const GlassEffectType *type{};
+    void *resource{};
+    ~CustomResource(){if(resource&&type&&type->destroy_device_resources)type->destroy_device_resources(resource);}
+};
+class Chain final:public NativeImageProcessor {
+    std::mutex mutex;
+    std::vector<GlassEffectBinding> bindings;
+    float dpi;
+    ComPtr<ID3D11Device> device;
+    std::shared_ptr<Programs> shared;
+    std::vector<std::unique_ptr<CustomResource>> custom;
+    Target original,a,b,output;
+    UINT pad{};
+    std::uint64_t bytes{};
+    std::atomic<std::uint64_t> rendered{};
+    void release(){
+        custom.clear();original={};a={};b={};output={};shared.reset();device.Reset();
+        surface_bytes.fetch_sub(bytes);bytes=0;
+    }
+    void allocate(ID3D11Device *d,UINT w,UINT h){
+        if(device.Get()==d&&output.width==w&&output.height==h)return;
+        release();
+        // Each pass' dependency radius adds to the preceding pass' input.
+        float radius=0;
+        for(const auto &e:bindings)radius+=glass_effect_type(e.type).sampling_radius*dpi;
+        pad=static_cast<UINT>(std::ceil(radius));
+        auto ew=w+2*pad,eh=h+2*pad;
+        auto required=(3ull*ew*eh+1ull*w*h)*4;
+        if(ew>16384||eh>16384||required>64ull*1024*1024)
+            throw std::invalid_argument("Glass effect chain exceeds 64 MiB local texture budget");
+        const auto previous=surface_bytes.fetch_add(required);
+        if(previous+required>256ull*1024*1024){surface_bytes.fetch_sub(required);throw std::runtime_error("Glass effects exceed 256 MiB process texture budget");}
+        bytes=required;
+        try {
+            device=d;shared=programs(d);original=Target(d,ew,eh);a=Target(d,ew,eh);b=Target(d,ew,eh);output=Target(d,w,h);
+            for(const auto &e:bindings){
+                const auto &type=glass_effect_type(e.type);auto instance=std::make_unique<CustomResource>();instance->type=&type;
+                if(type.create_device_resources){instance->resource=type.create_device_resources(d);if(!instance->resource)throw std::runtime_error("effect resource creation failed: "+e.type);}
+                custom.push_back(std::move(instance));
+            }
+        }catch(...){release();throw;}
+    }
+    void draw(ID3D11DeviceContext *ctx,Target &to,ID3D11ShaderResourceView *from,ID3D11PixelShader *ps,
+              const std::array<float,16> &values,ID3D11ShaderResourceView *other=nullptr){
+        // ClearState also isolates trusted extension state; the caller rebinds its
+        // own compositor state after process(), including viewport/scissor/blend.
+        ctx->ClearState();
+        auto *rt=to.rtv.Get();ctx->OMSetRenderTargets(1,&rt,nullptr);
+        D3D11_VIEWPORT vp{0,0,static_cast<float>(to.width),static_cast<float>(to.height),0,1};ctx->RSSetViewports(1,&vp);
+        ctx->RSSetState(shared->raster.Get());ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ctx->VSSetShader(shared->vs.Get(),nullptr,0);ctx->PSSetShader(ps,nullptr,0);
+        ctx->UpdateSubresource(shared->constants.Get(),0,nullptr,values.data(),0,0);
+        auto *cb=shared->constants.Get();ctx->VSSetConstantBuffers(0,1,&cb);ctx->PSSetConstantBuffers(0,1,&cb);
+        ID3D11ShaderResourceView *inputs[]={from,other};ctx->PSSetShaderResources(0,2,inputs);
+        auto *sampler=shared->sampler.Get();ctx->PSSetSamplers(0,1,&sampler);ctx->Draw(3,0);
+        ctx->ClearState();rendered++;
+    }
+  public:
+    Chain(std::vector<GlassEffectBinding> e,float scale):bindings(std::move(e)),dpi(scale){}
+    ~Chain()override{release();}
+    std::uint64_t passes()const override{return rendered.load();}
+    void release_device_resources()override{std::lock_guard<std::mutex> lock(mutex);release();}
+    bool update(const std::vector<GlassEffectBinding> &next){
+        std::lock_guard<std::mutex> lock(mutex);
+        if(next.size()!=bindings.size())return false;
+        for(std::size_t i=0;i<next.size();i++)if(next[i].type!=bindings[i].type||next[i].target!=bindings[i].target)return false;
+        bindings=next;return true;
+    }
+    ID3D11ShaderResourceView *process(ID3D11Device *d,ID3D11DeviceContext *ctx,ID3D11ShaderResourceView *input,
+        std::uint32_t w,std::uint32_t h,const PixelBox &r,bool straight)override{
+        std::lock_guard<std::mutex> lock(mutex);
+        if(!input||!w||!h||!std::isfinite(r.x)||!std::isfinite(r.y)||!std::isfinite(r.width)||!std::isfinite(r.height)||
+           r.width<=0||r.height<=0||r.width>16384||r.height>16384)throw std::invalid_argument("invalid effect image");
+        auto ow=static_cast<UINT>(std::ceil(r.width)),oh=static_cast<UINT>(std::ceil(r.height));allocate(d,ow,oh);
+        float ew=static_cast<float>(original.width),eh=static_cast<float>(original.height);
+        std::array<float,16> values{(r.x-pad)/w,(r.y-pad)/h,ew/w,eh/h};
+        values[14]=straight?1.f:0.f;
+        if(bindings.front().target!="background"){
+            values[12]=pad/ew;values[13]=pad/eh;values[4]=ow/ew;values[5]=oh/eh;values[15]=1;
+        }
+        draw(ctx,original,input,shared->copy.Get(),values);
+        auto *current=&original;
+        for(std::size_t i=0;i<bindings.size();i++){
+            const auto &e=bindings[i];const auto &type=glass_effect_type(e.type);
+            auto parameters=glass_effect_parameters(e.type,e.parameters);
+            values={};values[0]=static_cast<float>(pad);values[1]=static_cast<float>(pad);values[2]=static_cast<float>(ow);values[3]=static_cast<float>(oh);
+            values[4]=parameters.empty()?0:parameters[0];values[5]=parameters.size()>1?parameters[1]:0;
+            values[8]=((e.tint>>16)&255)/255.f;values[9]=((e.tint>>8)&255)/255.f;values[10]=(e.tint&255)/255.f;values[11]=e.opacity;values[15]=dpi;
+            Target *next=current==&a?&b:&a;
+            if(type.shader_id==1)draw(ctx,*next,current->srv.Get(),shared->tint.Get(),values);
+            else if(type.shader_id==2||type.shader_id==4){
+                float radius=type.shader_id==2?parameters[0]:parameters[1];
+                if(radius==0&&type.shader_id==2)continue;
+                // Keep the unblurred image for glow's premultiplied over.
+                if(type.shader_id==4){
+                    ctx->ClearState();if(current!=&original)ctx->CopyResource(original.texture.Get(),current->texture.Get());
+                    current=&original;next=&a;
+                }
+                values[4]=radius*dpi;values[12]=1/ew;values[13]=0;
+                draw(ctx,*next,current->srv.Get(),shared->blur.Get(),values);current=next;next=current==&a?&b:&a;
+                values[12]=0;values[13]=1/eh;
+                draw(ctx,*next,current->srv.Get(),shared->blur.Get(),values);current=next;
+                if(type.shader_id==4){
+                    next=current==&a?&b:&a;values[5]=parameters[0];
+                    draw(ctx,*next,current->srv.Get(),shared->glow.Get(),values,original.srv.Get());
+                } else {continue;}
+            }else if(type.shader_id==3)draw(ctx,*next,current->srv.Get(),shared->liquid.Get(),values);
+            else {
+                ctx->ClearState();const float clear[4]={};ctx->ClearRenderTargetView(next->rtv.Get(),clear);
+                GlassEffectPaint p;p.context=ctx;p.input=current->srv.Get();p.output=next->rtv.Get();
+                p.input_width=p.output_width=original.width;p.input_height=p.output_height=original.height;
+                p.input_x=static_cast<std::int32_t>(std::floor(r.x))-static_cast<int>(pad);
+                p.input_y=static_cast<std::int32_t>(std::floor(r.y))-static_cast<int>(pad);
+                p.dpi=dpi;p.tint=e.tint;p.opacity=e.opacity;p.parameters=parameters.data();p.parameter_count=parameters.size();
+                bool ok=false;
+                try{ok=type.render(custom[i]->resource,p);}catch(...){ctx->ClearState();throw std::runtime_error("native effect callback threw: "+e.type);}
+                ctx->ClearState();if(!ok)throw std::runtime_error("native effect render failed: "+e.type);rendered++;
+            }
+            current=next;
+        }
+        values={static_cast<float>(pad)/ew,static_cast<float>(pad)/eh,static_cast<float>(ow)/ew,static_cast<float>(oh)/eh};
+        draw(ctx,output,current->srv.Get(),shared->copy.Get(),values);
+        return output.srv.Get();
+    }
+};
+} // namespace
 void register_glass_effects(const GlassEffectExtension &extension) {
     GlassEffectExtension expected;
-    if (extension.abi != expected.abi || extension.structure_size != expected.structure_size ||
-        extension.pointer_size != expected.pointer_size || extension.compiler != expected.compiler ||
-        extension.iterator_debug != expected.iterator_debug || extension.dynamic_crt != expected.dynamic_crt ||
-        extension.debug_crt != expected.debug_crt || !extension.types || !extension.count || extension.count > 32)
+    if(extension.abi!=expected.abi||extension.structure_size!=expected.structure_size||
+       extension.pointer_size!=expected.pointer_size||extension.compiler!=expected.compiler||
+       extension.iterator_debug!=expected.iterator_debug||extension.dynamic_crt!=expected.dynamic_crt||
+       extension.debug_crt!=expected.debug_crt||!extension.types||!extension.count||extension.count>32)
         throw std::invalid_argument("incompatible Glass effect extension ABI/toolchain");
-    auto &r = registry();
-    std::lock_guard<std::mutex> lock(r.mutex);
-    std::map<std::string, GlassEffectType> additions;
-    for (std::size_t i = 0; i < extension.count; ++i) {
-        const auto type = extension.types[i];
-        const std::string name = type.name ? type.name : "";
-        if (name.empty() || name.size() > 128 || type.version != 1 || !type.render || type.shader_id > 0xffff ||
-            type.parameter_count > 16 || (type.parameter_count && !type.parameters) ||
-            !std::isfinite(type.sampling_radius) || type.sampling_radius < 0 || type.sampling_radius > 128 ||
-            (type.create_device_resources == nullptr) != (type.destroy_device_resources == nullptr) ||
-            r.types.count(name) || additions.count(name))
+    auto &r=registry();std::lock_guard<std::mutex> lock(r.mutex);std::map<std::string,GlassEffectType> additions;
+    for(std::size_t i=0;i<extension.count;i++){
+        auto type=extension.types[i];std::string name=type.name?type.name:"";
+        if(name.empty()||name.size()>128||type.version!=2||!type.render||type.shader_id!=0||type.parameter_count>16||
+           (type.parameter_count&&!type.parameters)||!std::isfinite(type.sampling_radius)||type.sampling_radius<0||type.sampling_radius>128||
+           (type.create_device_resources==nullptr)!=(type.destroy_device_resources==nullptr)||r.types.count(name)||additions.count(name))
             throw std::invalid_argument("invalid or duplicate Glass effect type");
-        std::set<std::string> parameters;
-        for (std::size_t p = 0; p < type.parameter_count; ++p) {
-            const auto &parameter = type.parameters[p];
-            const std::string parameter_name = parameter.name ? parameter.name : "";
-            if (parameter_name.empty() || parameter_name.size() > 64 || !parameters.insert(parameter_name).second ||
-                !std::isfinite(parameter.minimum) || !std::isfinite(parameter.maximum) ||
-                !std::isfinite(parameter.default_value) || parameter.minimum > parameter.maximum ||
-                parameter.default_value < parameter.minimum || parameter.default_value > parameter.maximum)
+        std::set<std::string> names;
+        for(std::size_t p=0;p<type.parameter_count;p++){
+            const auto &s=type.parameters[p];std::string key=s.name?s.name:"";
+            if(key.empty()||key.size()>64||!names.insert(key).second||!std::isfinite(s.minimum)||!std::isfinite(s.maximum)||
+               !std::isfinite(s.default_value)||s.minimum>s.maximum||s.default_value<s.minimum||s.default_value>s.maximum)
                 throw std::invalid_argument("invalid Glass effect parameter schema");
-        }
-        additions.emplace(name, type);
-    }
-    r.types.merge(additions);
+        }additions.emplace(name,type);
+    }r.types.merge(additions);
 }
-const GlassEffectType &glass_effect_type(const std::string &name) {
-    auto &r = registry();
-    std::lock_guard<std::mutex> lock(r.mutex);
-    const auto at = r.types.find(name);
-    if (at == r.types.end()) throw std::invalid_argument("unregistered Glass effect type: " + name);
-    return at->second;
+const GlassEffectType &glass_effect_type(const std::string &name){
+    auto &r=registry();std::lock_guard<std::mutex> lock(r.mutex);auto at=r.types.find(name);
+    if(at==r.types.end())throw std::invalid_argument("unregistered Glass effect type: "+name);return at->second;
 }
+std::vector<float> glass_effect_parameters(const std::string &name,const std::vector<float> &input){
+    const auto &type=glass_effect_type(name);
+    if(input.size()>type.parameter_count)throw std::invalid_argument("too many Glass effect parameters");
+    std::vector<float> result;
+    for(std::size_t i=0;i<type.parameter_count;i++){
+        auto v=i<input.size()?input[i]:type.parameters[i].default_value;
+        if(!std::isfinite(v)||v<type.parameters[i].minimum||v>type.parameters[i].maximum)
+            throw std::invalid_argument("Glass effect parameter outside schema: "+name);
+        result.push_back(v);
+    }return result;
+}
+void validate_glass_effect(const GlassEffectBinding &e){
+    if(e.type.empty()||e.type.size()>128||(e.target!="background"&&e.target!="content"&&e.target!="overlay")||e.tint>0xffffff||
+       !std::isfinite(e.opacity)||e.opacity<0||e.opacity>1)throw std::invalid_argument("invalid Glass effect binding");
+    if(e.type=="liquid"&&e.target!="background")throw std::invalid_argument("liquid only supports background; no content hit-test mapping");
+    if((e.type=="blur"||e.type=="liquid")&&e.opacity!=1)throw std::invalid_argument("blur/liquid opacity must be 1");
+    glass_effect_parameters(e.type,e.parameters);
+}
+std::shared_ptr<NativeImageProcessor> make_glass_effect_chain(const std::vector<GlassEffectBinding> &effects,float dpi){
+    if(effects.empty())return {};
+    if(effects.size()>8||!std::isfinite(dpi)||dpi<=0||dpi>8)throw std::invalid_argument("invalid effect chain");
+    for(const auto &e:effects)validate_glass_effect(e);
+    return std::make_shared<Chain>(effects,dpi);
+}
+bool update_glass_effect_chain(const std::shared_ptr<NativeImageProcessor> &chain,const std::vector<GlassEffectBinding> &effects){
+    for(const auto &e:effects)validate_glass_effect(e);
+    auto *value=dynamic_cast<Chain *>(chain.get());return value&&value->update(effects);
+}
+std::uint64_t glass_effect_surface_bytes(){return surface_bytes.load();}
 } // namespace comfortable

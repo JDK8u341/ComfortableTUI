@@ -1,5 +1,21 @@
 # 玻璃工作区验证
 
+## 原生图像效果链（2026-10-21）
+
+实现与限制见[效果SDK](../../glass-effects-sdk.md)。本轮正常/强制纯Python均为
+319 passed、1 skipped；两项CTest、Ruff和严格文档构建通过。
+[像素结果](effects-pixels.json)使用D3D11 WARP和调试层，验证真实Shader像素、
+链顺序、alpha、背景边缘、ABI拒绝、资源销毁和设备替换；没有D3D11 warning/error。
+[真实合成结果](effects-integration.json)含CPU画布和CEF CPU/GPU WebView，
+记录400ms静止期0次额外扩展绘制；同ID替换后只保留一个实例，
+扩展资源创建/释放均为7，跨线程释放计数0。
+
+电脑使用插件另行检查了持续自有窗口演示和独立滑块，
+并修正演示成组紧凑布局遮挡宿主按钮的问题。此项不是外部终端附加测试，
+也不能据此承诺所有背景的视觉观感、某个FPS或GPU时间开销。
+生产路径没有新增像素读回，像素读回仅存在于测试可执行程序。
+
+
 ## 控件 SDK 与基础帧钩子（2026-10-20）
 
 第一批实现范围见[控件SDK](../../glass-controls-sdk.md)，原始结果见

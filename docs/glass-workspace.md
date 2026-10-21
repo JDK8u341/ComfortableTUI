@@ -26,7 +26,7 @@ Python 3.10+ 和 pybind11。以下命令在仓库根目录的 PowerShell 中运�
 python -m pip install -e ".[dev,overlay]"
 $env:COMFORTABLE_TUI_BUILD_GLASS = '1'
 python -m pip install --no-build-isolation -e .
-python -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 5"
+python -c "from comfortable_tui import _native_glass; assert _native_glass.glass_protocol_version == 6"
 python -m examples.glass_workspace
 ```
 

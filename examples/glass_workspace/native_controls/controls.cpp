@@ -36,7 +36,7 @@ GlassControlAction input(GlassControl &c,const GlassControlInput &e){
     return GlassControlAction::change;
 }
 std::string value(const GlassControl &c){return std::to_string(static_cast<int>(100*c.value))+" percent";}
-const GlassControlType types[]={{"example.dial",1,true,0x33,"Adjust",measure,paint,hit,input,value}};
+const GlassControlType types[]={{"example.dial",2,true,0x33,"Adjust",measure,paint,hit,input,value}};
 const GlassControlExtension extension=[] {GlassControlExtension e;e.types=types;e.count=1;return e;}();
 }
 PYBIND11_MODULE(ctui_glass_controls,m){

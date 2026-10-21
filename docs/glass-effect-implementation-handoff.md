@@ -1,64 +1,48 @@
-# Glass 效果器实现接续记录
+# Glass 效果器改造记录
 
-更新时间：2026-10-20
-分支：`codex/liquid-glass-cards`
+更新：2026-10-21。分支：`codex/liquid-glass-cards`。
 
-## 当前状态
+之前因关机保存的草稿已继续实施。本轮完成真实图像效果链、自定义原生效果回调、
+实例生命周期、参数 API 整理、Canvas/WebView 接入、自动测试及独立 SDK 文档。
+当前协议为 Glass 6 / Effect ABI 2；Frame 1 / Browser Security 2 保持不变。
+完整使用契约见[效果 SDK](glass-effects-sdk.md)，早期特殊分支绘制不再是实现依据。
 
-第二批设计改造已完成第一个可恢复阶段。效果器 API、实例快照、原生注册入口、构建接入和参数增量通道已经接入并验证；`tint`/`glow` 已有卡片表面绘制 pass，`blur`/`liquid` 的离屏采样 GPU pass 尚未实现，因此不能把后两者当成已经可用的视觉效果宣传。此次没有推送、合并或发布。
+## 已落实
 
-本次改动文件：
+- 删除 Card 绘制中的 tint/glow 特殊分支和成功 no-op 回调；
+  tint、blur、liquid、glow 都通过独立纹理和真实 D3D11 Shader 执行。
+- background 读取已合成前缀，content 处理节点内容，overlay 在内容链后执行；
+  无效果时保留旧直接路径。液体折射限定 background，保持命中几何。
+- 单消费者获得 Canvas 帧后处理 SRV，不创建另一个 FrameConsumer；支持真实 CEF CPU/GPU 帧。
+- 效果描述不可变，参数向量是唯一参数来源；节点的原生状态独立。
+  增量合并不重新配置工作区、不重绘墨水、不重建设备资源；
+  场景版本和节点代次共同过滤迟到更新。
+- 可信扩展以显式 v2 capsule 注册，schema 原生校验；回调在合成器线程运行，
+  同线程释放/替换 GPU 资源；窗口关闭不释放调用方拥有的帧源和页面。
+- 依赖半径沿链相加，content 外扩为透明、background 在来源边缘钳制；
+  保留单链64MiB、全效果256MiB纹理预算，拒绝无界分配。
+- 新示例 `examples.glass_workspace.effects`，可选独立 negative Shader 扩展；
+  `--preview` 为持续自有窗口演示，默认仍附加真实终端。
 
-- `native/glass/include/comfortable/glass_effect.hpp`：效果类型、参数 schema、D3D11 绘制上下文和原生扩展描述。
-- `native/glass/effect.cpp`：线程安全的类型注册表草稿，列出 `tint`、`blur`、`liquid`、`glow` 四个内置类型。目前内置回调是 no-op，占位而非真实渲染。
-- `native/glass/include/comfortable/glass.hpp`：给 Card/Control 加入效果绑定列表，给 metrics 增加效果绘制计数，并声明参数更新接口；该接口尚无实现。
-- `src/comfortable_tui/glass.py`、`src/comfortable_tui/__init__.py`：新增 `GlassEffect`、Card/Control 效果快照、注册入口和参数更新 API。
-- `native/glass/bindings.hpp`、`native/glass/glass.cpp`：解析/校验效果绑定，暴露注册与参数更新通道。
-- `CMakeLists.txt`、`setup.py`：将 `native/glass/effect.cpp` 纳入 Windows 原生构建。
-- `tests/test_glass.py`、`docs/glass-controls-sdk.md`：增加实例隔离回归测试和 SDK 说明。
+## 验证入口
 
-此前已有最新提交为 `299054a docs(glass): add control SDK guide to navigation`。本接续记录与当前未完成代码将作为新的本地检查点提交。
+- `native/glass/effects_tests.cpp`：WARP 像素测试、D3D11调试层警告检查、扩展ABI、
+  生命周期、设备替换、纹理释放与异常回调。
+- `tests/test_glass_effects.py`：参数权威schema、不可变描述、拒绝/回滚和迟到对象引用。
+- `examples/verify_glass_effects.py`：真实合成器及可选真实CEF CPU/GPU页面、
+  同ID替换、空闲绘制和线程归属计数。
+- 检查记录：`docs/validation/glass/effects-pixels.json`、
+  `docs/validation/glass/effects-integration.json`。
+- 电脑插件已检查持续演示，确认两张卡片实际渲染及滑块独立；
+  检查后将预览改为独立左右卡片，避免成组紧凑布局遮挡宿主按钮。
 
-## 设计目标与约束
+## 明确范围
 
-- 效果器定义（类型、参数 schema、设备级 shader/资源）与效果器实例（每个 Card/Control 的参数、生命周期和输出）分离。
-- 每个卡片可独立挂载效果器；实例的参数、状态及输出纹理必须独立。shader/program 与可安全共享的设备资源可复用。
-- 一个 Card 可以包含 Canvas 或 WebView 等现有控件；这里是 Glass/Card 上层能力，不应改变 Canvas/WebView 的 FrameProvider 协议，也不要重复消费帧。
-- 局部效果应先绘制到独立的输入/输出纹理，不能同一纹理同时读写，避免 D3D11 自采样反馈；采样半径需要扩展脏矩形/输出区域。
-- Python 层只负责构造、校验和提交效果描述；渲染、GPU 资源、效果 pass 与生命周期放在 C++。
-- 先做 Windows D3D11 原生路径，不在本批次重新引入 Linux、WebView 或新的渲染框架。
-- 原生扩展注册 ABI 必须验证版本、结构大小和构建工具链兼容性。扩展注册后所引用的名称、参数 schema 与回调所需资源必须有明确且稳定的生命周期；当前草稿还没有把这一生命周期契约落实到 SDK 文档。
+本轮没有合并或发布。原生帧订阅、布局目标/任意变换钩子、独立 HLSL 包装格式、
+自定义控件私有生命周期和多级控件局部容器仍属于扩展总计划的后续项；
+它们不是本轮效果SDK可用性的前置条件，不能宣称已经提供。
+真实驱动丢失仍沿用显式失败和重建工作区语义；没有新增自动静默恢复。
+视觉输出裁剪在现有节点边界内；不承诺跨 HWND 发光、内容扭曲逆向命中或 HDR。
 
-## 已有调研依据
-
-Microsoft 文档已用于前序设计核对：
-
-- Direct2D custom effects: https://learn.microsoft.com/en-us/windows/win32/direct2d/custom-effects
-- D3D11 shader resource binding: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetshaderresources
-- DXGI ResizeBuffers: https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-resizebuffers
-- Direct2D effect invalidation: https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nf-d2d1_1-id2d1devicecontext-geteffectinvalidrectangles
-- Device-lost recovery: https://learn.microsoft.com/en-us/windows/uwp/gaming/handling-device-lost-scenarios
-- D3D11 context threading: https://learn.microsoft.com/en-us/windows/win32/direct3d11/overviews-direct3d-11-render-multi-thread-intro
-- Composition effect definition/instance model: https://learn.microsoft.com/en-us/uwp/api/windows.ui.composition.compositioneffectbrush
-
-## 接续步骤
-
-1. 重新阅读 `docs/glass-extensibility-plan.md`、`docs/glass-controls-sdk.md`、`native/glass/include/comfortable/glass_effect.hpp` 和 `native/glass/effect.cpp`，核对此前约定及 API 草稿。
-2. 先审查 C++ ABI：内置效果不应以成功的 no-op 暴露为已支持功能；明确扩展描述内指针/回调的生命周期、注册线程和设备重建规则，并在注册时校验效果名及参数 schema。
-3. 已完成构建接入、pybind11 绑定、Python 效果描述/验证，以及 Card/Control 快照更新。不要在 Python 重复维护一份可漂移的效果定义。
-4. 接入 C++ D3D11 compositor：以 card/control 局部纹理为输入，串联效果 pass；每个实例拥有独立参数缓冲、必要的中间纹理和缓存失效状态，设备丢失/resize 后可重建。
-5. 按效果逐个实现并记录真实能力；`tint`/`glow` 已有可测的卡片表面 pass，下一步是以独立输入/输出纹理实现 blur/liquid。效果注册与可运行效果要区分。
-6. 加一个示例展示两个 Card 独立设置参数及自定义效果注册；覆盖 Canvas/WebView 子控件不被二次取帧的情形。
-7. 补 SDK 文档和必要测试；验证原生构建、Python API、效果参数校验、多个实例隔离、窗口 resize/device recreation、无效果的基准性能和 idle draw。
-8. 汇总验证结果后再决定是否提交后续实现。当前阶段已通过 34 个 Glass 纯 Python 测试，并用当前 Windows MSVC/pybind11 成功构建原生扩展。当前分支尚未合并到 `main`；除非用户明确要求，不要推送、合并或发布。
-
-## 恢复工作
-
-在仓库根目录运行：
-
-```powershell
-git status --short --branch
-git log -5 --oneline
-```
-
-从 `codex/liquid-glass-cards` 分支继续即可；本记录说明当前代码边界和下一步，不要把 no-op 占位效果当成完成实现。
+从本文件继续时，应先查看 `git status --short --branch` 与 `git log -5 --oneline`，
+再阅读效果 SDK 和验证 JSON；不要重新从 no-op 草稿开始实现。

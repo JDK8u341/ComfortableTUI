@@ -66,28 +66,7 @@ std::string source_signature(const GlassCard &card) {
     }
     return signature;
 }
-void validate_effect(const GlassEffectBinding &effect) {
-    if(effect.type.empty()||effect.type.size()>128||
-       (effect.target!="background"&&effect.target!="content"&&effect.target!="overlay")||
-       effect.tint>0xffffff||effect.parameters.size()>16||
-       !std::isfinite(effect.opacity)||effect.opacity<0||effect.opacity>1||
-       !std::isfinite(effect.blur)||effect.blur<0||effect.blur>40||
-       !std::isfinite(effect.refraction)||effect.refraction<0||effect.refraction>48||
-       !std::isfinite(effect.dispersion)||effect.dispersion<0||effect.dispersion>3||
-       !std::isfinite(effect.intensity)||effect.intensity<0||effect.intensity>4||
-       !std::isfinite(effect.radius)||effect.radius<0||effect.radius>128||
-       !std::isfinite(effect.progress)||effect.progress<0||effect.progress>1)
-        throw std::invalid_argument("invalid Glass effect binding");
-    const auto &type=glass_effect_type(effect.type);
-    if(effect.parameters.size()>type.parameter_count)
-        throw std::invalid_argument("too many parameters for Glass effect type: "+effect.type);
-    for(float value:effect.parameters)if(!std::isfinite(value))throw std::invalid_argument("Glass effect parameter is not finite");
-    for(std::size_t i=0;i<effect.parameters.size();i++) {
-        const auto &schema=type.parameters[i];
-        if(effect.parameters[i]<schema.minimum||effect.parameters[i]>schema.maximum)
-            throw std::invalid_argument("Glass effect parameter outside schema: "+effect.type);
-    }
-}
+void validate_effect(const GlassEffectBinding &effect) {validate_glass_effect(effect);}
 void validate_effects(const std::vector<GlassEffectBinding> &effects) {
     if(effects.size()>8)throw std::invalid_argument("a Glass node supports at most 8 effects");
     for(const auto &effect:effects)validate_effect(effect);
@@ -222,7 +201,7 @@ struct GlassHost::Impl {
     std::deque<Action> commands;
     struct Presentation {std::string card,control;std::uint64_t generation{};float opacity{1};};
     std::vector<Presentation> presentations;
-    struct EffectUpdate {std::string card,node,type;std::uint64_t generation{};std::size_t index{};std::vector<float> parameters;};
+    struct EffectUpdate {std::string card,node,type;std::uint64_t generation{};std::size_t index{};std::vector<float> parameters;std::uint64_t scene{};};
     std::vector<EffectUpdate> effect_updates;
     std::deque<GlassEvent> output;
     GlassMetrics report;
@@ -379,6 +358,7 @@ struct GlassHost::Impl {
         GlassCard spec;
         HWND hwnd{};
         std::unique_ptr<UiSurface> ui;
+        std::unique_ptr<UiSurface> base_ui;
         std::unique_ptr<Compositor> compositor;
         std::unique_ptr<glass_detail::OpticalPanel> optical;
         GlassBackground background;
@@ -395,6 +375,7 @@ struct GlassHost::Impl {
         std::uint64_t pointer_sequence{};
         bool optical_dirty{true};
         std::string canvas_signature, material_key;
+        std::map<std::string,std::shared_ptr<NativeImageProcessor>> effect_chains;
         int native_x{-100000},native_y{-100000};
         std::shared_ptr<Card *> accessibility=std::make_shared<Card *>(this);
         bool input_selected{};
@@ -446,6 +427,11 @@ struct GlassHost::Impl {
                 if(background.kind=="solid"){background.tint=0x192130;background.opacity=1;}
             }
             if(host->contrast||host->scene.reduced_transparency){background.kind="solid";background.tint=0x192130;background.opacity=1;}
+            // Explicit background chains own optical processing; legacy material
+            // still selects capture/shape/fallback, but cannot double-refract.
+            if(std::any_of(spec.effects.begin(),spec.effects.end(),[](const auto &e){return e.target=="background";})){
+                background.blur=background.refraction=background.dispersion=background.opacity=0;
+            }
             actual_material=background.kind;
             bool wants_optical=background.kind=="liquid"||background.kind=="frosted";
             if(wants_optical&&host->optics&&host->sampling_allowed) {
@@ -471,20 +457,54 @@ struct GlassHost::Impl {
             NativeView ink;ink.id=1;ink.source=ui->provider.descriptor();ink.fit="stretch";
             ink.full=ink.clip={0,0,width*host->dpi,height*host->dpi};
             std::vector<NativeView> views;
-            if(optical){auto lens=ink;lens.id=3;lens.source=optical->descriptor();views.push_back(lens);}
-            views.push_back(ink);
+            std::set<std::string> used_chains;
+            auto chain=[&](const std::string &key,const std::vector<GlassEffectBinding> &effects,const std::string &target){
+                if(target=="background"&&(host->contrast||host->scene.reduced_transparency))return std::shared_ptr<NativeImageProcessor>{};
+                std::vector<GlassEffectBinding> selected;
+                for(const auto &effect:effects)if(effect.target==target)selected.push_back(effect);
+                if(target=="content")for(const auto &effect:effects)if(effect.target=="overlay")selected.push_back(effect);
+                std::string name=key+":"+target;
+                if(selected.empty())return std::shared_ptr<NativeImageProcessor>{};
+                used_chains.insert(name);auto &cached=effect_chains[name];
+                if(!cached||!update_glass_effect_chain(cached,selected))cached=make_glass_effect_chain(selected,host->dpi);
+                return cached;
+            };
+            auto card_key=std::to_string(spec.generation);
+            auto card_background=optical?chain(card_key,spec.effects,"background"):nullptr;
+            if(optical){auto lens=ink;lens.id=3;lens.source=optical->descriptor();lens.content_effect=card_background;views.push_back(lens);}
+            bool split=std::any_of(spec.controls.begin(),spec.controls.end(),[](const auto &c){return !c.effects.empty();});
+            if(split){
+                if(!base_ui)base_ui=std::make_unique<UiSurface>(ink.source.width,ink.source.height,host->factory.Get(),host->write.Get(),host->dpi,
+                    host->ui_device(ink.source.adapter_low,ink.source.adapter_high));
+                auto base=ink;base.id=4;base.source=base_ui->provider.descriptor();views.push_back(base);
+            }
+            if(!split)views.push_back(ink);
+            else {auto header=ink;header.id=10;header.full.height=header.clip.height=102*host->dpi;header.sample={0,0,width*host->dpi,102*host->dpi};views.push_back(header);}
             float row=102;
             canvas_signature.clear();
             for (const auto &c:spec.controls) {
+                auto key=card_key+":"+c.id+":"+std::to_string(c.generation);
+                if(split){
+                    auto patch=ink;patch.id=10+views.size();
+                    patch.full=patch.clip={0,row*host->dpi,width*host->dpi,row_height(c)*host->dpi};patch.sample=patch.full;
+                    patch.background_effect=chain(key,c.effects,"background");
+                    if(c.kind!="canvas")patch.content_effect=chain(key,c.effects,"content");
+                    views.push_back(patch);
+                }
                 if (c.kind=="canvas") {
                     auto v=c.canvas;v.id=2;v.fit=c.fit;
                     v.full=v.clip={24*host->dpi,(row+22)*host->dpi,(width-48)*host->dpi,c.canvas_height*host->dpi};
+                    v.content_effect=chain(key,c.effects,"content");
                     views.push_back(v);
                     host->emit({"transform",spec.id,c.id,"",host->dpi,width-48,c.canvas_height});
                 }
                 row+=row_height(c);
             }
-            compositor->configure(views,ink.source.width,ink.source.height);
+            if(split){auto footer=ink;footer.id=10+views.size();footer.full=footer.clip={0,row*host->dpi,width*host->dpi,(height-row)*host->dpi};footer.sample=footer.full;views.push_back(footer);}
+            auto card_content=chain(card_key,spec.effects,"content");
+            compositor->configure(views,ink.source.width,ink.source.height,card_content);
+            if(!split)base_ui.reset();
+            for(auto at=effect_chains.begin();at!=effect_chains.end();)if(!used_chains.count(at->first))at=effect_chains.erase(at);else ++at;
             canvas_signature=source_signature(spec)+(optical?":optical":"");
         }
         void pointer(const std::string &kind,float px,float py) {
@@ -745,33 +765,18 @@ struct GlassHost::Impl {
             return DefWindowProcW(hwnd,msg,w,l);
         }
         void draw() {
-            auto f=ui->begin();if(!f)return;
-            auto &p=*ui;bool selected=host->scene.selected==spec.id;
             bool solid=actual_material=="solid";
             float alpha=solid?1:actual_material=="mica"?.06f:0;
-            std::uint64_t effects_rendered=0;
-            auto paint_effect=[&](const GlassEffectBinding &effect,const D2D1_RECT_F &box,float radius,bool overlay) {
-                float amount=effect.opacity;
-                if(!effect.parameters.empty())amount*=std::clamp(effect.parameters.front(),0.f,1.f);
-                if(effect.type=="tint") {
-                    p.fill(box,effect.tint,amount,radius);effects_rendered++;
-                } else if(effect.type=="glow") {
-                    float intensity=std::clamp(effect.intensity,0.f,4.f);
-                    if(effect.parameters.size()>0)intensity=std::clamp(effect.parameters.front(),0.f,4.f);
-                    p.brush->SetColor(color(effect.tint,std::clamp(.08f*amount*intensity,0.f,.8f)));
-                    p.dc->DrawRoundedRectangle(D2D1::RoundedRect(box,radius,radius),p.brush.Get(),
-                                                std::max(1.f,std::min(8.f,effect.radius>0?effect.radius/8.f:2.f)));
-                    effects_rendered++;
-                }
-                (void)overlay;
-            };
+            if(base_ui){
+                auto base=base_ui->begin();if(base){base_ui->fill(D2D1::RectF(0,0,width,height),solid?(background.kind=="solid"?background.tint:0x192130):0x121a2a,alpha,background.corner_radius);base_ui->end(base);}
+            }
+            auto f=ui->begin();if(!f)return;
+            auto &p=*ui;bool selected=host->scene.selected==spec.id;
             // Match the system-rounded surface: a larger ink radius would
             // expose an untinted Acrylic wedge outside the self-drawn rim.
             float radius=background.corner_radius;
             p.glyph_shadow=!solid;
-            p.fill(D2D1::RectF(0,0,width,height),solid?(background.kind=="solid"?background.tint:0x192130):0x121a2a,alpha,radius);
-            for(const auto &effect:spec.effects)if(effect.target=="background")
-                paint_effect(effect,D2D1::RectF(0,0,width,height),radius,false);
+            if(!base_ui)p.fill(D2D1::RectF(0,0,width,height),solid?(background.kind=="solid"?background.tint:0x192130):0x121a2a,alpha,radius);
             // Local readability treatment; the card centre stays clear.
             if(!solid){p.fill(D2D1::RectF(18,40,width-18,95),0x08101b,.18f,14);}
             // Wide grazing highlight, concentrated rim and a quiet accent pool.
@@ -799,8 +804,6 @@ struct GlassHost::Impl {
                 float a=(c.enabled&&group_enabled?1.f:.42f)*c.opacity;
                 auto box=D2D1::RectF(20,row+2,width-20,row+h-6);
                 if(over||focus)p.fill(box,host->scene.accent,(pressed==static_cast<int>(i)?.19f:.09f)*a,10);
-                for(const auto &effect:c.effects)if(effect.target=="background"||effect.target=="content")
-                    paint_effect(effect,box,10,false);
                 if(focus){p.brush->SetColor(color(host->scene.accent,.7f));p.dc->DrawRoundedRectangle(D2D1::RoundedRect(box,10,10),p.brush.Get(),1);}
                 ControlPainter painter(p,20,row);
                 GlassControlPaint state{width-40,h,host->dpi,a,host->scene.accent,over,focus,pressed==static_cast<int>(i),input_selected,
@@ -809,13 +812,11 @@ struct GlassHost::Impl {
                 p.dc->PushAxisAlignedClip(D2D1::RectF(20,row,width-20,row+h),D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                 glass_control_type(c).paint(painter,c,state);
                 p.dc->PopAxisAlignedClip();
-                for(const auto &effect:c.effects)if(effect.target=="overlay")
-                    paint_effect(effect,box,10,true);
                 row+=h;
             }
             p.fill(D2D1::RectF(24,height-12,width-24,height-11),host->scene.accent,selected?.28f:.08f);
             ui->end(f);dirty=false;
-            std::lock_guard<std::mutex> lock(host->mutex);host->report.frames++;host->report.effects_rendered+=effects_rendered;
+            std::lock_guard<std::mutex> lock(host->mutex);host->report.frames++;
         }
     };
     std::string layout_root(const Card &card) const {
@@ -964,7 +965,8 @@ struct GlassHost::Impl {
                 if(reflow)card.pinned=false;
                 if(!card.spec.draggable&&card.dragging){card.stop_drag(true);card.dragging=false;if(GetCapture()==card.hwnd)ReleaseCapture();}
                 signature+=card.optical?":optical":"";
-                if(signature!=card.canvas_signature)card.configure_canvas();
+                if(signature!=card.canvas_signature||!card.effect_chains.empty()||!spec.effects.empty()||
+                   std::any_of(spec.controls.begin(),spec.controls.end(),[](const auto &c){return !c.effects.empty();}))card.configure_canvas();
             }
         }
         std::vector<std::unique_ptr<Card>> ordered;
@@ -1187,18 +1189,35 @@ struct GlassHost::Impl {
                 if(serial)apply(std::move(next),serial);
                 for(const auto &delta:deltas)for(auto &card:cards)if(card->spec.id==delta.card)for(auto &control:card->spec.controls)
                     if(control.id==delta.control&&control.generation==delta.generation&&control.opacity!=delta.opacity){control.opacity=delta.opacity;card->dirty=true;}
+                std::set<Card *> effect_dirty;
                 for(const auto &update:effect_deltas) {
+                    if(update.scene<applied)continue;
                     for(auto &card:cards) if(card->spec.id==update.card) {
                         if(update.node.empty()) {
                             if(card->spec.generation!=update.generation||update.index>=card->spec.effects.size())continue;
                             auto &effect=card->spec.effects[update.index];
-                            if(effect.type==update.type){effect.parameters=update.parameters;card->dirty=true;}
+                            if(effect.type==update.type){effect.parameters=update.parameters;effect_dirty.insert(card.get());}
                         } else for(auto &control:card->spec.controls) if(control.id==update.node&&control.generation==update.generation) {
                             if(update.index>=control.effects.size())continue;
                             auto &effect=control.effects[update.index];
-                            if(effect.type==update.type){effect.parameters=update.parameters;card->dirty=true;}
+                            if(effect.type==update.type){effect.parameters=update.parameters;effect_dirty.insert(card.get());}
                         }
                     }
+                }
+                for(auto *card:effect_dirty){
+                    auto update=[&](const std::string &key,const std::vector<GlassEffectBinding> &effects){
+                        for(const auto *target:{"background","content"}){
+                            auto at=card->effect_chains.find(key+":"+target);if(at==card->effect_chains.end())continue;
+                            std::vector<GlassEffectBinding> selected;
+                            for(const auto &effect:effects)if(effect.target==target)selected.push_back(effect);
+                            if(std::string(target)=="content")for(const auto &effect:effects)if(effect.target=="overlay")selected.push_back(effect);
+                            if(!update_glass_effect_chain(at->second,selected))throw std::runtime_error("effect binding changed during parameter update");
+                        }
+                    };
+                    auto key=std::to_string(card->spec.generation);update(key,card->spec.effects);
+                    for(const auto &c:card->spec.controls)update(key+":"+c.id+":"+std::to_string(c.generation),c.effects);
+                    card->compositor->invalidate();
+                    for(auto &saved:scene.cards)if(saved.id==card->spec.id)saved=card->spec;
                 }
                 for(const auto &a:actions) {
                     if(a.kind=="next")cycle(1);else if(a.kind=="previous")cycle(-1);
@@ -1244,10 +1263,10 @@ struct GlassHost::Impl {
                         optics->render(*background_optical,work,frosted,1,0,0,false);
                     }
                     if(now-metrics_time>=.5) {
-                        std::uint64_t presents=0,frames=0;
+                        std::uint64_t presents=0,frames=0,effects=0;
                         for(const auto &c:cards){auto stats=c->compositor->metrics();if(!stats.error.empty())throw std::runtime_error(stats.error);
-                            presents+=stats.presents;for(const auto &v:stats.views)if(v.id==2)frames+=v.frames;}
-                        std::lock_guard<std::mutex> lock(mutex);report.presents=presents;report.canvas_frames=frames;metrics_time=now;
+                            presents+=stats.presents;effects+=stats.effect_passes;for(const auto &v:stats.views)if(v.id==2)frames+=v.frames;}
+                        std::lock_guard<std::mutex> lock(mutex);report.presents=presents;report.canvas_frames=frames;report.effects_rendered=effects;metrics_time=now;
                     }
                     auto owner_dpi=GetDpiForWindow(owner);
                     if(owner_dpi&&owner_dpi/96.f!=dpi&&applied)apply(scene,applied);
@@ -1319,6 +1338,9 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
            !std::isfinite(card.width)||card.width<220||card.width>1600||card_height(card)>1200||
            card.title.size()>4096||card.subtitle.size()>4096||card.eyebrow.size()>256)throw std::invalid_argument("invalid glass card");
         validate_effects(card.effects);
+        if(std::any_of(card.effects.begin(),card.effects.end(),[](const auto &e){return e.target=="background";})&&
+           (card.has_background?card.background.kind!="liquid"&&card.background.kind!="frosted":scene.material!="glass"&&scene.material!="liquid"&&scene.material!="frosted"))
+            throw std::invalid_argument("Card background effects require a sampled liquid/frosted material source");
         std::set<std::string> controls;int canvases=0;
         const auto &b=card.background;
         if(card.has_background&&(!materials.count(b.kind)||b.kind=="glass"||b.tint>0xffffff||
@@ -1400,24 +1422,27 @@ void GlassHost::set_effect_parameters(const std::string &card,const std::string 
                                        std::size_t index,const std::string &type,const std::vector<float> &parameters) {
     if(card.empty()||card.size()>128||node.size()>128||!generation||type.empty()||type.size()>128||parameters.size()>16)
         throw std::invalid_argument("invalid Glass effect parameter delta");
-    GlassEffectBinding probe;probe.type=type;probe.parameters=parameters;validate_effect(probe);
+    glass_effect_parameters(type,parameters);
     std::lock_guard<std::mutex> lock(impl_->mutex);
     if(impl_->stopping)throw std::runtime_error("GlassHost is closed");
     const auto card_at=std::find_if(impl_->requested.cards.begin(),impl_->requested.cards.end(),[&](const auto &value){return value.id==card;});
     if(card_at==impl_->requested.cards.end())return;
+    GlassEffectBinding *binding=nullptr;
     if(node.empty()) {
         if(card_at->generation!=generation||index>=card_at->effects.size()||card_at->effects[index].type!=type)return;
-        card_at->effects[index].parameters=parameters;
+        binding=&card_at->effects[index];
     } else {
         const auto control_at=std::find_if(card_at->controls.begin(),card_at->controls.end(),[&](const auto &value){return value.id==node;});
         if(control_at==card_at->controls.end()||control_at->generation!=generation||index>=control_at->effects.size()||control_at->effects[index].type!=type)return;
-        control_at->effects[index].parameters=parameters;
+        binding=&control_at->effects[index];
+    }
+    if(binding->parameters==parameters)return;
+    for(auto &pending:impl_->effect_updates)if(pending.card==card&&pending.node==node&&pending.generation==generation&&pending.index==index) {
+        pending.type=type;pending.parameters=parameters;pending.scene=impl_->submitted;binding->parameters=parameters;SetEvent(impl_->changed.value);return;
     }
     if(impl_->effect_updates.size()>=384)throw std::runtime_error("Glass effect update queue full");
-    for(auto &pending:impl_->effect_updates)if(pending.card==card&&pending.node==node&&pending.generation==generation&&pending.index==index) {
-        pending.type=type;pending.parameters=parameters;SetEvent(impl_->changed.value);return;
-    }
-    impl_->effect_updates.push_back({card,node,type,generation,index,parameters});SetEvent(impl_->changed.value);
+    impl_->effect_updates.push_back({card,node,type,generation,index,parameters,impl_->submitted});
+    binding->parameters=parameters;SetEvent(impl_->changed.value);
 }
 std::vector<GlassEvent> GlassHost::events(){std::lock_guard<std::mutex> lock(impl_->mutex);std::vector<GlassEvent> r(impl_->output.begin(),impl_->output.end());impl_->output.clear();return r;}
 GlassMetrics GlassHost::metrics()const{std::lock_guard<std::mutex> lock(impl_->mutex);return impl_->report;}

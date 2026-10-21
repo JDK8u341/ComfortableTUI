@@ -109,3 +109,14 @@ python -m examples.glass_workspace.mixed --render-mode cpu
 这不是网页。也可通过 `--gpu-source CHANNEL_NAME` 接入正在运行的标准 GPU 提供者。
 `GlassCanvas` 接受现有 OverlayCanvas（包括 WebView）或直接接受 CPU/GPU 来源。
 接口和事件约定见[通用画布文档](../../docs/glass-canvas.md)。
+
+## 独立图像效果与自定义 Shader
+
+```powershell
+.\.venv\Scripts\python.exe -m examples.glass_workspace.effects
+# 完整构建及可选负片 Shader 扩展见效果 SDK：
+.\.venv\Scripts\python.exe -m examples.glass_workspace.effects --extension .build/glass-controls
+```
+
+两张卡片独立设置参数，按钮通过按需帧钩子播放用户自己的glow动画。
+使用与当前协议6运行时匹配的模块，详见[效果SDK](../../docs/glass-effects-sdk.md)。

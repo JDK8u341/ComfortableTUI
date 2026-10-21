@@ -1,32 +1,11 @@
 # Glass 原生控件 SDK 与动画钩子
 
-日期：2026-10-20。Windows，Glass 控制协议 **5**；帧协议1、浏览器安全协议2不变。
+日期：2026-10-21。Windows，Glass 控制协议 **6**，Control 扩展 ABI **2**；帧协议1、浏览器安全协议2不变。
 
-这是[扩展方案](glass-extensibility-plan.md)的第一批实现：原生控件注册、Python Card组合、
-输入钩子、按需帧回调、控件墨水透明度增量。完整EffectType、任意Shader、局部背景采样、
-可替换Card布局动画仍未实现。没有提前发布占位的effects/shader API。
-
-当前分支已加入效果实例的模型和原生参数通道。`tint` 与 `glow` 已接入卡片表面的
-D2D 绘制 pass；`blur`/`liquid` 仍只有 schema、独立实例状态和更新通道，尚未接入
-需要离屏纹理的采样 pass，不能把它们当作已完成的视觉效果。
-
-```python
-from comfortable_tui import GlassCard, GlassControl, GlassEffect
-
-card = GlassCard(
-    "player", "Player",
-    [GlassControl("value", "text", text="Ready",
-                  effects=[GlassEffect("glow", target="overlay", radius=12)])],
-    effects=[GlassEffect("liquid", target="background", parameters=(18., .35))],
-)
-```
-
-`GlassEffect` 的 `parameters` 是注册类型定义的有序向量，Card 与 Control 各自保存实例；
-修改一个实例不会改变同类型的其他实例。绑定到已运行工作区后，可调用
-`workspace.set_effect_parameters(card, node, effect, values)` 提交参数增量，其中 `node`
-传 Control 对象，Card 本身作为节点时传 Card 对象。原生端会再次校验类型、范围、代次和
-队列容量，迟到的替换节点更新会被丢弃。当前参数通道主要用于后续 compositor pass，
-不应被当作已经产生视觉效果的承诺。
+第一批提供原生控件注册、Python Card组合、输入钩子、按需帧回调和控件墨水透明度增量。
+第二批已增加独立 EffectType、真实离屏 GPU 效果链、原生 Shader 扩展及参数增量；
+完整 API、阶段语义与运行命令见[图像效果 SDK](glass-effects-sdk.md)。
+可替换 Card 布局动画、原生帧订阅和任意内容变形的逆向命中映射仍不在当前 API 内。
 
 ## 设计参考
 
@@ -39,7 +18,7 @@ card = GlassCard(
   原生节点可直接参与绘制，离屏纹理有代价。九种内置控件和扩展控件统一注册分派，
   不给每个控件新增窗口、线程或FrameProvider。
 - [Microsoft Composition effects](https://learn.microsoft.com/en-us/windows/apps/develop/composition/composition-effects)：
-  效果定义和独立实例分开。这仍是后续EffectType的方向，本轮墨水透明度不能代替图像效果器。
+  效果定义和独立实例分开。效果器实现见独立 SDK；本页的墨水透明度接口继续保持轻量。
 - [Flutter CustomPainter](https://api.flutter.dev/flutter/rendering/CustomPainter-class.html)：
   绘制、命中、语义分别声明，按需重绘可避开build/layout。本项目由同一ControlType提供
   这些行为，帧回调提交不重建场景。
@@ -72,7 +51,7 @@ $env:COMFORTABLE_TUI_BUILD_GLASS='1'
 
 ```cpp
 const GlassControlType types[] = {{
-    "example.dial", 1, true, 0x33, "Adjust",
+    "example.dial", 2, true, 0x33, "Adjust",
     measure, paint, hit, input, accessible_value
 }};
 const GlassControlExtension extension = [] {
@@ -102,7 +81,8 @@ dial = GlassControl("volume", "example.dial", "Volume", value=.5)
 
 `GlassPainter`提供fill/text/line/circle，坐标相对控件左上角，尺寸为逻辑像素。
 绘制限制在行矩形内，不用视觉越界扩大命中。当前SDK支持无状态绘制类型；尚未提供控件
-局部容器布局、私有逐节点资源/生命周期、自定义标题栏、任意变换或Shader注册接口。
+局部容器布局、控件私有逐节点资源/生命周期、自定义标题栏或任意变换。Shader注册与
+效果器设备资源生命周期见独立效果SDK。
 不要用Python paint回调或每控件独立窗口绕过这个边界。
 
 扩展是**可信本机代码**，不是浏览器沙箱。注册验证ABI、描述结构、指针宽度、MSVC、
@@ -138,10 +118,10 @@ request.cancel()  # 幂等，同时释放回调及节点引用
   同节点积压更新，最多384目标，与普通命令队列分开。不configure、不布局、不分配纹理。
   完整模型后续提交保留Python模型当前opacity；几何、命中、语义不变。
 - Canvas是独立合成层，本版拒绝其opacity，避免只淡出标题却保留画面。Card窗体变换、
-  效果参数、布局目标回调、原生帧订阅尚未开放，原有Card弹簧未改变。
+  效果参数通过独立SDK的增量通道更新；布局目标回调、原生帧订阅尚未开放，原有Card弹簧未改变。
 
 模型与事件带节点实例代号，同ID替换后旧事件、增量和未确认原生值不能写入新实例。
-不要复制私有代号或伪造事件。协议4的原生模块必须重编。
+不要复制私有代号或伪造事件。协议5及更早的原生模块必须重编为协议6。
 
 ## 验证
 

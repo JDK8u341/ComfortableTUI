@@ -4,7 +4,7 @@
 namespace comfortable {
 inline void bind_glass(pybind11::module_ &m) {
     namespace py=pybind11;
-    m.attr("glass_protocol_version")=5;
+    m.attr("glass_protocol_version")=6;
     auto owners=py::list();
     auto effect_owners=py::list();
     m.def("register_controls",[owners](py::object owner,py::capsule capsule)mutable {
@@ -26,6 +26,14 @@ inline void bind_glass(pybind11::module_ &m) {
         for(std::size_t i=0;i<extension->count;i++)out.append(py::str(extension->types[i].name));
         return out;
     });
+    m.def("effect_schema",[](const std::string &name){
+        const auto &type=glass_effect_type(name);py::list result;
+        for(std::size_t i=0;i<type.parameter_count;i++){
+            const auto &s=type.parameters[i];py::dict p;p["name"]=s.name;p["minimum"]=s.minimum;
+            p["maximum"]=s.maximum;p["default"]=s.default_value;result.append(p);
+        }return result;
+    });
+    m.def("validate_effect_parameters",&glass_effect_parameters);
     m.def("measure_control",[](const std::string &name,py::object model){
         GlassControl c;c.kind=name;
         if(!model.is_none()) {
@@ -68,9 +76,6 @@ inline void bind_glass(pybind11::module_ &m) {
                     effect.type=py::cast<std::string>(e["type"]);effect.target=py::cast<std::string>(e["target"]);
                     effect.parameters=py::cast<std::vector<float>>(e["parameters"]);
                     effect.tint=py::cast<std::uint32_t>(e["tint"]);effect.opacity=py::cast<float>(e["opacity"]);
-                    effect.blur=py::cast<float>(e["blur"]);effect.refraction=py::cast<float>(e["refraction"]);
-                    effect.dispersion=py::cast<float>(e["dispersion"]);effect.intensity=py::cast<float>(e["intensity"]);
-                    effect.radius=py::cast<float>(e["radius"]);effect.progress=py::cast<float>(e["progress"]);
                     card.effects.push_back(std::move(effect));
                 }
                 if(!d["background"].is_none()) {
@@ -101,10 +106,7 @@ inline void bind_glass(pybind11::module_ &m) {
                         effect.type=py::cast<std::string>(e["type"]);effect.target=py::cast<std::string>(e["target"]);
                         effect.parameters=py::cast<std::vector<float>>(e["parameters"]);
                         effect.tint=py::cast<std::uint32_t>(e["tint"]);effect.opacity=py::cast<float>(e["opacity"]);
-                        effect.blur=py::cast<float>(e["blur"]);effect.refraction=py::cast<float>(e["refraction"]);
-                        effect.dispersion=py::cast<float>(e["dispersion"]);effect.intensity=py::cast<float>(e["intensity"]);
-                        effect.radius=py::cast<float>(e["radius"]);effect.progress=py::cast<float>(e["progress"]);
-                        control.effects.push_back(std::move(effect));
+                                    control.effects.push_back(std::move(effect));
                     }
                     if(control.kind=="canvas") {
                         auto src=py::cast<py::dict>(c["source"]);auto &x=control.canvas;

@@ -25,7 +25,7 @@ class GlassCanvas(GlassControl):
     _managed = True
 
     def __init__(self, id, canvas, *, label="", height=240, enabled=True, fit=None,
-                 auto_resize=False, on_event=None):
+                 auto_resize=False, on_event=None, effects=()):
         if isinstance(canvas, (FrameBuffer, GpuFrameSource)):
             canvas = OverlayCanvas(canvas, fit=fit or "contain")
         if not isinstance(canvas, OverlayCanvas):
@@ -37,7 +37,7 @@ class GlassCanvas(GlassControl):
         canvas._prepare_surface()
         super().__init__(id, "canvas", label, source=canvas.buffer, enabled=enabled,
                          fit=canvas.fit if fit is None else fit, on_event=on_event,
-                         canvas_height=height, capture_escape=True)
+                         canvas_height=height, capture_escape=True, effects=list(effects))
         self.canvas, self.auto_resize = canvas, auto_resize
         self._inherit_fit = fit is None
         self._workspace = None
