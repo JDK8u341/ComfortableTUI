@@ -79,4 +79,10 @@ std::shared_ptr<NativeImageProcessor> make_glass_effect_chain(
 bool update_glass_effect_chain(const std::shared_ptr<NativeImageProcessor> &,
                               const std::vector<GlassEffectBinding> &);
 std::uint64_t glass_effect_surface_bytes(); // Local effect textures only, for diagnostics/tests.
+// Cumulative allocation/compilation counts. Updated only on resource creation,
+// never per pixel or per parameter update; process-local, not driver VRAM usage.
+struct GlassEffectDiagnostics {
+    std::uint64_t surface_bytes{}, surface_allocations{}, shader_compilations{}, program_sets{};
+};
+GlassEffectDiagnostics glass_effect_diagnostics();
 } // namespace comfortable

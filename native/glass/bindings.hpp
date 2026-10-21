@@ -5,6 +5,11 @@ namespace comfortable {
 inline void bind_glass(pybind11::module_ &m) {
     namespace py=pybind11;
     m.attr("glass_protocol_version")=6;
+    m.def("effect_diagnostics",[]{
+        auto s=glass_effect_diagnostics();py::dict out;
+        out["surface_bytes"]=s.surface_bytes;out["surface_allocations"]=s.surface_allocations;
+        out["shader_compilations"]=s.shader_compilations;out["program_sets"]=s.program_sets;return out;
+    });
     auto owners=py::list();
     auto effect_owners=py::list();
     m.def("register_controls",[owners](py::object owner,py::capsule capsule)mutable {

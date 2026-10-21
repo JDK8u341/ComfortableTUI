@@ -1,0 +1,197 @@
+{
+  "date": "2026-10-21",
+  "cpu": {
+    "result": "passed",
+    "fixture": "application-owned QWidget; real D3D11 compositor",
+    "physical_dpi": 120,
+    "cases": [
+      {
+        "cards": 1,
+        "source": "cpu",
+        "parameter_batches": 338,
+        "measured_seconds": 3.0047556000063196,
+        "parent_cpu_seconds": 0.390625,
+        "baseline_presents": 0,
+        "active_presents": 657,
+        "active_canvas_frames": 338,
+        "effect_passes": 5256,
+        "steady_surface_allocations": 0,
+        "steady_shader_compiles": 0,
+        "idle_effect_passes": 0,
+        "native_frames_during_gil_hold": null,
+        "max_owned_effect_bytes": 1368768,
+        "churn_cycles": 12,
+        "close_ms": 50.13730004429817,
+        "remaining_effect_bytes": 0
+      },
+      {
+        "cards": 4,
+        "source": "cpu",
+        "parameter_batches": 332,
+        "measured_seconds": 3.003563799953554,
+        "parent_cpu_seconds": 1.1875,
+        "baseline_presents": 0,
+        "active_presents": 2596,
+        "active_canvas_frames": 1328,
+        "effect_passes": 20768,
+        "steady_surface_allocations": 0,
+        "steady_shader_compiles": 0,
+        "idle_effect_passes": 0,
+        "native_frames_during_gil_hold": null,
+        "max_owned_effect_bytes": 5475072,
+        "churn_cycles": 12,
+        "close_ms": 98.460300010629,
+        "remaining_effect_bytes": 0
+      },
+      {
+        "cards": 12,
+        "source": "cpu",
+        "parameter_batches": 307,
+        "measured_seconds": 3.002567799994722,
+        "parent_cpu_seconds": 3.734375,
+        "baseline_presents": 0,
+        "active_presents": 7285,
+        "active_canvas_frames": 3684,
+        "effect_passes": 58280,
+        "steady_surface_allocations": 0,
+        "steady_shader_compiles": 0,
+        "idle_effect_passes": 0,
+        "native_frames_during_gil_hold": null,
+        "max_owned_effect_bytes": 16425216,
+        "churn_cycles": 12,
+        "close_ms": 249.36279997928068,
+        "remaining_effect_bytes": 0
+      }
+    ],
+    "diagnostics": {
+      "surface_bytes": 0,
+      "surface_allocations": 356,
+      "shader_compilations": 6,
+      "program_sets": 89
+    }
+  },
+  "gpu": {
+    "result": "passed",
+    "fixture": "application-owned QWidget; real D3D11 compositor",
+    "physical_dpi": 120,
+    "cases": [
+      {
+        "cards": 1,
+        "source": "gpu",
+        "parameter_batches": 339,
+        "measured_seconds": 3.001804900006391,
+        "parent_cpu_seconds": 0.546875,
+        "baseline_presents": 61,
+        "active_presents": 761,
+        "active_canvas_frames": 428,
+        "effect_passes": 6088,
+        "steady_surface_allocations": 0,
+        "steady_shader_compiles": 0,
+        "idle_effect_passes": null,
+        "native_frames_during_gil_hold": 122,
+        "max_owned_effect_bytes": 1368768,
+        "churn_cycles": 12,
+        "close_ms": 48.0540000135079,
+        "remaining_effect_bytes": 0
+      },
+      {
+        "cards": 4,
+        "source": "gpu",
+        "parameter_batches": 338,
+        "measured_seconds": 3.0085937999538146,
+        "parent_cpu_seconds": 1.265625,
+        "baseline_presents": 244,
+        "active_presents": 3039,
+        "active_canvas_frames": 1708,
+        "effect_passes": 24312,
+        "steady_surface_allocations": 0,
+        "steady_shader_compiles": 0,
+        "idle_effect_passes": null,
+        "native_frames_during_gil_hold": 491,
+        "max_owned_effect_bytes": 5475072,
+        "churn_cycles": 12,
+        "close_ms": 88.80170003976673,
+        "remaining_effect_bytes": 0
+      },
+      {
+        "cards": 12,
+        "source": "gpu",
+        "parameter_batches": 326,
+        "measured_seconds": 3.0029227000195533,
+        "parent_cpu_seconds": 3.78125,
+        "baseline_presents": 1319,
+        "active_presents": 9027,
+        "active_canvas_frames": 5139,
+        "effect_passes": 72216,
+        "steady_surface_allocations": 0,
+        "steady_shader_compiles": 0,
+        "idle_effect_passes": null,
+        "native_frames_during_gil_hold": 734,
+        "max_owned_effect_bytes": 16425216,
+        "churn_cycles": 12,
+        "close_ms": 217.70550002111122,
+        "remaining_effect_bytes": 0
+      }
+    ],
+    "diagnostics": {
+      "surface_bytes": 0,
+      "surface_allocations": 356,
+      "shader_compilations": 6,
+      "program_sets": 89
+    }
+  },
+  "gpu_soak": {
+    "result": "passed",
+    "fixture": "application-owned QWidget; real D3D11 compositor",
+    "physical_dpi": 120,
+    "cases": [
+      {
+        "cards": 12,
+        "source": "gpu",
+        "parameter_batches": 869,
+        "measured_seconds": 8.008526799967512,
+        "parent_cpu_seconds": 11.921875,
+        "baseline_presents": 1320,
+        "active_presents": 22835,
+        "active_canvas_frames": 12458,
+        "effect_passes": 182680,
+        "steady_surface_allocations": 0,
+        "steady_shader_compiles": 0,
+        "idle_effect_passes": null,
+        "native_frames_during_gil_hold": 1465,
+        "max_owned_effect_bytes": 16425216,
+        "churn_cycles": 48,
+        "close_ms": 236.5214999881573,
+        "remaining_effect_bytes": 0
+      }
+    ],
+    "diagnostics": {
+      "surface_bytes": 0,
+      "surface_allocations": 432,
+      "shader_compilations": 6,
+      "program_sets": 108
+    }
+  },
+  "webview": {
+    "result": "passed",
+    "checks": [
+      "native_callback_and_builtin_passes_in_real_compositor",
+      "parameter_update_without_scene_submission_or_resource_recreation",
+      "unchanged_input_has_no_idle_effect_draws",
+      "new_frame_uses_existing_single_consumer",
+      "same_id_replacement_keeps_one_live_instance_and_one_consumer",
+      "detach_releases_effect_resources_before_source_close",
+      "cpu_webview_effect_uses_existing_frame_and_detaches_cleanly",
+      "gpu_webview_effect_uses_existing_frame_and_detaches_cleanly"
+    ],
+    "extension": {
+      "draws": 17,
+      "created": 7,
+      "released": 7,
+      "wrong_thread": 0
+    },
+    "idle_draws_in_400ms": 0
+  },
+  "scope": "Owned Qt host, real D3D11/DComp windows. Not external-terminal, physical multi-DPI-monitor or driver-reset verification. Frame counters are delayed aggregates, not precise FPS.",
+  "earlier_failure": "One early GPU readiness timeout lacked a metric snapshot; cause unconfirmed. Diagnostics now persist timeout metrics and completed cases. Subsequent single-card, full matrices and 12-card 48-cycle runs passed without reproducing it."
+}

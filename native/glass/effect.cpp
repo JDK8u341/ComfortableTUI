@@ -30,6 +30,7 @@ struct Registry {
     }
 };
 Registry &registry(){static Registry value;return value;}
+std::atomic<std::uint64_t> shader_compilations{},program_sets{},surface_allocations{};
 const char *program=R"(
 cbuffer P:register(b0){float4 crop;float4 params;float4 tint;float4 info;};
 Texture2D image:register(t0);Texture2D original:register(t1);
@@ -78,6 +79,23 @@ float4 liquidImage(V v):SV_TARGET{
  c.rgb=min(c.rgb,c.aaa);return c;
 }
 )";
+// Immutable compiled code is device-independent. Keep it for the process lifetime
+// (six small blobs), including when the last card/device has been destroyed.
+// Device shaders/constants remain separate; no output or instance state is shared.
+struct Bytecodes {
+    std::array<ComPtr<ID3DBlob>,6> code;
+    Bytecodes(){
+        const char *entries[]={"vs","copyImage","tintImage","blurImage","glowImage","liquidImage"};
+        for(std::size_t i=0;i<code.size();i++){
+            ComPtr<ID3DBlob> errors;
+            auto hr=D3DCompile(program,std::strlen(program),nullptr,nullptr,nullptr,entries[i],i?"ps_4_0":"vs_4_0",
+                              D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code[i],&errors);
+            shader_compilations++;
+            if(FAILED(hr))throw std::runtime_error(errors?static_cast<const char *>(errors->GetBufferPointer()):"effect shader compile failed");
+        }
+    }
+};
+const Bytecodes &bytecodes(){static const Bytecodes result;return result;}
 struct Programs {
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11PixelShader> copy,tint,blur,glow,liquid;
@@ -85,18 +103,12 @@ struct Programs {
     ComPtr<ID3D11SamplerState> sampler;
     ComPtr<ID3D11RasterizerState> raster;
     explicit Programs(ID3D11Device *device){
-        auto compile=[&](const char *entry,const char *profile){
-            ComPtr<ID3DBlob> code,errors;
-            auto hr=D3DCompile(program,std::strlen(program),nullptr,nullptr,nullptr,entry,profile,
-                              D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);
-            if(FAILED(hr))throw std::runtime_error(errors?static_cast<const char *>(errors->GetBufferPointer()):"effect shader compile failed");
-            return code;
-        };
-        auto v=compile("vs","vs_4_0");check(device->CreateVertexShader(v->GetBufferPointer(),v->GetBufferSize(),nullptr,&vs),"effect VS");
-        for(auto pair:{std::make_pair("copyImage",std::addressof(copy)),{"tintImage",std::addressof(tint)},{"blurImage",std::addressof(blur)},
-                       {"glowImage",std::addressof(glow)},{"liquidImage",std::addressof(liquid)}}){
-            auto p=compile(pair.first,"ps_4_0");
-            check(device->CreatePixelShader(p->GetBufferPointer(),p->GetBufferSize(),nullptr,pair.second->GetAddressOf()),"effect PS");
+        const auto &code=bytecodes().code;
+        check(device->CreateVertexShader(code[0]->GetBufferPointer(),code[0]->GetBufferSize(),nullptr,&vs),"effect VS");
+        std::array<ComPtr<ID3D11PixelShader> *,5> pixels={std::addressof(copy),std::addressof(tint),std::addressof(blur),std::addressof(glow),std::addressof(liquid)};
+        for(std::size_t i=0;i<pixels.size();i++){
+            const auto &p=code[i+1];
+            check(device->CreatePixelShader(p->GetBufferPointer(),p->GetBufferSize(),nullptr,pixels[i]->GetAddressOf()),"effect PS");
         }
         D3D11_BUFFER_DESC bd{};bd.ByteWidth=64;bd.Usage=D3D11_USAGE_DEFAULT;bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
         check(device->CreateBuffer(&bd,nullptr,&constants),"effect constants");
@@ -104,9 +116,11 @@ struct Programs {
         check(device->CreateSamplerState(&sd,&sampler),"effect sampler");
         D3D11_RASTERIZER_DESC rd{};rd.FillMode=D3D11_FILL_SOLID;rd.CullMode=D3D11_CULL_NONE;rd.DepthClipEnable=TRUE;
         check(device->CreateRasterizerState(&rd,&raster),"effect rasterizer");
+        program_sets++;
     }
 };
 std::shared_ptr<Programs> programs(ID3D11Device *device){
+    bytecodes(); // Never compile while holding the device-cache mutex.
     static std::mutex mutex;
     static std::map<ID3D11Device *,std::weak_ptr<Programs>> cache;
     std::lock_guard<std::mutex> lock(mutex);
@@ -137,6 +151,7 @@ struct CustomResource {
 class Chain final:public NativeImageProcessor {
     std::mutex mutex;
     std::vector<GlassEffectBinding> bindings;
+    std::vector<const GlassEffectType *> types; // Registry entries are immutable and never removed.
     float dpi;
     ComPtr<ID3D11Device> device;
     std::shared_ptr<Programs> shared;
@@ -154,7 +169,7 @@ class Chain final:public NativeImageProcessor {
         release();
         // Each pass' dependency radius adds to the preceding pass' input.
         float radius=0;
-        for(const auto &e:bindings)radius+=glass_effect_type(e.type).sampling_radius*dpi;
+        for(const auto *type:types)radius+=type->sampling_radius*dpi;
         pad=static_cast<UINT>(std::ceil(radius));
         auto ew=w+2*pad,eh=h+2*pad;
         auto required=(3ull*ew*eh+1ull*w*h)*4;
@@ -165,9 +180,10 @@ class Chain final:public NativeImageProcessor {
         bytes=required;
         try {
             device=d;shared=programs(d);original=Target(d,ew,eh);a=Target(d,ew,eh);b=Target(d,ew,eh);output=Target(d,w,h);
-            for(const auto &e:bindings){
-                const auto &type=glass_effect_type(e.type);auto instance=std::make_unique<CustomResource>();instance->type=&type;
-                if(type.create_device_resources){instance->resource=type.create_device_resources(d);if(!instance->resource)throw std::runtime_error("effect resource creation failed: "+e.type);}
+            surface_allocations+=4;
+            for(std::size_t i=0;i<bindings.size();i++){
+                const auto &type=*types[i];auto instance=std::make_unique<CustomResource>();instance->type=&type;
+                if(type.create_device_resources){instance->resource=type.create_device_resources(d);if(!instance->resource)throw std::runtime_error("effect resource creation failed: "+bindings[i].type);}
                 custom.push_back(std::move(instance));
             }
         }catch(...){release();throw;}
@@ -188,7 +204,12 @@ class Chain final:public NativeImageProcessor {
         ctx->ClearState();rendered++;
     }
   public:
-    Chain(std::vector<GlassEffectBinding> e,float scale):bindings(std::move(e)),dpi(scale){}
+    Chain(std::vector<GlassEffectBinding> e,float scale):bindings(std::move(e)),dpi(scale){
+        for(auto &binding:bindings){
+            types.push_back(&glass_effect_type(binding.type));
+            binding.parameters=glass_effect_parameters(binding.type,binding.parameters);
+        }
+    }
     ~Chain()override{release();}
     std::uint64_t passes()const override{return rendered.load();}
     void release_device_resources()override{std::lock_guard<std::mutex> lock(mutex);release();}
@@ -196,7 +217,9 @@ class Chain final:public NativeImageProcessor {
         std::lock_guard<std::mutex> lock(mutex);
         if(next.size()!=bindings.size())return false;
         for(std::size_t i=0;i<next.size();i++)if(next[i].type!=bindings[i].type||next[i].target!=bindings[i].target)return false;
-        bindings=next;return true;
+        auto normalized=next;
+        for(auto &e:normalized)e.parameters=glass_effect_parameters(e.type,e.parameters);
+        bindings=std::move(normalized);return true;
     }
     ID3D11ShaderResourceView *process(ID3D11Device *d,ID3D11DeviceContext *ctx,ID3D11ShaderResourceView *input,
         std::uint32_t w,std::uint32_t h,const PixelBox &r,bool straight)override{
@@ -213,8 +236,8 @@ class Chain final:public NativeImageProcessor {
         draw(ctx,original,input,shared->copy.Get(),values);
         auto *current=&original;
         for(std::size_t i=0;i<bindings.size();i++){
-            const auto &e=bindings[i];const auto &type=glass_effect_type(e.type);
-            auto parameters=glass_effect_parameters(e.type,e.parameters);
+            const auto &e=bindings[i];const auto &type=*types[i];
+            const auto &parameters=e.parameters;
             values={};values[0]=static_cast<float>(pad);values[1]=static_cast<float>(pad);values[2]=static_cast<float>(ow);values[3]=static_cast<float>(oh);
             values[4]=parameters.empty()?0:parameters[0];values[5]=parameters.size()>1?parameters[1]:0;
             values[8]=((e.tint>>16)&255)/255.f;values[9]=((e.tint>>8)&255)/255.f;values[10]=(e.tint&255)/255.f;values[11]=e.opacity;values[15]=dpi;
@@ -312,4 +335,7 @@ bool update_glass_effect_chain(const std::shared_ptr<NativeImageProcessor> &chai
     auto *value=dynamic_cast<Chain *>(chain.get());return value&&value->update(effects);
 }
 std::uint64_t glass_effect_surface_bytes(){return surface_bytes.load();}
+GlassEffectDiagnostics glass_effect_diagnostics(){
+    return {surface_bytes.load(),surface_allocations.load(),shader_compilations.load(),program_sets.load()};
+}
 } // namespace comfortable

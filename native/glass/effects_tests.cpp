@@ -7,6 +7,7 @@
 #include <limits>
 #include <functional>
 #include <cstring>
+#include <array>
 
 using namespace comfortable;
 using namespace comfortable::detail;
@@ -112,6 +113,9 @@ int main(){
         custom.reset();require(destroyed==created,"detach releases custom resources");
         bad([&]{glass_effect_parameters("blur",{25});});
         bad([&]{glass_effect_parameters("tint",{std::numeric_limits<float>::quiet_NaN()});});
+        bad([&]{update_glass_effect_chain(tint,{{"tint","content",{std::numeric_limits<float>::quiet_NaN()}}});});
+        require(read(d.Get(),ctx.Get(),tint->process(d.Get(),ctx.Get(),solid.Get(),64,64,full,false))[2080]==0xffffffff,
+                "invalid parameter update must leave normalized render state intact");
         bad([&]{make_glass_effect_chain({{"liquid","content",{12,1}}},1);});
         bad([&]{make_glass_effect_chain({{"blur","invalid",{4}}},1);});
         bad([&]{auto large=make_glass_effect_chain({{"blur","content",{4}}},1);large->process(d.Get(),ctx.Get(),solid.Get(),64,64,{0,0,9000,9000},false);});
@@ -123,6 +127,23 @@ int main(){
         tint.reset();independent.reset();blur.reset();glow.reset();liquid.reset();
         local_content.reset();local_background.reset();two.reset();
         require(glass_effect_surface_bytes()==0,"all effect textures must retire");
+        // Different physical scales, fractional source patches, size changes and
+        // instance churn. Synthetic scales do not change the machine's DPI.
+        const auto warm_stats=glass_effect_diagnostics();
+        for(unsigned cycle=0;cycle<48;cycle++){
+            float scale=std::array<float,4>{1,1.25f,1.5f,2}[cycle%4];
+            auto chain=make_glass_effect_chain({{"blur","content",{4}},{"glow","content",{.5f,8}}},scale);
+            chain->process(d.Get(),ctx.Get(),solid.Get(),64,64,{.25f,.75f,31.5f,28.25f},false);
+            const auto allocated=glass_effect_diagnostics();
+            require(update_glass_effect_chain(chain,{{"blur","content",{6}},{"glow","content",{.8f,12}}}),"stress parameter update");
+            chain->process(d.Get(),ctx.Get(),solid.Get(),64,64,{.25f,.75f,31.5f,28.25f},false);
+            require(glass_effect_diagnostics().surface_allocations==allocated.surface_allocations,"parameter update reallocated textures");
+            chain->process(d.Get(),ctx.Get(),solid.Get(),64,64,{1,1,46,40},false);
+            chain->release_device_resources();chain.reset();
+            require(glass_effect_surface_bytes()==0,"resize/remove cycle leaked textures");
+        }
+        require(glass_effect_diagnostics().shader_compilations==warm_stats.shader_compilations&&warm_stats.shader_compilations==6,
+                "shader bytecode must be reused across devices and instance lifetimes");
         ComPtr<ID3D11InfoQueue> queue;
         if(SUCCEEDED(d.As(&queue))){
             for(UINT64 i=0;i<queue->GetNumStoredMessages();i++){

@@ -120,3 +120,14 @@ python -m examples.glass_workspace.mixed --render-mode cpu
 
 两张卡片独立设置参数，按钮通过按需帧钩子播放用户自己的glow动画。
 使用与当前协议6运行时匹配的模块，详见[效果SDK](../../docs/glass-effects-sdk.md)。
+
+## 自动化压力与性能
+
+```powershell
+python -m examples.benchmark_glass_workspace --source cpu
+python -m examples.benchmark_glass_workspace --source gpu
+```
+
+默认逐组验证1/4/12卡及反复增删、resize和参数更新；GPU来源由独立C++提供者输出。
+测试自动创建/关闭自有窗口，不需要鼠标键盘操作，也不冒充真实终端附加验收。
+原生GPU计时、构建要求及结果口径见[性能验收](../../docs/glass-effects-performance.md)。

@@ -81,6 +81,10 @@ CMake构建独立SDK、提供者和硬件协议测试；CI单独检查Windows SD
 
 ## 当前边界
 
+玻璃效果的离屏GPU基准、WARP CI检查和无需点击的多卡片压力测试，见
+[效果器性能与自动化验收](glass-effects-performance.md)。真实DComp集成需要桌面；
+CI中执行的离屏测试不作为外部终端附加或实际呈现帧率的证明。
+
 - alpha API，无 CSS、Markdown、完整富文本、语法高亮或文本选区/撤销。
 - 动画支持常用控件属性，未承诺每个控件矩形自动 tween。
 - 不支持嵌套在另一个全屏 TUI 中运行。

@@ -154,6 +154,12 @@ resource。扩展如需跨实例缓存只读程序，应在自己模块中按设
 
 ## 自动验证
 
+多卡片性能、异步GPU计时及稳定性入口见[性能与自动化验收](glass-effects-performance.md)。
+内置Shader字节码在SDK模块内缓存，设备资源和每节点纹理仍独立。
+私有 `_native_glass.effect_diagnostics()` 返回当前 `surface_bytes` 及累计
+`surface_allocations`、`shader_compilations`、`program_sets`，只在资源创建时计数，
+不在帧循环采集GPU查询。它是测试诊断入口，不是每卡驱动显存或全进程扩展资源统计。
+
 ```powershell
 cmake -S . -B .build/glass-native -A x64
 cmake --build .build/glass-native --config Release --target ctui_glass_effects_test

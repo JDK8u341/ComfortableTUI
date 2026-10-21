@@ -19,6 +19,7 @@ nav:
   - 效果器、控件与动画扩展方案: glass-extensibility-plan.md
   - 原生控件 SDK 与动画钩子: glass-controls-sdk.md
   - 图像效果与原生 Shader SDK: glass-effects-sdk.md
+  - 效果器性能与自动化验收: glass-effects-performance.md
   - 玻璃 UI 验证记录: validation/glass/README.md
   - 叠加层移动同步: overlay-tracking.md
   - 覆盖画布调研: overlay-research.md
