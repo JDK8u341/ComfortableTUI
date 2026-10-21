@@ -66,6 +66,32 @@ std::string source_signature(const GlassCard &card) {
     }
     return signature;
 }
+void validate_effect(const GlassEffectBinding &effect) {
+    if(effect.type.empty()||effect.type.size()>128||
+       (effect.target!="background"&&effect.target!="content"&&effect.target!="overlay")||
+       effect.tint>0xffffff||effect.parameters.size()>16||
+       !std::isfinite(effect.opacity)||effect.opacity<0||effect.opacity>1||
+       !std::isfinite(effect.blur)||effect.blur<0||effect.blur>40||
+       !std::isfinite(effect.refraction)||effect.refraction<0||effect.refraction>48||
+       !std::isfinite(effect.dispersion)||effect.dispersion<0||effect.dispersion>3||
+       !std::isfinite(effect.intensity)||effect.intensity<0||effect.intensity>4||
+       !std::isfinite(effect.radius)||effect.radius<0||effect.radius>128||
+       !std::isfinite(effect.progress)||effect.progress<0||effect.progress>1)
+        throw std::invalid_argument("invalid Glass effect binding");
+    const auto &type=glass_effect_type(effect.type);
+    if(effect.parameters.size()>type.parameter_count)
+        throw std::invalid_argument("too many parameters for Glass effect type: "+effect.type);
+    for(float value:effect.parameters)if(!std::isfinite(value))throw std::invalid_argument("Glass effect parameter is not finite");
+    for(std::size_t i=0;i<effect.parameters.size();i++) {
+        const auto &schema=type.parameters[i];
+        if(effect.parameters[i]<schema.minimum||effect.parameters[i]>schema.maximum)
+            throw std::invalid_argument("Glass effect parameter outside schema: "+effect.type);
+    }
+}
+void validate_effects(const std::vector<GlassEffectBinding> &effects) {
+    if(effects.size()>8)throw std::invalid_argument("a Glass node supports at most 8 effects");
+    for(const auto &effect:effects)validate_effect(effect);
+}
 D2D1_COLOR_F color(std::uint32_t rgb, float alpha = 1) {
     return D2D1::ColorF((rgb >> 16) / 255.f, ((rgb >> 8) & 255) / 255.f, (rgb & 255) / 255.f, alpha);
 }
@@ -196,6 +222,8 @@ struct GlassHost::Impl {
     std::deque<Action> commands;
     struct Presentation {std::string card,control;std::uint64_t generation{};float opacity{1};};
     std::vector<Presentation> presentations;
+    struct EffectUpdate {std::string card,node,type;std::uint64_t generation{};std::size_t index{};std::vector<float> parameters;};
+    std::vector<EffectUpdate> effect_updates;
     std::deque<GlassEvent> output;
     GlassMetrics report;
     std::vector<std::unique_ptr<Card>> cards;
@@ -1123,9 +1151,9 @@ struct GlassHost::Impl {
             bool last_active=false;
             for(;;) {
                 while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}
-                GlassScene next;std::uint64_t serial{};std::deque<Action> actions;std::vector<Presentation> deltas;
+                GlassScene next;std::uint64_t serial{};std::deque<Action> actions;std::vector<Presentation> deltas;std::vector<EffectUpdate> effect_deltas;
                 {std::lock_guard<std::mutex> lock(mutex);if(stopping)break;
-                    if(submitted>applied){next=requested;serial=submitted;}actions.swap(commands);deltas.swap(presentations);}
+                    if(submitted>applied){next=requested;serial=submitted;}actions.swap(commands);deltas.swap(presentations);effect_deltas.swap(effect_updates);}
                 if(!IsWindow(owner))break;
                 if(optics&&MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST)!=optical_monitor) {
                     cards.clear();retain_positions=false;background_compositor.reset();background_optical.reset();background_ui.reset();
@@ -1137,6 +1165,19 @@ struct GlassHost::Impl {
                 if(serial)apply(std::move(next),serial);
                 for(const auto &delta:deltas)for(auto &card:cards)if(card->spec.id==delta.card)for(auto &control:card->spec.controls)
                     if(control.id==delta.control&&control.generation==delta.generation&&control.opacity!=delta.opacity){control.opacity=delta.opacity;card->dirty=true;}
+                for(const auto &update:effect_deltas) {
+                    for(auto &card:cards) if(card->spec.id==update.card) {
+                        if(update.node.empty()) {
+                            if(card->spec.generation!=update.generation||update.index>=card->spec.effects.size())continue;
+                            auto &effect=card->spec.effects[update.index];
+                            if(effect.type==update.type){effect.parameters=update.parameters;card->dirty=true;}
+                        } else for(auto &control:card->spec.controls) if(control.id==update.node&&control.generation==update.generation) {
+                            if(update.index>=control.effects.size())continue;
+                            auto &effect=control.effects[update.index];
+                            if(effect.type==update.type){effect.parameters=update.parameters;card->dirty=true;}
+                        }
+                    }
+                }
                 for(const auto &a:actions) {
                     if(a.kind=="next")cycle(1);else if(a.kind=="previous")cycle(-1);
                     else if(a.kind=="next_control"||a.kind=="previous_control") {
@@ -1255,6 +1296,7 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
         if(card.id.empty()||card.id.size()>128||!ids.insert(card.id).second||card.controls.size()>32||
            !std::isfinite(card.width)||card.width<220||card.width>1600||card_height(card)>1200||
            card.title.size()>4096||card.subtitle.size()>4096||card.eyebrow.size()>256)throw std::invalid_argument("invalid glass card");
+        validate_effects(card.effects);
         std::set<std::string> controls;int canvases=0;
         const auto &b=card.background;
         if(card.has_background&&(!materials.count(b.kind)||b.kind=="glass"||b.tint>0xffffff||
@@ -1264,6 +1306,7 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
         for(const auto &c:card.controls) {
             if(c.id.empty()||c.id.size()>128||!controls.insert(c.id).second||c.text.size()>8192||c.label.size()>4096||
                !std::isfinite(c.opacity)||c.opacity<0||c.opacity>1||!std::isfinite(c.value)||c.series.size()>256||c.options.size()>16||!std::isfinite(c.canvas_height)||c.canvas_height<16||c.canvas_height>1024)throw std::invalid_argument("invalid glass control");
+            validate_effects(c.effects);
             if((c.kind=="slider"||c.kind=="progress"||c.kind=="toggle")&&(c.value<0||c.value>1))throw std::invalid_argument("control value outside 0..1");
             if(c.kind=="choice"&&(c.options.empty()||c.value<0||c.value>=c.options.size()||std::floor(c.value)!=c.value))throw std::invalid_argument("invalid glass choice");
             if(c.kind=="input"&&utf16(c.text).size()>2048)throw std::invalid_argument("input text too long");
@@ -1330,6 +1373,29 @@ void GlassHost::present(const std::string &card,const std::string &control,std::
         if(impl_->presentations.size()>=384)throw std::runtime_error("Glass presentation queue full");
         impl_->presentations.push_back({card,control,generation,opacity});SetEvent(impl_->changed.value);return;
     }
+}
+void GlassHost::set_effect_parameters(const std::string &card,const std::string &node,std::uint64_t generation,
+                                       std::size_t index,const std::string &type,const std::vector<float> &parameters) {
+    if(card.empty()||card.size()>128||node.size()>128||!generation||type.empty()||type.size()>128||parameters.size()>16)
+        throw std::invalid_argument("invalid Glass effect parameter delta");
+    GlassEffectBinding probe;probe.type=type;probe.parameters=parameters;validate_effect(probe);
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    if(impl_->stopping)throw std::runtime_error("GlassHost is closed");
+    const auto card_at=std::find_if(impl_->requested.cards.begin(),impl_->requested.cards.end(),[&](const auto &value){return value.id==card;});
+    if(card_at==impl_->requested.cards.end())return;
+    if(node.empty()) {
+        if(card_at->generation!=generation||index>=card_at->effects.size()||card_at->effects[index].type!=type)return;
+        card_at->effects[index].parameters=parameters;
+    } else {
+        const auto control_at=std::find_if(card_at->controls.begin(),card_at->controls.end(),[&](const auto &value){return value.id==node;});
+        if(control_at==card_at->controls.end()||control_at->generation!=generation||index>=control_at->effects.size()||control_at->effects[index].type!=type)return;
+        control_at->effects[index].parameters=parameters;
+    }
+    if(impl_->effect_updates.size()>=384)throw std::runtime_error("Glass effect update queue full");
+    for(auto &pending:impl_->effect_updates)if(pending.card==card&&pending.node==node&&pending.generation==generation&&pending.index==index) {
+        pending.type=type;pending.parameters=parameters;SetEvent(impl_->changed.value);return;
+    }
+    impl_->effect_updates.push_back({card,node,type,generation,index,parameters});SetEvent(impl_->changed.value);
 }
 std::vector<GlassEvent> GlassHost::events(){std::lock_guard<std::mutex> lock(impl_->mutex);std::vector<GlassEvent> r(impl_->output.begin(),impl_->output.end());impl_->output.clear();return r;}
 GlassMetrics GlassHost::metrics()const{std::lock_guard<std::mutex> lock(impl_->mutex);return impl_->report;}

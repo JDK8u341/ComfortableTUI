@@ -28,7 +28,7 @@ target_compile_definitions(comfortable_frames PUBLIC NOMINMAX WIN32_LEAN_AND_MEA
 target_link_libraries(comfortable_frames PUBLIC d3d11 dxgi bcrypt)
 add_library(comfortable_compositor STATIC native/canvas/compositor.cpp)
 target_link_libraries(comfortable_compositor PUBLIC comfortable_frames dcomp d3dcompiler user32)
-add_library(comfortable_glass STATIC native/glass/glass.cpp native/glass/control.cpp native/glass/optics.cpp)
+add_library(comfortable_glass STATIC native/glass/glass.cpp native/glass/control.cpp native/glass/effect.cpp native/glass/optics.cpp)
 target_include_directories(comfortable_glass PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/native/glass/include> $<INSTALL_INTERFACE:include>)
 target_link_libraries(comfortable_glass PUBLIC comfortable_compositor d2d1 dwrite dwmapi ole32 oleacc oleaut32 gdi32)
 add_executable(ctui_gpu_producer native/canvas/producer.cpp)

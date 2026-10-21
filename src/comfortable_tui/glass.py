@@ -15,6 +15,7 @@ _KINDS = {"text", "button", "toggle", "slider", "input", "choice", "progress", "
 _HEIGHTS = {"text": 40, "slider": 58, "progress": 58, "sparkline": 84, "canvas": 128}
 _GENERATIONS = itertools.count(1)
 _EXTENSIONS = set()
+_EFFECT_EXTENSIONS = set()
 _CUSTOM_KINDS = set()
 
 
@@ -35,6 +36,18 @@ def register_glass_controls(module):
     for name in names:
         _HEIGHTS[name] = _native_glass.measure_control(name)
     _EXTENSIONS.add(module)
+
+
+def register_glass_effects(module):
+    """Register an explicitly imported, trusted native effect extension."""
+    if module in _EFFECT_EXTENSIONS:
+        return
+    from . import _native_glass
+    if getattr(_native_glass, "glass_protocol_version", None) != 5:
+        raise RuntimeError("Rebuild Glass runtime for effect protocol 5")
+    names = _native_glass.register_effects(module, module.glass_effects())
+    _EFFECT_EXTENSIONS.add(module)
+    return tuple(names)
 
 
 @dataclass(frozen=True)
@@ -95,6 +108,50 @@ class GlassBackground:
 
 
 @dataclass
+class GlassEffect:
+    """An independent, trusted native effect instance attached to a node.
+
+    ``parameters`` is an ordered vector defined by the registered effect type.
+    The framework owns the instance state; effect programs and device resources
+    may be shared by the native implementation.
+    """
+    type: str
+    target: str = "overlay"
+    parameters: tuple[float, ...] = ()
+    tint: int = 0xFFFFFF
+    opacity: float = 1.
+    blur: float = 0.
+    refraction: float = 0.
+    dispersion: float = 0.
+    intensity: float = 1.
+    radius: float = 0.
+    progress: float = 0.
+
+    def snapshot(self):
+        _text(self.type, 128, "effect type")
+        if self.type not in ("tint", "blur", "liquid", "glow") and not self.type:
+            raise ValueError("effect type cannot be empty")
+        if self.target not in ("background", "content", "overlay"):
+            raise ValueError("effect target must be background, content or overlay")
+        if len(self.parameters) > 16 or any(not isinstance(v, (int, float)) or not math.isfinite(v)
+                                            for v in self.parameters):
+            raise ValueError("effect parameters must contain at most 16 finite numbers")
+        if type(self.tint) is not int or not 0 <= self.tint <= 0xFFFFFF:
+            raise ValueError("effect tint must be an RGB integer")
+        for key, maximum in (("opacity", 1), ("blur", 40), ("refraction", 48),
+                             ("dispersion", 3), ("intensity", 4), ("radius", 128),
+                             ("progress", 1)):
+            value = getattr(self, key)
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= maximum:
+                raise ValueError(f"effect {key} must be in 0..{maximum}")
+        return dict(type=self.type, target=self.target, parameters=[float(v) for v in self.parameters],
+                    tint=self.tint, opacity=float(self.opacity), blur=float(self.blur),
+                    refraction=float(self.refraction), dispersion=float(self.dispersion),
+                    intensity=float(self.intensity), radius=float(self.radius),
+                    progress=float(self.progress))
+
+
+@dataclass
 class GlassTheme:
     material: str = "glass"
     accent: int = 0x85E5D1
@@ -146,6 +203,7 @@ class GlassControl:
     canvas_height: float = 96.
     capture_escape: bool = False
     opacity: float = 1.
+    effects: list[GlassEffect] = field(default_factory=list)
     _generation: int = field(default_factory=lambda: next(_GENERATIONS), init=False, repr=False, compare=False)
     _managed = False  # Opt-in view lifecycle; ordinary controls have no per-tick hooks.
 
@@ -184,6 +242,8 @@ class GlassControl:
             raise ValueError("capture_escape must be a bool")
         if not isinstance(self.opacity, (int, float)) or not math.isfinite(self.opacity) or not 0 <= self.opacity <= 1:
             raise ValueError("control opacity must be in 0..1")
+        if len(self.effects) > 8 or any(not isinstance(effect, GlassEffect) for effect in self.effects):
+            raise ValueError("a control supports at most 8 GlassEffect instances")
         if self.kind == "canvas" and self.opacity != 1:
             raise ValueError("Canvas opacity needs compositor effects, not control ink opacity")
         source = None
@@ -200,7 +260,8 @@ class GlassControl:
                     enabled=bool(self.enabled), series=list(self.series), options=list(self.options),
                     source=source, fit=self.fit, acknowledged=self._acknowledged,
                     canvas_height=float(self.canvas_height), capture_escape=self.capture_escape,
-                    generation=self._generation, opacity=float(self.opacity))
+                    generation=self._generation, opacity=float(self.opacity),
+                    effects=[effect.snapshot() for effect in self.effects])
 
 
 @dataclass
@@ -214,6 +275,7 @@ class GlassCard:
     background: GlassBackground | None = None
     draggable: bool = True
     on_event: Callable[[GlassEvent], bool | None] | None = field(default=None, repr=False, compare=False)
+    effects: list[GlassEffect] = field(default_factory=list)
     _generation: int = field(default_factory=lambda: next(_GENERATIONS), init=False, repr=False, compare=False)
 
     def handle_event(self, event):
@@ -250,12 +312,15 @@ class GlassCard:
             raise ValueError("card content exceeds 1200 logical pixels")
         if type(self.draggable) is not bool:
             raise ValueError("draggable must be a bool")
+        if len(self.effects) > 8 or any(not isinstance(effect, GlassEffect) for effect in self.effects):
+            raise ValueError("a card supports at most 8 GlassEffect instances")
         if self.background is not None and not isinstance(self.background, GlassBackground):
             raise TypeError("background must be a GlassBackground or None")
         return dict(id=self.id, title=self.title, subtitle=self.subtitle, eyebrow=self.eyebrow,
                     width=float(self.width), controls=controls, draggable=self.draggable,
                     background=self.background.snapshot() if self.background is not None else None,
-                    generation=self._generation)
+                    generation=self._generation,
+                    effects=[effect.snapshot() for effect in self.effects])
 
 
 @dataclass
@@ -527,6 +592,33 @@ class GlassWorkspace:
             raise ValueError("opacity must be in 0..1")
         self._native.present(card.id, control.id, control._generation, float(opacity))
         control.opacity = float(opacity)
+
+    def set_effect_parameters(self, card, node, effect, parameters):
+        """Update one effect instance without rebuilding the whole scene.
+
+        ``card`` and ``node`` must be the live object instances. The native
+        side validates the effect type and parameter count before queueing the
+        update; a replaced node cannot receive a late update.
+        """
+        if self._closed or self._native is None:
+            raise RuntimeError("workspace is not running")
+        if not isinstance(card, GlassCard) or not any(card is c for c in self.cards):
+            raise ValueError("effect card was removed or replaced")
+        if node is not card and not any(node is v for v in card.controls):
+            raise ValueError("effect node was removed or replaced")
+        effects = card.effects if node is card else node.effects
+        if not isinstance(effect, int) or not 0 <= effect < len(effects):
+            raise ValueError("unknown effect instance")
+        if not isinstance(parameters, (tuple, list)) or len(parameters) > 16:
+            raise ValueError("effect parameters must contain at most 16 values")
+        values = tuple(float(value) for value in parameters)
+        if any(not math.isfinite(value) for value in values):
+            raise ValueError("effect parameters must be finite")
+        binding = effects[effect]
+        binding.parameters = values
+        self._native.set_effect_parameters(card.id, "" if node is card else node.id,
+                                           card._generation if node is card else node._generation,
+                                           effect, binding.type, list(values))
 
     def _advance_frames(self):
         if not self._frames:

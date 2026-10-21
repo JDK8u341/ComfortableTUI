@@ -6,6 +6,28 @@
 输入钩子、按需帧回调、控件墨水透明度增量。完整EffectType、任意Shader、局部背景采样、
 可替换Card布局动画仍未实现。没有提前发布占位的effects/shader API。
 
+当前分支已加入效果实例的模型和原生参数通道。它们用于建立每个节点独立状态的契约，
+仍未提供可视的 blur/liquid/glow GPU pass；只有完成实际 compositor 接入并通过验证后，
+才会把某个效果标记为可用。
+
+```python
+from comfortable_tui import GlassCard, GlassControl, GlassEffect
+
+card = GlassCard(
+    "player", "Player",
+    [GlassControl("value", "text", text="Ready",
+                  effects=[GlassEffect("glow", target="overlay", radius=12)])],
+    effects=[GlassEffect("liquid", target="background", parameters=(18., .35))],
+)
+```
+
+`GlassEffect` 的 `parameters` 是注册类型定义的有序向量，Card 与 Control 各自保存实例；
+修改一个实例不会改变同类型的其他实例。绑定到已运行工作区后，可调用
+`workspace.set_effect_parameters(card, node, effect, values)` 提交参数增量，其中 `node`
+传 Control 对象，Card 本身作为节点时传 Card 对象。原生端会再次校验类型、范围、代次和
+队列容量，迟到的替换节点更新会被丢弃。当前参数通道主要用于后续 compositor pass，
+不应被当作已经产生视觉效果的承诺。
+
 ## 设计参考
 
 本轮用Exa完成5次有效搜索，每次请求5条候选，共请求25条（含重复，不等于审阅25份文档），

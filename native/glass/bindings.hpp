@@ -6,11 +6,22 @@ inline void bind_glass(pybind11::module_ &m) {
     namespace py=pybind11;
     m.attr("glass_protocol_version")=5;
     auto owners=py::list();
+    auto effect_owners=py::list();
     m.def("register_controls",[owners](py::object owner,py::capsule capsule)mutable {
         if(!capsule.name()||std::string(capsule.name())!=glass_extension_capsule)throw std::invalid_argument("invalid Glass extension capsule");
         auto extension=static_cast<const GlassControlExtension *>(capsule.get_pointer());
         if(!extension)throw std::invalid_argument("empty Glass extension capsule");
         register_glass_controls(*extension);owners.append(owner);owners.append(capsule);
+        py::list out;
+        for(std::size_t i=0;i<extension->count;i++)out.append(py::str(extension->types[i].name));
+        return out;
+    });
+    m.def("register_effects",[effect_owners](py::object owner,py::capsule capsule)mutable {
+        if(!capsule.name()||std::string(capsule.name())!=glass_effect_extension_capsule)
+            throw std::invalid_argument("invalid Glass effect extension capsule");
+        auto extension=static_cast<const GlassEffectExtension *>(capsule.get_pointer());
+        if(!extension)throw std::invalid_argument("empty Glass effect extension capsule");
+        register_glass_effects(*extension);effect_owners.append(owner);effect_owners.append(capsule);
         py::list out;
         for(std::size_t i=0;i<extension->count;i++)out.append(py::str(extension->types[i].name));
         return out;
@@ -52,6 +63,16 @@ inline void bind_glass(pybind11::module_ &m) {
                 card.generation=py::cast<std::uint64_t>(d["generation"]);
                 card.group=py::cast<std::string>(d["group"]);
                 card.draggable=py::cast<bool>(d["draggable"]);
+                for(auto ev:py::cast<py::list>(d["effects"])) {
+                    auto e=py::cast<py::dict>(ev);GlassEffectBinding effect;
+                    effect.type=py::cast<std::string>(e["type"]);effect.target=py::cast<std::string>(e["target"]);
+                    effect.parameters=py::cast<std::vector<float>>(e["parameters"]);
+                    effect.tint=py::cast<std::uint32_t>(e["tint"]);effect.opacity=py::cast<float>(e["opacity"]);
+                    effect.blur=py::cast<float>(e["blur"]);effect.refraction=py::cast<float>(e["refraction"]);
+                    effect.dispersion=py::cast<float>(e["dispersion"]);effect.intensity=py::cast<float>(e["intensity"]);
+                    effect.radius=py::cast<float>(e["radius"]);effect.progress=py::cast<float>(e["progress"]);
+                    card.effects.push_back(std::move(effect));
+                }
                 if(!d["background"].is_none()) {
                     card.has_background=true;auto b=py::cast<py::dict>(d["background"]);
                     card.background.kind=py::cast<std::string>(b["kind"]);
@@ -75,6 +96,16 @@ inline void bind_glass(pybind11::module_ &m) {
                     control.series=py::cast<std::vector<double>>(c["series"]);
                     control.options=py::cast<std::vector<std::string>>(c["options"]);
                     control.fit=py::cast<std::string>(c["fit"]);
+                    for(auto ev:py::cast<py::list>(c["effects"])) {
+                        auto e=py::cast<py::dict>(ev);GlassEffectBinding effect;
+                        effect.type=py::cast<std::string>(e["type"]);effect.target=py::cast<std::string>(e["target"]);
+                        effect.parameters=py::cast<std::vector<float>>(e["parameters"]);
+                        effect.tint=py::cast<std::uint32_t>(e["tint"]);effect.opacity=py::cast<float>(e["opacity"]);
+                        effect.blur=py::cast<float>(e["blur"]);effect.refraction=py::cast<float>(e["refraction"]);
+                        effect.dispersion=py::cast<float>(e["dispersion"]);effect.intensity=py::cast<float>(e["intensity"]);
+                        effect.radius=py::cast<float>(e["radius"]);effect.progress=py::cast<float>(e["progress"]);
+                        control.effects.push_back(std::move(effect));
+                    }
                     if(control.kind=="canvas") {
                         auto src=py::cast<py::dict>(c["source"]);auto &x=control.canvas;
                         x.source.name=py::cast<std::string>(src["name"]);x.source.width=py::cast<std::uint32_t>(src["width"]);
@@ -92,6 +123,9 @@ inline void bind_glass(pybind11::module_ &m) {
         .def("command",&GlassHost::command,py::arg("action"),py::arg("value")="",py::call_guard<py::gil_scoped_release>())
         .def("begin_drag",&GlassHost::begin_drag,py::call_guard<py::gil_scoped_release>())
         .def("present",&GlassHost::present,py::call_guard<py::gil_scoped_release>())
+        .def("set_effect_parameters",&GlassHost::set_effect_parameters,py::arg("card"),py::arg("node"),
+             py::arg("generation"),py::arg("index"),py::arg("type"),py::arg("parameters"),
+             py::call_guard<py::gil_scoped_release>())
         .def("close",&GlassHost::close,py::call_guard<py::gil_scoped_release>())
         .def("metrics",[](GlassHost &h){
             GlassMetrics s;{py::gil_scoped_release release;s=h.metrics();}
@@ -109,6 +143,7 @@ inline void bind_glass(pybind11::module_ &m) {
             d["windows"]=windows;d["closed"]=s.closed;d["presents"]=s.presents;d["canvas_frames"]=s.canvas_frames;
             d["capture_active"]=s.capture_active;d["capture_frames"]=s.capture_frames;d["optical_frames"]=s.optical_frames;
             d["copied_pixels"]=s.copied_pixels;d["optics_error"]=s.optics_error;
+            d["effects_rendered"]=s.effects_rendered;
             d["close_hide_ms"]=s.close_hide_ms;d["close_join_ms"]=s.close_join_ms;
             d["close_surfaces_ms"]=s.close_surfaces_ms;d["close_windows_ms"]=s.close_windows_ms;d["close_resources_ms"]=s.close_resources_ms;
             d["unchanged_capture_frames"]=s.unchanged_capture_frames;d["backdrop_material"]=s.backdrop_material;return d;

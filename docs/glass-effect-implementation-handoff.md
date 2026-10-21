@@ -5,13 +5,17 @@
 
 ## 当前状态
 
-第二批设计改造刚开始。效果器 API 与注册表只有初稿，尚未接入构建、Python SDK 或实际 GPU 绘制；因此当前不能作为可用功能宣传。此次没有运行测试，也没有推送、合并或发布。
+第二批设计改造已完成第一个可恢复阶段。效果器 API、实例快照、原生注册入口、构建接入和参数增量通道已经接入并验证；视觉 GPU pass 尚未实现，因此当前不能把 blur/liquid/glow 当成已经可用的视觉效果宣传。此次没有推送、合并或发布。
 
 本次改动文件：
 
 - `native/glass/include/comfortable/glass_effect.hpp`：效果类型、参数 schema、D3D11 绘制上下文和原生扩展描述。
 - `native/glass/effect.cpp`：线程安全的类型注册表草稿，列出 `tint`、`blur`、`liquid`、`glow` 四个内置类型。目前内置回调是 no-op，占位而非真实渲染。
 - `native/glass/include/comfortable/glass.hpp`：给 Card/Control 加入效果绑定列表，给 metrics 增加效果绘制计数，并声明参数更新接口；该接口尚无实现。
+- `src/comfortable_tui/glass.py`、`src/comfortable_tui/__init__.py`：新增 `GlassEffect`、Card/Control 效果快照、注册入口和参数更新 API。
+- `native/glass/bindings.hpp`、`native/glass/glass.cpp`：解析/校验效果绑定，暴露注册与参数更新通道。
+- `CMakeLists.txt`、`setup.py`：将 `native/glass/effect.cpp` 纳入 Windows 原生构建。
+- `tests/test_glass.py`、`docs/glass-controls-sdk.md`：增加实例隔离回归测试和 SDK 说明。
 
 此前已有最新提交为 `299054a docs(glass): add control SDK guide to navigation`。本接续记录与当前未完成代码将作为新的本地检查点提交。
 
@@ -41,12 +45,12 @@ Microsoft 文档已用于前序设计核对：
 
 1. 重新阅读 `docs/glass-extensibility-plan.md`、`docs/glass-controls-sdk.md`、`native/glass/include/comfortable/glass_effect.hpp` 和 `native/glass/effect.cpp`，核对此前约定及 API 草稿。
 2. 先审查 C++ ABI：内置效果不应以成功的 no-op 暴露为已支持功能；明确扩展描述内指针/回调的生命周期、注册线程和设备重建规则，并在注册时校验效果名及参数 schema。
-3. 将实现纳入 `CMakeLists.txt`、`setup.py` 和安装头文件；实现 pybind11 绑定、Python 效果描述/验证，以及 Card/Control 快照更新。不要在 Python 重复维护一份可漂移的效果定义。
+3. 已完成构建接入、pybind11 绑定、Python 效果描述/验证，以及 Card/Control 快照更新。不要在 Python 重复维护一份可漂移的效果定义。
 4. 接入 C++ D3D11 compositor：以 card/control 局部纹理为输入，串联效果 pass；每个实例拥有独立参数缓冲、必要的中间纹理和缓存失效状态，设备丢失/resize 后可重建。
 5. 按效果逐个实现并记录真实能力；优先一个可测的 `tint` pass，再实现 blur/liquid/glow。效果注册与可运行效果要区分。
 6. 加一个示例展示两个 Card 独立设置参数及自定义效果注册；覆盖 Canvas/WebView 子控件不被二次取帧的情形。
 7. 补 SDK 文档和必要测试；验证原生构建、Python API、效果参数校验、多个实例隔离、窗口 resize/device recreation、无效果的基准性能和 idle draw。
-8. 汇总验证结果后再决定是否提交后续实现。当前分支尚未合并到 `main`；除非用户明确要求，不要推送、合并或发布。
+8. 汇总验证结果后再决定是否提交后续实现。当前阶段已通过 34 个 Glass 纯 Python 测试，并用当前 Windows MSVC/pybind11 成功构建原生扩展。当前分支尚未合并到 `main`；除非用户明确要求，不要推送、合并或发布。
 
 ## 恢复工作
 

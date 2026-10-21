@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from comfortable_tui import (App, FrameBuffer, GlassBackground, GlassCard, GlassCardGroup,
-                             GlassControl, GlassTheme, GlassWorkspace, Label)
+                             GlassControl, GlassEffect, GlassTheme, GlassWorkspace, Label)
 
 
 def test_hosted_canvas_keeps_standard_events_and_buffer_ack_lifetime():
@@ -393,6 +393,23 @@ def test_per_card_background_and_drag_policy_are_independent():
     for values in (dict(blur=-1), dict(opacity=2), dict(refraction=float("inf")), dict(kind="dim")):
         with pytest.raises(ValueError):
             GlassBackground(**values).snapshot()
+
+
+def test_effect_instances_are_independent_and_bounded():
+    card_effect = GlassEffect("liquid", target="background", parameters=(18., .35), refraction=18.)
+    control_effect = GlassEffect("glow", target="overlay", parameters=(1., 12.), intensity=1., radius=12.)
+    card = GlassCard("card", "Effects", [GlassControl("value", "text", effects=[control_effect])],
+                     effects=[card_effect])
+    snapshot = GlassWorkspace([card]).snapshot()["cards"][0]
+    assert snapshot["effects"][0]["type"] == "liquid"
+    assert snapshot["controls"][0]["effects"][0]["type"] == "glow"
+    card_effect.parameters = (24., .5)
+    assert snapshot["effects"][0]["parameters"] == [18., .35]
+    for effect in (GlassEffect("tint", target="invalid"),
+                   GlassEffect("blur", parameters=(float("nan"),)),
+                   GlassEffect("glow", radius=129)):
+        with pytest.raises(ValueError):
+            effect.snapshot()
 
 
 def test_groups_have_bounded_trees_and_explicit_layout_metadata():
