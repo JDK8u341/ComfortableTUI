@@ -72,11 +72,22 @@ python -m mkdocs serve
 对所有新公共 API 同时提供文档和可运行使用方式。
 
 原生GPU模块以 `COMFORTABLE_TUI_BUILD_GPU=1` 独立构建；无需同时构建ANSI差分扩展。
+可选玻璃服务使用 `COMFORTABLE_TUI_BUILD_GLASS=1`，生成独立 `_native_glass`
+模块并同时构建底层 GPU 扩展。其 SDK 使用 `find_package(ComfortableGlass CONFIG)`；
+原帧提供者仍只依赖 ComfortableFrames。光学/桌面测试见[玻璃验证](validation/glass/README.md)。
 CMake构建独立SDK、提供者和硬件协议测试；CI单独检查Windows SDK/pybind编译及
 无硬件控制API。真实GPU验证见 [原生模块文档](native-gpu.md)，不使用托管runner
 上的编译通过替代真实纹理共享/呈现测试。
 
 ## 当前边界
+
+玻璃效果的离屏GPU基准、WARP CI检查和无需点击的多卡片压力测试，见
+[效果器性能与自动化验收](glass-effects-performance.md)。真实DComp集成需要桌面；
+CI中执行的离屏测试不作为外部终端附加或实际呈现帧率的证明。
+
+Glass协议7、Control ABI3、Effect ABI2、Motion ABI1；旧原生模块与控件扩展须一起重编。
+完整扩展示例及SDK从[原生动画](glass-native-motion.md)进入，自动化命令和已测范围见
+[扩展验收](validation/glass/completion.md)。源包包含HLSL/JSON示例，不把本机编译的插件自动打入通用wheel。
 
 - alpha API，无 CSS、Markdown、完整富文本、语法高亮或文本选区/撤销。
 - 动画支持常用控件属性，未承诺每个控件矩形自动 tween。

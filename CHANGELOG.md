@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.0 — 2026-10-22 — Glass Workspace
+
+- Add per-node native motion instances with layout/input hooks, sleeping callbacks, restart and effect parameter updates independent of the Python GIL.
+- Add stateful native controls and nested row/column/stack containers, shared ink atlases, rounded clipping, recursive events and existing Canvas/WebView hosting.
+- Add independent overlay contributions and explicit trusted local HLSL packages with compile/reflection checks and per-device program reuse.
+- Ship Glass protocol 7, Control ABI 3, Effect ABI 2 and Motion ABI 1; rebuild older glass runtimes and control plugins. FrameProvider and browser security protocols remain unchanged.
+- Add the terminal-attached advanced example, complete extension SDK guides and automated pixel, integration and CPU/GPU stress reports.
+
+- Batch-hide workspace windows before teardown, stop compositor workers together, and reuse native UI producer devices per workspace/GPU. Stop UIA tracking before the native join, preserve synchronous consumer release, and add shutdown timings plus a real-terminal benchmark.
+- Keep surviving cards in their existing positions when a card is removed, including nested groups and selected-card fallback; release retained placement on explicit reflow or geometry changes. Add a real-terminal closure example and physical-window rectangle regressions with springs enabled.
+- Make each card's X/WM_CLOSE issue a routed, cancelable card_close_request; remove only that card after an unconsumed request. Preserve workspace dismiss/close as separate actions, stop backgrounds when the last card leaves, and add interactive/CPU/GPU/WebView closure tests. Rebuild the glass extension for control protocol 4; frame protocol remains 1.
+- Transfer real keyboard focus across card headers/controls with Tab/Shift+Tab, card cycling and header arrows; retain editing keys and skip hidden/disabled nodes.
+- Host existing OverlayCanvas subclasses, CPU frames and GPU sources through GlassCanvas; make GlassWebView a thin composition of the existing WebView. Reuse canvas events/lifecycle instead of a separate browser-only card path, and add a mixed native/image/web example.
+- Add optional GlassWebView for caller-owned BrowserPages, CPU/shared-GPU frames, logical viewport resizing, scoped input/messages, aggregate visibility and attachment-acknowledged source retirement. Keep browser permissions and the frame transport unchanged; glass control protocol is now 3.
+- Keep orbit/compact-deck slots stable on focus changes, preserve unrelated siblings' stacking order, and fix reversed native window insertion. Explicit focus transitions move only the old/new focus containers; explicit ribbon retains its carousel animation.
+- Add an optional native Windows peripheral-card UI using existing FrameProvider/Compositor infrastructure, without WebView or per-frame Python drawing.
+- Add interruptible orbit/deck/ribbon/focus layouts, independent per-card optical/blur/Mica/solid backgrounds, focus-group backgrounds, nine native control kinds and an MSAA bridge.
+- Add native DDA/D3D11 SDF lensing and Gaussian blur, GPU change detection to stop self-capture repaint feedback, and observable solid fallback. Desktop pixels remain on the GPU; only 16 bytes of changed-region bounds are read back asynchronously.
+- Give Card ownership of routed default drag behavior; add nested CardGroup layouts, preview/bubble consumption, inherited visibility/enabled state and cancelable per-card drag policy.
+- Keep this upper-level service in a separate `_native_glass` module and ComfortableGlass SDK, leaving the Canvas transport protocol unchanged.
+- Preserve canvas source references through attachment acknowledgements and protect native edits from stale scene updates; support real-terminal binding and explicit HWND hosts.
+- Add a standalone CPU/shared-GPU developer-workspace example, native signal provider, real-desktop verification, research plan and API documentation. Graphical support remains Windows-only.
+
 ## 0.1.5 — 2026-10-18
 
 - Follow Windows terminal movement through scoped location events and a translation-only overlay path, avoiding native scene handshakes on every move. Reject UIA geometry samples taken during movement; retain full resize/DPI/layout configuration.

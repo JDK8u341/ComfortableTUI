@@ -1,0 +1,171 @@
+{
+  "date": "2026-10-18",
+  "branch": "codex/liquid-glass-cards",
+  "environment": {
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.14",
+    "dpi_scale": 1.25,
+    "terminal": "Windows Terminal",
+    "compiler": "MSVC 2022"
+  },
+  "unit_tests": {
+    "passed": 277,
+    "skipped": 1,
+    "ruff": "passed",
+    "pure_python": "277 passed, 1 skipped"
+  },
+  "native_build": {
+    "pybind11": "passed",
+    "cmake_sdk": "passed",
+    "ctest_native_gpu_protocol": "passed",
+    "sdist_and_wheel": "passed",
+    "source_manifest": "passed"
+  },
+  "sources": {
+    "cpu": {
+      "result": "passed",
+      "source": "cpu_framebuffer",
+      "checks": [
+        "native_ui_and_external_frames_presented",
+        "settled_ui_does_not_redraw_continuously",
+        "capture_release_preserves_exactly_one_click",
+        "native_control_change_reaches_python",
+        "stale_scene_cannot_erase_unacknowledged_native_edit",
+        "canvas_source_coordinates_and_mouse_pair",
+        "native_motion_continues_while_python_holds_gil",
+        "interruptible_orbit_focus_ribbon_deck_layouts",
+        "opaque_and_reduced_motion_preferences",
+        "canvas_replacement_ack_preserves_native_window",
+        "native_owner_translation_follows_without_python_geometry",
+        "maximized_owner_uses_bounded_compact_deck",
+        "background_follows_focus_group_cards_survive_inactivity_and_escape",
+        "dismiss_and_recall",
+        "owner_minimize_restore",
+        "owner_destroy_closes_windows_and_consumers"
+      ],
+      "idle_ui_draws_in_300ms": 0,
+      "gil_held_seconds": 0.45,
+      "motion_during_gil_pixels": 608.0,
+      "translation_error_pixels": [
+        0.0,
+        0.0
+      ],
+      "initial_metrics": {
+        "applied": 1,
+        "frames": 2,
+        "tick_ms": 0.014599994756281376,
+        "dropped_events": 0,
+        "active": false,
+        "compact": false,
+        "backdrop_visible": false,
+        "high_contrast": false,
+        "system_animation": true,
+        "material": "glass",
+        "error": "",
+        "closed": false,
+        "presents": 4,
+        "canvas_frames": 1,
+        "pane_available": true,
+        "pane_error": ""
+      },
+      "disabled_canvas_input": "passed"
+    },
+    "gpu": {
+      "result": "passed",
+      "source": "shared_gpu",
+      "checks": [
+        "native_ui_and_external_frames_presented",
+        "settled_ui_does_not_redraw_continuously",
+        "capture_release_preserves_exactly_one_click",
+        "native_control_change_reaches_python",
+        "stale_scene_cannot_erase_unacknowledged_native_edit",
+        "canvas_source_coordinates_and_mouse_pair",
+        "native_motion_continues_while_python_holds_gil",
+        "interruptible_orbit_focus_ribbon_deck_layouts",
+        "opaque_and_reduced_motion_preferences",
+        "canvas_replacement_ack_preserves_native_window",
+        "native_owner_translation_follows_without_python_geometry",
+        "maximized_owner_uses_bounded_compact_deck",
+        "background_follows_focus_group_cards_survive_inactivity_and_escape",
+        "dismiss_and_recall",
+        "owner_minimize_restore",
+        "owner_destroy_closes_windows_and_consumers"
+      ],
+      "idle_ui_draws_in_300ms": 0,
+      "gil_held_seconds": 0.45,
+      "motion_during_gil_pixels": 608.0,
+      "translation_error_pixels": [
+        0.0,
+        0.0
+      ],
+      "initial_metrics": {
+        "applied": 1,
+        "frames": 2,
+        "tick_ms": 0.018000006093643606,
+        "dropped_events": 0,
+        "active": false,
+        "compact": false,
+        "backdrop_visible": false,
+        "high_contrast": false,
+        "system_animation": true,
+        "material": "glass",
+        "error": "",
+        "closed": false,
+        "presents": 45,
+        "canvas_frames": 42,
+        "pane_available": true,
+        "pane_error": ""
+      },
+      "disabled_canvas_input": "passed"
+    }
+  },
+  "real_terminal": {
+    "result": "passed",
+    "configured_smoke_seconds": 20,
+    "events": {
+      "ready": 4,
+      "transform": 1,
+      "scene_applied": 40
+    },
+    "last_live_metrics": {
+      "applied": 40,
+      "frames": 152,
+      "tick_ms": 0.01720000000204891,
+      "dropped_events": 0,
+      "active": false,
+      "compact": false,
+      "backdrop_visible": false,
+      "high_contrast": false,
+      "system_animation": true,
+      "material": "glass",
+      "error": "",
+      "closed": false,
+      "presents": 1252,
+      "canvas_frames": 1099,
+      "pane_available": true,
+      "pane_error": ""
+    }
+  },
+  "computer_use": {
+    "result": "passed",
+    "mode": "explicitly labeled independent-card visual fixture; production remains owned popup",
+    "checks": [
+      "layout and material selection",
+      "dim and frosted focus backgrounds",
+      "Unicode note input and save",
+      "native accessibility control values",
+      "system corner and tint alignment",
+      "Ctrl+Q closes workspace"
+    ],
+    "notes_saved": 1,
+    "final_close_request_events": 1
+  },
+  "limits": [
+    "Not photon/input latency measurements",
+    "Short desktop samples, not worst-case frame-time guarantees",
+    "Windows 10 fallback, other terminals, multi-monitor DPI migration and screen readers not visually validated",
+    "No arbitrary desktop optical refraction",
+    "Background screenshots and transient window handles omitted"
+  ],
+  "docs_strict": "passed"
+}

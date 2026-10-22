@@ -10,6 +10,21 @@ nav:
   - 弹性动效调研与验证: expressive-motion-research.md
   - 帧调度与卡顿排查: frame-pacing.md
   - 原生缓冲区画布: overlay-canvas.md
+  - 终端周边玻璃工作区: glass-workspace.md
+  - 玻璃卡片 WebView 与键盘: glass-webview.md
+  - 卡片通用画布: glass-canvas.md
+  - 单卡与工作区关闭测试: glass-close-testing.md
+  - 玻璃 UI 调研与计划: glass-research-plan.md
+  - 通透材质与事件调研: glass-optics-research.md
+  - 效果器、控件与动画扩展方案: glass-extensibility-plan.md
+  - 原生控件 SDK 与动画钩子: glass-controls-sdk.md
+  - 原生动画与布局目标: glass-native-motion.md
+  - 局部容器与私有实例: glass-containers.md
+  - HLSL 包与独立装饰: glass-shader-packages.md
+  - 图像效果与原生 Shader SDK: glass-effects-sdk.md
+  - 效果器性能与自动化验收: glass-effects-performance.md
+  - 玻璃 UI 验证记录: validation/glass/README.md
+  - 扩展改造最终验收: validation/glass/completion.md
   - 叠加层移动同步: overlay-tracking.md
   - 覆盖画布调研: overlay-research.md
   - 共享附加层调研: shared-overlay-research.md

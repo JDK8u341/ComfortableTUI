@@ -1,0 +1,275 @@
+{
+  "date": "2026-10-19",
+  "branch": "codex/liquid-glass-cards",
+  "glass_protocol": 3,
+  "frame_protocol": 1,
+  "browser_security_protocol": 2,
+  "unit_tests": {
+    "passed": 291,
+    "skipped": 1,
+    "pure_python": "291 passed, 1 skipped",
+    "ruff": "passed"
+  },
+  "native_build": {
+    "pybind11": "passed",
+    "cmake": "passed",
+    "ctest": "passed",
+    "installed_sdk_client": "passed",
+    "sdist": "passed",
+    "wheel": "passed"
+  },
+  "browsers": {
+    "cpu": {
+      "result": "passed",
+      "checks": [
+        "two_independent_browser_pages_present_inside_native_cards",
+        "tab_skips_disabled_controls_and_crosses_card_headers_and_controls",
+        "tab_wrap_skips_hidden_and_disabled_cards",
+        "backward_tab_path_crosses_to_previous_cards_last_control",
+        "header_arrows_transfer_real_keyboard_focus_between_eligible_cards",
+        "enter_and_escape_control_page_interaction_without_trapping_card_navigation",
+        "native_mouse_and_committed_unicode_text_reach_browser_input",
+        "browser_backspace_and_enter_keep_native_editing_and_form_submission",
+        "scoped_browser_messages_link_distinct_documents_without_mirroring_inputs",
+        "rapid_browser_resizes_keep_retired_sources_until_native_ack",
+        "group_visibility_pauses_pages_and_releases_browser_focus",
+        "selected_browser_transport_matches_native_frame_backend",
+        "closing_a_displayed_page_disables_input_and_defers_buffer_release_until_detach"
+      ],
+      "frame_stats": [
+        {
+          "cpu_paints": 11,
+          "error": "",
+          "frame_backend": "native_cpu",
+          "popup": {
+            "height": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "cpu_paints": 4,
+          "error": "",
+          "frame_backend": "native_cpu",
+          "popup": {
+            "height": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "render_mode": "cpu"
+    },
+    "gpu": {
+      "result": "passed",
+      "checks": [
+        "two_independent_browser_pages_present_inside_native_cards",
+        "tab_skips_disabled_controls_and_crosses_card_headers_and_controls",
+        "tab_wrap_skips_hidden_and_disabled_cards",
+        "backward_tab_path_crosses_to_previous_cards_last_control",
+        "header_arrows_transfer_real_keyboard_focus_between_eligible_cards",
+        "enter_and_escape_control_page_interaction_without_trapping_card_navigation",
+        "native_mouse_and_committed_unicode_text_reach_browser_input",
+        "browser_backspace_and_enter_keep_native_editing_and_form_submission",
+        "scoped_browser_messages_link_distinct_documents_without_mirroring_inputs",
+        "rapid_browser_resizes_keep_retired_sources_until_native_ack",
+        "group_visibility_pauses_pages_and_releases_browser_focus",
+        "selected_browser_transport_matches_native_frame_backend",
+        "closing_a_displayed_page_disables_input_and_defers_buffer_release_until_detach"
+      ],
+      "frame_stats": [
+        {
+          "accelerated_paints": 2.0,
+          "copy_wait_ms": 0.6963,
+          "cpu_paints": 0,
+          "dropped_frames": 0.0,
+          "error": "",
+          "frame_backend": "native_gpu_d3d11",
+          "popup": {
+            "height": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          },
+          "popup_paints": 0.0,
+          "published_frames": 2.0
+        },
+        {
+          "accelerated_paints": 4.0,
+          "copy_wait_ms": 1.902,
+          "cpu_paints": 0,
+          "dropped_frames": 0.0,
+          "error": "",
+          "frame_backend": "native_gpu_d3d11",
+          "popup": {
+            "height": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          },
+          "popup_paints": 0.0,
+          "published_frames": 4.0
+        }
+      ],
+      "render_mode": "gpu"
+    }
+  },
+  "focus_regression": {
+    "result": "passed",
+    "checks": 8
+  },
+  "image_regression": {
+    "cpu_checks": 16,
+    "gpu_checks": 16
+  },
+  "generic_canvas": {
+    "cpu": {
+      "result": "passed",
+      "checks": [
+        "native_ui_and_external_frames_presented",
+        "settled_ui_does_not_redraw_continuously",
+        "capture_release_preserves_exactly_one_click",
+        "native_control_change_reaches_python",
+        "stale_scene_cannot_erase_unacknowledged_native_edit",
+        "generic_canvas_keeps_standard_events_and_transform",
+        "canvas_source_coordinates_and_mouse_pair",
+        "native_motion_continues_while_python_holds_gil",
+        "interruptible_orbit_focus_ribbon_deck_layouts",
+        "opaque_and_reduced_motion_preferences",
+        "canvas_replacement_ack_preserves_native_window",
+        "native_owner_translation_follows_without_python_geometry",
+        "maximized_owner_uses_bounded_compact_deck",
+        "background_follows_focus_group_cards_survive_inactivity_and_escape",
+        "dismiss_and_recall",
+        "owner_minimize_restore",
+        "owner_destroy_closes_windows_and_consumers"
+      ],
+      "idle_ui_draws_in_300ms": 0,
+      "idle_settle_seconds": 0.9603162000130396
+    },
+    "gpu": {
+      "result": "passed",
+      "checks": [
+        "native_ui_and_external_frames_presented",
+        "settled_ui_does_not_redraw_continuously",
+        "capture_release_preserves_exactly_one_click",
+        "native_control_change_reaches_python",
+        "stale_scene_cannot_erase_unacknowledged_native_edit",
+        "generic_canvas_keeps_standard_events_and_transform",
+        "canvas_source_coordinates_and_mouse_pair",
+        "native_motion_continues_while_python_holds_gil",
+        "interruptible_orbit_focus_ribbon_deck_layouts",
+        "opaque_and_reduced_motion_preferences",
+        "canvas_replacement_ack_preserves_native_window",
+        "native_owner_translation_follows_without_python_geometry",
+        "maximized_owner_uses_bounded_compact_deck",
+        "background_follows_focus_group_cards_survive_inactivity_and_escape",
+        "dismiss_and_recall",
+        "owner_minimize_restore",
+        "owner_destroy_closes_windows_and_consumers"
+      ],
+      "idle_ui_draws_in_300ms": 0,
+      "idle_settle_seconds": 0.9528045000042766
+    }
+  },
+  "real_terminal": {
+    "result": "passed",
+    "seconds": 20,
+    "closed": true,
+    "canvas_frames": 4,
+    "frame_stats": [
+      {
+        "accelerated_paints": 3.0,
+        "copy_wait_ms": 1.238,
+        "cpu_paints": 0,
+        "dropped_frames": 0.0,
+        "error": "",
+        "frame_backend": "native_gpu_d3d11",
+        "popup": {
+          "height": 0,
+          "visible": false,
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "popup_paints": 0.0,
+        "published_frames": 3.0
+      },
+      {
+        "accelerated_paints": 4.0,
+        "copy_wait_ms": 1.092,
+        "cpu_paints": 0,
+        "dropped_frames": 0.0,
+        "error": "",
+        "frame_backend": "native_gpu_d3d11",
+        "popup": {
+          "height": 0,
+          "visible": false,
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "popup_paints": 0.0,
+        "published_frames": 4.0
+      }
+    ]
+  },
+  "mixed_terminal": {
+    "result": "passed",
+    "seconds": 20,
+    "closed": true,
+    "canvas_frames": 444,
+    "frame_stats": [
+      {
+        "accelerated_paints": 4.0,
+        "copy_wait_ms": 0.6986,
+        "cpu_paints": 0,
+        "dropped_frames": 0.0,
+        "error": "",
+        "frame_backend": "native_gpu_d3d11",
+        "popup": {
+          "height": 0,
+          "visible": false,
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "popup_paints": 0.0,
+        "published_frames": 4.0
+      },
+      {
+        "accelerated_paints": 4.0,
+        "copy_wait_ms": 1.1849,
+        "cpu_paints": 0,
+        "dropped_frames": 0.0,
+        "error": "",
+        "frame_backend": "native_gpu_d3d11",
+        "popup": {
+          "height": 0,
+          "visible": false,
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "popup_paints": 0.0,
+        "published_frames": 4.0
+      }
+    ]
+  },
+  "validation_limits": [
+    "Own HWND messages exercise Tab/arrows/characters and actual GUI thread focus",
+    "Backward traversal uses previous_control, the native routine shared by Shift+Tab",
+    "Computer Use was not invoked this round; physical modifier chords were not automated",
+    "Background launch hit Windows foreground restrictions; normal visible terminal entry passed",
+    "Initial fixed 0.6s idle delay failed with 3 UI draws; bounded geometry/draw settling now precedes the unchanged idle assertion",
+    "No eval permission or unsafe-eval CSP relaxation; DOM state comes through authorized topics",
+    "No desktop screenshots, transient handles or user paths saved"
+  ],
+  "docs_strict": "passed"
+}

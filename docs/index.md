@@ -37,3 +37,5 @@ docs/                 本手册与可复现基准数据
 普通字符终端中的文字只能在单元格边界移动。库保留连续的动画状态，并用背景混合、
 braille 指示器、八分之一块进度条改善观感。`PixelCanvas` 在 Kitty graphics 可用时可以
 直接传输 RGB 帧，实现像素内容的运动；普通表单文字仍走字符渲染后端。
+
+[Glass 图像效果 SDK：独立效果、原生 Shader 和实例生命周期](glass-effects-sdk.md)

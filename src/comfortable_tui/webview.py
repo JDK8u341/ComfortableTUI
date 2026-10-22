@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .overlay import OverlayCanvas
+from .gpu import GpuFrameSource
 
 
 _VIRTUAL_KEYS = {"left": 37, "up": 38, "right": 39, "down": 40, "enter": 13, "tab": 9,
@@ -65,7 +66,13 @@ class WebView(OverlayCanvas):
         return None
 
     def mount(self, app):
+        if self.app is app:
+            return
+        self._prepare_surface()
         super().mount(app)
+        self.page._widgets.add(self)
+        if self._remove_listener is None:
+            self._remove_listener = self.page.on_event(self._browser_event)
         self._remove_app_poll = self.page.service._bind_app(app)
 
     def unmount(self):
@@ -74,6 +81,45 @@ class WebView(OverlayCanvas):
             stop()
             self._remove_app_poll = None
         super().unmount()
+
+    def _mount_surface(self, owner, event_loop):
+        if self.page._closed:
+            raise RuntimeError("BrowserPage is closed")
+        if isinstance(self.buffer, GpuFrameSource) and self.page._attachments:
+            raise RuntimeError("This GPU BrowserPage already has a display consumer; open another page for another display")
+        super()._mount_surface(owner, event_loop)
+        try:
+            self.page._widgets.add(self)
+            if self._remove_listener is None:
+                self._remove_listener = self.page.on_event(self._browser_event)
+            self._remove_surface_poll = self.page.service._bind_app(event_loop)
+        except BaseException:
+            self._unmount_surface()
+            raise
+
+    def _unmount_surface(self):
+        stop = getattr(self, "_remove_surface_poll", None)
+        if stop:
+            stop()
+        self._remove_surface_poll = None
+        if self._remove_listener:
+            self._remove_listener()
+            self._remove_listener = None
+        self.page._widgets.discard(self)
+        self.page._collect_buffers()
+        super()._unmount_surface()
+
+    def _resize_surface(self, width, height):
+        if not self.page._closed:
+            self.page.resize(width, height)
+
+    def _prepare_surface(self):
+        if self._surface_host is None and self.app is None and not self.page._closed:
+            self.buffer = self.page.source
+
+    @property
+    def _surface_available(self):
+        return super()._surface_available and not self.page._closed
 
     def _browser_event(self, event):
         if event["event"] == "ime" and "cursor" in event.get("data", {}):
@@ -92,9 +138,13 @@ class WebView(OverlayCanvas):
             self.page.service._rpc.send("visible", view=self.page.id, visible=visible)
 
     def _page_visible(self):
-        return any(widget.app and id(widget) in widget.app._overlay_placements and not widget._closed
-                   and widget._display_visible is not False
-                   for widget in self.page._widgets)
+        return any(widget._view_visible() for widget in self.page._widgets)
+
+    def _view_visible(self):
+        if self._surface_host is not None:
+            return self._surface_host._view_visible()
+        return bool(self.app and id(self) in self.app._overlay_placements and not self._closed
+                    and self._display_visible is not False)
 
     def _canvas_event(self, event):
         user_consumed = bool(self._user_canvas_event(event)) if self._user_canvas_event else False
@@ -115,6 +165,10 @@ class WebView(OverlayCanvas):
             if self._closed:
                 self.page._widgets.discard(self)
             self.page._display_detached(self._event_token)
+        if kind in ("focus_out", "mouse_cancel"):
+            self._enter_key_pending = False
+            self.leave_interaction()
+            return False
         if self.page._closed:
             return user_consumed
         if kind in ("show", "hide", "detached"):
@@ -128,9 +182,6 @@ class WebView(OverlayCanvas):
             return False
         if user_consumed:
             return True
-        if kind == "focus_out":
-            self.leave_interaction()
-            return False
         if kind == "mouse_down" and data.get("inside_source", True):
             self.enter_interaction()
         if kind in ("key_down", "key_up"):
@@ -144,7 +195,8 @@ class WebView(OverlayCanvas):
             if self.app and name in self.app.bindings:
                 return False
             if name == "escape" and self.interacting:
-                self.leave_interaction()
+                if kind == "key_down":
+                    self.leave_interaction()
                 parent = self._navigation_parent()
                 if self.app and parent:
                     self.app.focus(parent)
@@ -204,7 +256,9 @@ class WebView(OverlayCanvas):
     def close(self):
         if not self._closed:
             self.leave_interaction()
-            self._remove_listener()
+            if self._remove_listener:
+                self._remove_listener()
+                self._remove_listener = None
         super().close()
         if self._detached:
             self.page._widgets.discard(self)

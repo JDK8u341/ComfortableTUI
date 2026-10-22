@@ -128,3 +128,23 @@ C++独立线程等待帧事件和DXGI呈现容量，读取最新纹理、持有�
 DirectComposition。Python不进行逐帧序号检查或像素处理。配置/附着/解除订阅是
 有确认的控制快照，等待时释放GIL。旧CPU共享内存也有C++读取/上传适配器。
 详见 [数据平面调研](native-gpu-research.md)。
+
+## 可选终端周边 UI
+
+`GlassWorkspace` 复用帧协议与 Compositor，在真实终端周围管理多张 Win32 卡片。
+Direct2D/DirectWrite 在共享 BGRA 纹理绘制自有控件，外部 CPU/GPU 来源作为另一层
+合成。窗口、动画、命中、DPI、MSAA 与焦点背景由 C++ GlassHost 的 STA 负责，Python
+只提交有界场景、保留待确认来源和消费事件。它属于与 BrowserService 同级的上层服务，
+使用独立 `_native_glass` 模块与 ComfortableGlass SDK；Canvas SDK/帧协议不含卡片语义。
+Card 决定未消费指针事件的默认行为，CardGroup 提供祖先 preview/bubble 和容器布局。
+私有 DDA/D3D11 光学层在 GPU 采样桌面，执行边缘位移、色散及高斯模糊，与文字表面
+分离；只异步回读16字节变化包围盒以排除自身呈现回声。原内嵌 OverlayCanvas 不改变布局语义。
+见[架构、API 与限制](glass-workspace.md)和[光学与事件调研](glass-optics-research.md)。
+
+`GlassCanvas` 承载现有 OverlayCanvas 及其子类，复用来源、CanvasEvent 和生命周期；
+`GlassWebView` 仅组合 GlassCanvas 与现有 WebView，不重复实现浏览器输入逻辑。
+原生 UI 只认识通用 canvas，不认识网页。详见[通用画布承载](glass-canvas.md)。
+窗口/视口变化走场景握手，消费者解除或最新来源确认后才让 BrowserPage 退休旧帧。
+浏览器服务按 App/工作区去重轮询，原生帧传输不经过 Python。此适配不改变 CEF 权限、
+profile、消息授权或 FrameProvider 协议。卡片键盘导航在原生线程转移真实焦点；标题和
+控件组成跨卡焦点环，网页只有 Enter/点击后消费自己的编辑按键，Tab/F6 保留给宿主。

@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; object-src 'none'">
+<title>A browser inside a glass card</title>
+<style>
+* { box-sizing:border-box; }
+body { margin:0; padding:18px; background:#142238; color:#e5f4fa; font:14px system-ui; }
+small { color:#7de2ca; letter-spacing:.08em; }
+h2 { font-size:21px; margin:10px 0; }
+p { color:#adc4d5; line-height:1.5; }
+input,button { font:inherit; border-radius:9px; padding:10px; margin:4px 0; }
+input { width:100%; color:#eefbff; background:#20344f; border:1px solid #608096; }
+button { background:#85e5d1; color:#102c32; border:0; cursor:pointer; }
+#received { border-top:1px solid #436078; margin-top:14px; padding-top:12px; overflow-wrap:anywhere; }
+@media (max-width:340px) { body { padding:12px; } h2 { font-size:18px; } }
+</style>
+<small>NATIVE CARD / INDEPENDENT WEB DOCUMENT</small>
+<h2 id="name">Browser card</h2>
+<p>Type a note, then share it with the other card.</p>
+<form id="form">
+  <input id="entry" aria-label="Shared note" placeholder="Your note…">
+  <button id="send" type="submit">Share note</button>
+</form>
+<div id="received">No message yet</div>
+<script src="webview-card.js"></script>

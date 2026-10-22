@@ -1,0 +1,577 @@
+{
+  "date": "2026-10-20",
+  "baseline_commit": "e1f4d77be2d5b738893ea82beea07fa7250e628b",
+  "environment": "Local Windows desktop / Python 3.12 / native D3D11",
+  "glass_control_protocol": 4,
+  "frame_protocol": 1,
+  "comparison_host": "Same Qt owner fixture, 240-DIP native text cards; liquid uses frosted backdrop; 1.5s warmup",
+  "comparison": [
+    {
+      "material": "solid",
+      "cards": 3,
+      "samples_each": 3,
+      "medians": {
+        "close_ms": {
+          "before": 112.412,
+          "after": 63.269
+        },
+        "all_hidden_ms": {
+          "before": 92.099,
+          "after": 1.975
+        },
+        "all_destroyed_ms": {
+          "before": 95.212,
+          "after": 33.294
+        }
+      },
+      "api_reduction_percent": 43.716,
+      "before_samples": [
+        {
+          "material": "solid",
+          "cards": 3,
+          "trial": 0,
+          "close_ms": 107.224,
+          "all_hidden_ms": 89.275,
+          "all_destroyed_ms": 91.175
+        },
+        {
+          "material": "solid",
+          "cards": 3,
+          "trial": 1,
+          "close_ms": 122.042,
+          "all_hidden_ms": 94.375,
+          "all_destroyed_ms": 97.459
+        },
+        {
+          "material": "solid",
+          "cards": 3,
+          "trial": 2,
+          "close_ms": 112.412,
+          "all_hidden_ms": 92.099,
+          "all_destroyed_ms": 95.212
+        }
+      ],
+      "after_samples": [
+        {
+          "material": "solid",
+          "cards": 3,
+          "trial": 0,
+          "close_ms": 65.394,
+          "all_hidden_ms": 1.975,
+          "all_destroyed_ms": 33.294
+        },
+        {
+          "material": "solid",
+          "cards": 3,
+          "trial": 1,
+          "close_ms": 63.269,
+          "all_hidden_ms": 1.97,
+          "all_destroyed_ms": 34.456
+        },
+        {
+          "material": "solid",
+          "cards": 3,
+          "trial": 2,
+          "close_ms": 62.922,
+          "all_hidden_ms": 2.0,
+          "all_destroyed_ms": 31.286
+        }
+      ]
+    },
+    {
+      "material": "liquid",
+      "cards": 3,
+      "samples_each": 3,
+      "medians": {
+        "close_ms": {
+          "before": 116.895,
+          "after": 78.785
+        },
+        "all_hidden_ms": {
+          "before": 92.037,
+          "after": 1.97
+        },
+        "all_destroyed_ms": {
+          "before": 93.304,
+          "after": 38.943
+        }
+      },
+      "api_reduction_percent": 32.602,
+      "before_samples": [
+        {
+          "material": "liquid",
+          "cards": 3,
+          "trial": 0,
+          "close_ms": 112.815,
+          "all_hidden_ms": 89.422,
+          "all_destroyed_ms": 90.972
+        },
+        {
+          "material": "liquid",
+          "cards": 3,
+          "trial": 1,
+          "close_ms": 139.057,
+          "all_hidden_ms": 110.425,
+          "all_destroyed_ms": 115.506
+        },
+        {
+          "material": "liquid",
+          "cards": 3,
+          "trial": 2,
+          "close_ms": 116.895,
+          "all_hidden_ms": 92.037,
+          "all_destroyed_ms": 93.304
+        }
+      ],
+      "after_samples": [
+        {
+          "material": "liquid",
+          "cards": 3,
+          "trial": 0,
+          "close_ms": 92.72,
+          "all_hidden_ms": 1.922,
+          "all_destroyed_ms": 44.517
+        },
+        {
+          "material": "liquid",
+          "cards": 3,
+          "trial": 1,
+          "close_ms": 70.384,
+          "all_hidden_ms": 1.97,
+          "all_destroyed_ms": 37.469
+        },
+        {
+          "material": "liquid",
+          "cards": 3,
+          "trial": 2,
+          "close_ms": 78.785,
+          "all_hidden_ms": 2.072,
+          "all_destroyed_ms": 38.943
+        }
+      ]
+    },
+    {
+      "material": "liquid",
+      "cards": 8,
+      "samples_each": 3,
+      "medians": {
+        "close_ms": {
+          "before": 272.194,
+          "after": 155.737
+        },
+        "all_hidden_ms": {
+          "before": 244.227,
+          "after": 2.024
+        },
+        "all_destroyed_ms": {
+          "before": 247.288,
+          "after": 103.307
+        }
+      },
+      "api_reduction_percent": 42.785,
+      "before_samples": [
+        {
+          "material": "liquid",
+          "cards": 8,
+          "trial": 0,
+          "close_ms": 272.194,
+          "all_hidden_ms": 244.227,
+          "all_destroyed_ms": 247.288
+        },
+        {
+          "material": "liquid",
+          "cards": 8,
+          "trial": 1,
+          "close_ms": 288.23,
+          "all_hidden_ms": 259.8,
+          "all_destroyed_ms": 262.893
+        },
+        {
+          "material": "liquid",
+          "cards": 8,
+          "trial": 2,
+          "close_ms": 269.663,
+          "all_hidden_ms": 243.159,
+          "all_destroyed_ms": 246.215
+        }
+      ],
+      "after_samples": [
+        {
+          "material": "liquid",
+          "cards": 8,
+          "trial": 0,
+          "close_ms": 155.737,
+          "all_hidden_ms": 2.024,
+          "all_destroyed_ms": 103.307
+        },
+        {
+          "material": "liquid",
+          "cards": 8,
+          "trial": 1,
+          "close_ms": 164.56,
+          "all_hidden_ms": 2.104,
+          "all_destroyed_ms": 106.238
+        },
+        {
+          "material": "liquid",
+          "cards": 8,
+          "trial": 2,
+          "close_ms": 135.055,
+          "all_hidden_ms": 1.948,
+          "all_destroyed_ms": 92.137
+        }
+      ]
+    },
+    {
+      "material": "liquid",
+      "cards": 12,
+      "samples_each": 3,
+      "medians": {
+        "close_ms": {
+          "before": 428.765,
+          "after": 190.831
+        },
+        "all_hidden_ms": {
+          "before": 399.777,
+          "after": 1.942
+        },
+        "all_destroyed_ms": {
+          "before": 401.581,
+          "after": 133.656
+        }
+      },
+      "api_reduction_percent": 55.493,
+      "before_samples": [
+        {
+          "material": "liquid",
+          "cards": 12,
+          "trial": 0,
+          "close_ms": 425.254,
+          "all_hidden_ms": 396.416,
+          "all_destroyed_ms": 397.943
+        },
+        {
+          "material": "liquid",
+          "cards": 12,
+          "trial": 1,
+          "close_ms": 442.933,
+          "all_hidden_ms": 414.176,
+          "all_destroyed_ms": 415.715
+        },
+        {
+          "material": "liquid",
+          "cards": 12,
+          "trial": 2,
+          "close_ms": 428.765,
+          "all_hidden_ms": 399.777,
+          "all_destroyed_ms": 401.581
+        }
+      ],
+      "after_samples": [
+        {
+          "material": "liquid",
+          "cards": 12,
+          "trial": 0,
+          "close_ms": 251.266,
+          "all_hidden_ms": 14.138,
+          "all_destroyed_ms": 180.293
+        },
+        {
+          "material": "liquid",
+          "cards": 12,
+          "trial": 1,
+          "close_ms": 190.831,
+          "all_hidden_ms": 1.942,
+          "all_destroyed_ms": 133.656
+        },
+        {
+          "material": "liquid",
+          "cards": 12,
+          "trial": 2,
+          "close_ms": 190.052,
+          "all_hidden_ms": 1.622,
+          "all_destroyed_ms": 132.497
+        }
+      ]
+    }
+  ],
+  "real_terminal_benchmark": {
+    "result": "passed",
+    "host": "real_terminal",
+    "samples": [
+      {
+        "material": "liquid",
+        "actual_material": "liquid",
+        "cards": 3,
+        "trial": 0,
+        "all_hidden_ms": 5.267,
+        "all_destroyed_ms": 36.917,
+        "native_close_ms": 70.863,
+        "tracker_close_ms": 0.027,
+        "close_ms": 71.008,
+        "native_teardown": {
+          "close_hide_ms": 1.858,
+          "close_join_ms": 29.386,
+          "close_surfaces_ms": 0.663,
+          "close_windows_ms": 2.812,
+          "close_resources_ms": 68.151
+        }
+      },
+      {
+        "material": "liquid",
+        "actual_material": "liquid",
+        "cards": 3,
+        "trial": 1,
+        "all_hidden_ms": 10.626,
+        "all_destroyed_ms": 41.024,
+        "native_close_ms": 73.271,
+        "tracker_close_ms": 0.021,
+        "close_ms": 73.382,
+        "native_teardown": {
+          "close_hide_ms": 1.909,
+          "close_join_ms": 27.791,
+          "close_surfaces_ms": 1.001,
+          "close_windows_ms": 1.955,
+          "close_resources_ms": 69.851
+        }
+      },
+      {
+        "material": "liquid",
+        "actual_material": "liquid",
+        "cards": 3,
+        "trial": 2,
+        "all_hidden_ms": 1.463,
+        "all_destroyed_ms": 63.658,
+        "native_close_ms": 87.353,
+        "tracker_close_ms": 0.029,
+        "close_ms": 87.51,
+        "native_teardown": {
+          "close_hide_ms": 2.107,
+          "close_join_ms": 47.289,
+          "close_surfaces_ms": 0.909,
+          "close_windows_ms": 2.288,
+          "close_resources_ms": 83.988
+        }
+      },
+      {
+        "material": "liquid",
+        "actual_material": "liquid",
+        "cards": 8,
+        "trial": 0,
+        "all_hidden_ms": 5.61,
+        "all_destroyed_ms": 83.243,
+        "native_close_ms": 114.678,
+        "tracker_close_ms": 0.022,
+        "close_ms": 114.824,
+        "native_teardown": {
+          "close_hide_ms": 3.584,
+          "close_join_ms": 64.664,
+          "close_surfaces_ms": 2.239,
+          "close_windows_ms": 3.628,
+          "close_resources_ms": 109.715
+        }
+      },
+      {
+        "material": "liquid",
+        "actual_material": "liquid",
+        "cards": 8,
+        "trial": 1,
+        "all_hidden_ms": 11.469,
+        "all_destroyed_ms": 89.281,
+        "native_close_ms": 126.512,
+        "tracker_close_ms": 0.019,
+        "close_ms": 126.66,
+        "native_teardown": {
+          "close_hide_ms": 3.842,
+          "close_join_ms": 77.937,
+          "close_surfaces_ms": 1.579,
+          "close_windows_ms": 3.859,
+          "close_resources_ms": 121.903
+        }
+      },
+      {
+        "material": "liquid",
+        "actual_material": "liquid",
+        "cards": 8,
+        "trial": 2,
+        "all_hidden_ms": 12.159,
+        "all_destroyed_ms": 75.259,
+        "native_close_ms": 109.562,
+        "tracker_close_ms": 0.022,
+        "close_ms": 109.709,
+        "native_teardown": {
+          "close_hide_ms": 3.78,
+          "close_join_ms": 61.706,
+          "close_surfaces_ms": 1.657,
+          "close_windows_ms": 3.404,
+          "close_resources_ms": 104.887
+        }
+      },
+      {
+        "material": "liquid",
+        "actual_material": "liquid",
+        "cards": 12,
+        "trial": 0,
+        "all_hidden_ms": 14.884,
+        "all_destroyed_ms": 124.008,
+        "native_close_ms": 157.274,
+        "tracker_close_ms": 0.022,
+        "close_ms": 157.425,
+        "native_teardown": {
+          "close_hide_ms": 4.508,
+          "close_join_ms": 95.034,
+          "close_surfaces_ms": 3.121,
+          "close_windows_ms": 7.218,
+          "close_resources_ms": 150.763
+        }
+      },
+      {
+        "material": "liquid",
+        "actual_material": "liquid",
+        "cards": 12,
+        "trial": 1,
+        "all_hidden_ms": 10.41,
+        "all_destroyed_ms": 119.026,
+        "native_close_ms": 156.824,
+        "tracker_close_ms": 0.02,
+        "close_ms": 156.98,
+        "native_teardown": {
+          "close_hide_ms": 4.291,
+          "close_join_ms": 97.656,
+          "close_surfaces_ms": 3.182,
+          "close_windows_ms": 6.497,
+          "close_resources_ms": 151.643
+        }
+      },
+      {
+        "material": "liquid",
+        "actual_material": "liquid",
+        "cards": 12,
+        "trial": 2,
+        "all_hidden_ms": 5.32,
+        "all_destroyed_ms": 128.741,
+        "native_close_ms": 178.522,
+        "tracker_close_ms": 0.022,
+        "close_ms": 178.678,
+        "native_teardown": {
+          "close_hide_ms": 8.942,
+          "close_join_ms": 109.985,
+          "close_surfaces_ms": 2.778,
+          "close_windows_ms": 5.54,
+          "close_resources_ms": 168.472
+        }
+      }
+    ],
+    "summary": [
+      {
+        "material": "liquid",
+        "cards": 3,
+        "samples": 3,
+        "close_ms_median": 73.382,
+        "all_hidden_ms_median": 5.267,
+        "all_destroyed_ms_median": 41.024
+      },
+      {
+        "material": "liquid",
+        "cards": 8,
+        "samples": 3,
+        "close_ms_median": 114.824,
+        "all_hidden_ms_median": 11.469,
+        "all_destroyed_ms_median": 83.243
+      },
+      {
+        "material": "liquid",
+        "cards": 12,
+        "samples": 3,
+        "close_ms_median": 157.425,
+        "all_hidden_ms_median": 10.41,
+        "all_destroyed_ms_median": 124.008
+      }
+    ]
+  },
+  "real_terminal_closure": {
+    "result": "passed",
+    "checks": [
+      "all_cards_owned_by_the_actual_terminal_window",
+      "single_card_close_preserves_sibling_rectangles_visibility_and_source",
+      "content_update_keeps_the_retained_positions",
+      "native_workspace_button_closes_all_cards_preserving_terminal_and_source"
+    ],
+    "terminal_class": "CASCADIA_HOSTING_WINDOW_CLASS",
+    "workspace_close_ms": 75.654,
+    "native_teardown": {
+      "close_hide_ms": 1.587,
+      "close_join_ms": 22.155,
+      "close_surfaces_ms": 0.614,
+      "close_windows_ms": 12.322,
+      "close_resources_ms": 71.425
+    }
+  },
+  "regressions": {
+    "unit_tests": "300 passed, 1 skipped",
+    "pure_python": "300 passed, 1 skipped",
+    "close_cases": {
+      "cpu": {
+        "checks": 13,
+        "result": "passed",
+        "source_mode": "cpu",
+        "browser_render_mode": null,
+        "browser_frame_stats": []
+      },
+      "gpu": {
+        "checks": 13,
+        "result": "passed",
+        "source_mode": "gpu",
+        "browser_render_mode": null,
+        "browser_frame_stats": []
+      },
+      "web-cpu": {
+        "checks": 15,
+        "result": "passed",
+        "source_mode": "cpu",
+        "browser_render_mode": "cpu",
+        "browser_frame_stats": [
+          {
+            "frame_backend": "native_cpu",
+            "cpu_paints": 1
+          },
+          {
+            "frame_backend": "native_cpu",
+            "cpu_paints": 1
+          }
+        ]
+      },
+      "web-gpu": {
+        "checks": 15,
+        "result": "passed",
+        "source_mode": "gpu",
+        "browser_render_mode": "gpu",
+        "browser_frame_stats": [
+          {
+            "frame_backend": "native_gpu_d3d11",
+            "cpu_paints": 0,
+            "published_frames": 1.0
+          },
+          {
+            "frame_backend": "native_gpu_d3d11",
+            "cpu_paints": 0,
+            "published_frames": 1.0
+          }
+        ]
+      }
+    },
+    "layout_cases": 32,
+    "resize_add_and_focus_transitions": true,
+    "original_focus_regression_checks": 8
+  },
+  "guarantees": [
+    "close() joins native consumers before detaching caller-owned sources",
+    "All workspace card/backdrop windows are hidden before joining render workers",
+    "Native producer devices are shared only within a workspace/adapter; drawing stays on its UI worker"
+  ],
+  "measurement_limits": [
+    "Win32 card visibility and synchronous API timing, not display photon latency",
+    "Three local samples per case; desktop/driver load affects results",
+    "Closure fixtures use directed messages to this application windows, not Computer Use"
+  ]
+}

@@ -1,5 +1,6 @@
 #include "internal.hpp"
 #include "comfortable/compositor.hpp"
+#include "compositor_shader.hpp"
 #include <dcomp.h>
 #include <d3dcompiler.h>
 #include <algorithm>
@@ -149,44 +150,37 @@ struct Source {
         return consumer ? held.view() : (sequence ? cpu_view.Get() : nullptr);
     }
 };
-const char *shader = R"(
-cbuffer Params : register(b0) { float4 target; float4 uvRect; float4 options; };
-struct V { float4 pos:SV_POSITION; float2 uv:TEXCOORD; };
-V vs(uint id:SV_VertexID) {
-    float2 p=float2((id<<1)&2,id&2);
-    V o;float2 q=target.xy+p*target.zw;
-    o.pos=float4(q.x*2-1,1-q.y*2,0,1);o.uv=uvRect.xy+p*uvRect.zw;return o;
-}
-Texture2D image:register(t0); SamplerState sampler0:register(s0);
-float4 premul(float4 c){c.rgb*=c.a;return c;}
-float4 ps(V v):SV_TARGET {
- if(any(v.uv<0)||any(v.uv>1))discard;
- if(options.x>0.5 && options.y>0.5) {
-  uint w,h;image.GetDimensions(w,h);float2 at=v.uv*float2(w,h)-.5;int2 a=int2(floor(at));float2 f=frac(at);
-  int2 edge=int2(w-1,h-1);
-  float4 c00=premul(image.Load(int3(clamp(a,int2(0,0),edge),0)));
-  float4 c01=premul(image.Load(int3(clamp(a+int2(1,0),int2(0,0),edge),0)));
-  float4 c10=premul(image.Load(int3(clamp(a+int2(0,1),int2(0,0),edge),0)));
-  float4 c11=premul(image.Load(int3(clamp(a+int2(1,1),int2(0,0),edge),0)));
-  return lerp(lerp(c00,c01,f.x),lerp(c10,c11,f.x),f.y);
- }
- float4 c=image.Sample(sampler0,v.uv);return options.x>0.5?premul(c):c;
-}
-)";
+
+struct EffectResources {
+    std::map<NativeImageProcessor *,std::shared_ptr<NativeImageProcessor>> live;
+    void reset(const std::vector<NativeView> &views,const std::shared_ptr<NativeImageProcessor> &scene,const std::shared_ptr<NativeImageProcessor> &overlay){
+        std::map<NativeImageProcessor *,std::shared_ptr<NativeImageProcessor>> next;
+        if(scene)next[scene.get()]=scene;
+        if(overlay)next[overlay.get()]=overlay;
+        for(const auto &v:views)for(const auto &effect:{v.content_effect,v.background_effect})if(effect)next[effect.get()]=effect;
+        for(const auto &entry:live)if(!next.count(entry.first))entry.second->release_device_resources();
+        live=std::move(next);
+    }
+    ~EffectResources(){for(const auto &entry:live)entry.second->release_device_resources();}
+};
 } // namespace
 struct Compositor::Impl {
     HWND hwnd;
     std::uint32_t low;
     std::int32_t high;
     Handle stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)},
-        changed{CreateEventW(nullptr, FALSE, FALSE, nullptr)};
+        changed{CreateEventW(nullptr, FALSE, FALSE, nullptr)},
+        presentation_changed{CreateEventW(nullptr,FALSE,FALSE,nullptr)};
     std::thread worker;
     mutable std::mutex mutex;
     std::condition_variable acknowledged;
     std::uint64_t submitted{}, applied{};
     std::vector<NativeView> requested;
+    std::shared_ptr<NativeImageProcessor> requested_effect;
+    std::shared_ptr<NativeImageProcessor> requested_overlay;
     UINT width{1}, height{1};
     bool show{}, closed{};
+    float requested_opacity{1};
     CompositorMetrics report;
     explicit Impl(std::uintptr_t h, std::uint32_t l, std::int32_t hi)
         : hwnd(reinterpret_cast<HWND>(h)), low(l), high(hi) {
@@ -221,13 +215,14 @@ struct Compositor::Impl {
         ComPtr<IDCompositionTarget> composition_target;
         check(composition->CreateTargetForHwnd(hwnd, TRUE, &composition_target), "CreateTargetForHwnd");
         ComPtr<IDCompositionVisual> visual;
+        ComPtr<IDCompositionEffectGroup> presentation_effect;
         check(composition->CreateVisual(&visual), "CreateVisual");
         check(composition_target->SetRoot(visual.Get()), "SetRoot");
         ComPtr<ID3DBlob> vs_code, ps_code, errors;
-        check(D3DCompile(shader, std::strlen(shader), nullptr, nullptr, nullptr, "vs", "vs_4_0",
+        check(D3DCompile(compositor_shader, std::strlen(compositor_shader), nullptr, nullptr, nullptr, "vs", "vs_4_0",
                          D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vs_code, &errors),
               "compile compositor vertex shader");
-        check(D3DCompile(shader, std::strlen(shader), nullptr, nullptr, nullptr, "ps", "ps_4_0",
+        check(D3DCompile(compositor_shader, std::strlen(compositor_shader), nullptr, nullptr, nullptr, "ps", "ps_4_0",
                          D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &ps_code, &errors),
               "compile compositor pixel shader");
         ComPtr<ID3D11VertexShader> vs;
@@ -238,7 +233,7 @@ struct Compositor::Impl {
               "CreatePixelShader");
         ComPtr<ID3D11Buffer> constants;
         D3D11_BUFFER_DESC bd{};
-        bd.ByteWidth = 48;
+        bd.ByteWidth = 240;
         bd.Usage = D3D11_USAGE_DEFAULT;
         bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         check(device->CreateBuffer(&bd, nullptr, &constants), "Create constants");
@@ -267,6 +262,12 @@ struct Compositor::Impl {
         ComPtr<ID3D11RasterizerState> raster;
         check(device->CreateRasterizerState(&raster_desc, &raster), "CreateRasterizerState");
         ComPtr<IDXGISwapChain2> swap;
+        ComPtr<ID3D11Texture2D> accumulated;
+        ComPtr<ID3D11RenderTargetView> accumulated_target;
+        ComPtr<ID3D11ShaderResourceView> accumulated_view;
+        std::shared_ptr<NativeImageProcessor> scene_effect;
+        std::shared_ptr<NativeImageProcessor> scene_overlay;
+        EffectResources effect_resources;
         Handle latency;
         UINT sw = 0, sh = 0;
         std::map<std::string, std::unique_ptr<Source>> sources;
@@ -274,7 +275,7 @@ struct Compositor::Impl {
         bool visible = false, dirty = true, have_config = false, capacity = false, pending = false;
         std::uint64_t presents = 0;
         for (;;) {
-            std::vector<HANDLE> waits{stop.value, changed.value};
+            std::vector<HANDLE> waits{stop.value, changed.value,presentation_changed.value};
             bool cpu = false;
             if (visible)
                 for (auto &entry : sources) {
@@ -297,12 +298,20 @@ struct Compositor::Impl {
                 break;
             if (result == WAIT_FAILED)
                 throw std::runtime_error("native frame wait failed");
+            if(result==WAIT_OBJECT_0+2){
+                float alpha;{std::lock_guard<std::mutex> lock(mutex);alpha=requested_opacity;}
+                if(!presentation_effect){check(composition->CreateEffectGroup(&presentation_effect),"DComp presentation group");check(visual->SetEffect(presentation_effect.Get()),"DComp presentation effect");}
+                check(presentation_effect->SetOpacity(alpha),"DComp opacity");check(composition->Commit(),"DComp presentation commit");
+                continue;
+            }
             if (result == WAIT_OBJECT_0 + 1 || !have_config) {
                 UINT w, h;
                 std::uint64_t serial;
                 {
                     std::lock_guard<std::mutex> lock(mutex);
                     views = requested;
+                    scene_effect = requested_effect;
+                    scene_overlay = requested_overlay;
                     w = width;
                     h = height;
                     visible = show;
@@ -324,7 +333,10 @@ struct Compositor::Impl {
                 for (const auto &v : views)
                     if (v.clip.width > 0 && v.clip.height > 0)
                         sources.at(v.source.name)->active = true;
-                if (w != sw || h != sh) {
+                bool use_accumulation=scene_effect||scene_overlay||std::any_of(views.begin(),views.end(),[](const auto &v){return bool(v.background_effect);});
+                effect_resources.reset(views,scene_effect,scene_overlay);
+                if (w != sw || h != sh || use_accumulation!=bool(accumulated)) {
+                    accumulated_view.Reset();accumulated_target.Reset();accumulated.Reset();
                     context->ClearState();
                     if (!swap) {
                         DXGI_SWAP_CHAIN_DESC1 d{};
@@ -352,6 +364,13 @@ struct Compositor::Impl {
                               "ResizeBuffers");
                     sw = w;
                     sh = h;
+                    if(use_accumulation){
+                        D3D11_TEXTURE2D_DESC td{};td.Width=w;td.Height=h;td.MipLevels=td.ArraySize=1;
+                        td.Format=DXGI_FORMAT_B8G8R8A8_UNORM;td.SampleDesc.Count=1;td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+                        check(device->CreateTexture2D(&td,nullptr,&accumulated),"effect accumulation texture");
+                        check(device->CreateRenderTargetView(accumulated.Get(),nullptr,&accumulated_target),"effect accumulation RTV");
+                        check(device->CreateShaderResourceView(accumulated.Get(),nullptr,&accumulated_view),"effect accumulation SRV");
+                    }
                 }
                 have_config = true;
                 dirty = true;
@@ -363,7 +382,7 @@ struct Compositor::Impl {
             }
             if (!visible || !swap)
                 continue;
-            if (result >= WAIT_OBJECT_0 + 2 && result < WAIT_OBJECT_0 + waits.size())
+            if (result >= WAIT_OBJECT_0 + 3 && result < WAIT_OBJECT_0 + waits.size())
                 pending = true;
             // Read the newest source only once DXGI has capacity, not before a
             // frame-queue wait. The worker never acquires the Python GIL.
@@ -394,8 +413,19 @@ struct Compositor::Impl {
             ComPtr<ID3D11RenderTargetView> target;
             check(device->CreateRenderTargetView(back.Get(), nullptr, &target), "Create swap-chain target");
             const float clear[4] = {0, 0, 0, 0};
-            context->ClearRenderTargetView(target.Get(), clear);
-            auto *output = target.Get();
+            auto *output = accumulated?accumulated_target.Get():target.Get();
+            context->ClearRenderTargetView(output, clear);
+            auto bind_state=[&](ID3D11RenderTargetView *to,bool alpha){
+            context->OMSetRenderTargets(1, &to, nullptr);
+            context->OMSetBlendState(alpha?blend.Get():nullptr, nullptr, 0xffffffff);
+            context->RSSetState(raster.Get());
+            D3D11_VIEWPORT viewport{0,0,static_cast<float>(sw),static_cast<float>(sh),0,1};
+            context->RSSetViewports(1,&viewport);
+            context->IASetInputLayout(nullptr);
+            context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            context->VSSetShader(vs.Get(),nullptr,0);context->PSSetShader(ps.Get(),nullptr,0);
+            auto *buffer=constants.Get();context->VSSetConstantBuffers(0,1,&buffer);context->PSSetConstantBuffers(0,1,&buffer);
+            };
             context->OMSetRenderTargets(1, &output, nullptr);
             context->OMSetBlendState(blend.Get(), nullptr, 0xffffffff);
             context->RSSetState(raster.Get());
@@ -408,34 +438,63 @@ struct Compositor::Impl {
             context->VSSetConstantBuffers(0, 1, &cb);
             context->PSSetConstantBuffers(0, 1, &cb);
             std::vector<ViewMetrics> metrics;
+            std::uint64_t effect_passes=0;
             for (const auto &v : views) {
                 auto &source = *sources.at(v.source.name);
                 auto *srv = source.view();
+                if(v.background_effect&&accumulated&&v.clip.width>0&&v.clip.height>0&&v.full.width>0&&v.full.height>0){
+                    context->OMSetRenderTargets(0,nullptr,nullptr);
+                    auto before=v.background_effect->passes();
+                    auto *filtered=v.background_effect->process(device.Get(),context.Get(),accumulated_view.Get(),sw,sh,v.full,false);
+                    effect_passes+=v.background_effect->passes()-before;
+                    bind_state(output,false);
+                    std::array<float,60> values={v.full.x/sw,v.full.y/sh,v.full.width/sw,v.full.height/sh,0,0,1,1,0,1,1,0};
+                    compositor_clip_params(values,v.rounded_clips,true);
+                    context->UpdateSubresource(constants.Get(),0,nullptr,values.data(),0,0);
+                    D3D11_RECT clip{static_cast<LONG>(std::floor(v.clip.x)),static_cast<LONG>(std::floor(v.clip.y)),static_cast<LONG>(std::ceil(v.clip.x+v.clip.width)),static_cast<LONG>(std::ceil(v.clip.y+v.clip.height))};
+                    context->RSSetScissorRects(1,&clip);context->PSSetShaderResources(0,1,&filtered);
+                    auto *sampler=samplers[1].Get();context->PSSetSamplers(0,1,&sampler);context->Draw(3,0);
+                    ID3D11ShaderResourceView *none=nullptr;context->PSSetShaderResources(0,1,&none);
+                }
                 if (srv && v.clip.width > 0 && v.clip.height > 0 && v.full.width > 0 && v.full.height > 0) {
+                    bool straight=v.pixel_format!="bgra8_premultiplied"&&v.pixel_format!="rgb8";
+                    float source_width=static_cast<float>(v.source.width),source_height=static_cast<float>(v.source.height);
+                    float ux=0,uy=0,uw=1,uh=1;
+                    if(v.sample.width>0){ux=v.sample.x/source_width;uy=v.sample.y/source_height;uw=v.sample.width/source_width;uh=v.sample.height/source_height;source_width=v.sample.width;source_height=v.sample.height;}
+                    if(v.content_effect){
+                        context->OMSetRenderTargets(0,nullptr,nullptr);
+                        auto before=v.content_effect->passes();
+                        PixelBox region=v.sample.width>0?v.sample:PixelBox{0,0,static_cast<float>(v.source.width),static_cast<float>(v.source.height)};
+                        srv=v.content_effect->process(device.Get(),context.Get(),srv,v.source.width,v.source.height,region,straight);
+                        effect_passes+=v.content_effect->passes()-before;straight=false;ux=uy=0;uw=uh=1;
+                    }
+                    bind_state(output,true);
                     float w = v.full.width, h = v.full.height;
                     if (v.fit != "stretch") {
                         float scale =
                             v.fit == "pixel"
                                 ? 1.f
-                                : (v.fit == "cover" ? std::max(w / v.source.width, h / v.source.height)
-                                                    : std::min(w / v.source.width, h / v.source.height));
-                        w = v.source.width * scale;
-                        h = v.source.height * scale;
+                                : (v.fit == "cover" ? std::max(w / source_width, h / source_height)
+                                                    : std::min(w / source_width, h / source_height));
+                        w = source_width * scale;
+                        h = source_height * scale;
                     }
-                    float values[12] = {
+                    if(v.content_effect){auto margin=v.content_effect->outset();w+=2*margin*w/source_width;h+=2*margin*h/source_height;}
+                    std::array<float,60> values = {
                         (v.full.x + (v.full.width - w) / 2) / sw,
                         (v.full.y + (v.full.height - h) / 2) / sh,
                         w / sw,
                         h / sh,
-                        0,
-                        0,
-                        1,
-                        1,
-                        v.pixel_format == "bgra8_premultiplied" || v.pixel_format == "rgb8" ? 0.f : 1.f,
+                        ux,
+                        uy,
+                        uw,
+                        uh,
+                        straight ? 1.f : 0.f,
                         v.smooth ? 1.f : 0.f,
-                        0,
+                        v.opacity,
                         0};
-                    context->UpdateSubresource(constants.Get(), 0, nullptr, values, 0, 0);
+                    compositor_clip_params(values,v.rounded_clips);
+                    context->UpdateSubresource(constants.Get(), 0, nullptr, values.data(), 0, 0);
                     D3D11_RECT clip{
                         std::clamp(static_cast<LONG>(std::round(v.clip.x)), 0L, static_cast<LONG>(sw)),
                         std::clamp(static_cast<LONG>(std::round(v.clip.y)), 0L, static_cast<LONG>(sh)),
@@ -458,6 +517,22 @@ struct Compositor::Impl {
             ID3D11ShaderResourceView *none = nullptr;
             context->PSSetShaderResources(0, 1, &none);
             context->OMSetRenderTargets(0, nullptr, nullptr);
+            if(accumulated){
+                auto *composed=accumulated_view.Get();
+                if(scene_effect){auto before=scene_effect->passes();composed=scene_effect->process(device.Get(),context.Get(),composed,sw,sh,{0,0,static_cast<float>(sw),static_cast<float>(sh)},false);effect_passes+=scene_effect->passes()-before;}
+                auto draw_scene=[&](ID3D11ShaderResourceView *image,bool alpha,float margin){
+                    bind_state(target.Get(),alpha);
+                    std::array<float,60> values={-margin/sw,-margin/sh,(sw+2*margin)/sw,(sh+2*margin)/sh,0,0,1,1,0,1,1,0};context->UpdateSubresource(constants.Get(),0,nullptr,values.data(),0,0);
+                    D3D11_RECT clip{0,0,static_cast<LONG>(sw),static_cast<LONG>(sh)};context->RSSetScissorRects(1,&clip);
+                    context->PSSetShaderResources(0,1,&image);auto *sampler=samplers[1].Get();context->PSSetSamplers(0,1,&sampler);context->Draw(3,0);
+                    context->PSSetShaderResources(0,1,&none);context->OMSetRenderTargets(0,nullptr,nullptr);
+                };
+                draw_scene(composed,false,0);
+                if(scene_overlay){
+                    auto before=scene_overlay->passes();auto *decor=scene_overlay->process(device.Get(),context.Get(),accumulated_view.Get(),sw,sh,{0,0,static_cast<float>(sw),static_cast<float>(sh)},false);
+                    effect_passes+=scene_overlay->passes()-before;draw_scene(decor,true,scene_overlay->outset());
+                }
+            }
             check(swap->Present(0, 0), "DXGI Present");
             presents++;
             capacity = false;
@@ -471,6 +546,7 @@ struct Compositor::Impl {
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 report.presents = presents;
+                report.effect_passes += effect_passes;
                 report.last_submit_ms = ms;
                 report.views = std::move(metrics);
             }
@@ -485,17 +561,24 @@ struct Compositor::Impl {
 Compositor::Compositor(std::uintptr_t h, std::uint32_t l, std::int32_t hi)
     : impl_(std::make_unique<Impl>(h, l, hi)) {}
 Compositor::~Compositor() { close(); }
-void Compositor::configure(std::vector<NativeView> views, std::uint32_t w, std::uint32_t h) {
+void Compositor::configure(std::vector<NativeView> views, std::uint32_t w, std::uint32_t h,std::shared_ptr<NativeImageProcessor> effect,std::shared_ptr<NativeImageProcessor> overlay) {
     if (!w || !h || w > 16384 || h > 16384 || views.size() > 4096)
         throw std::invalid_argument("invalid native compositor dimensions/view count");
     std::set<std::string> sources;
     for (const auto &v : views) {
+        if(!std::isfinite(v.opacity)||v.opacity<0||v.opacity>1)throw std::invalid_argument("invalid native view opacity");
+        if(v.rounded_clips.size()>9)throw std::invalid_argument("too many rounded ancestor clips");
+        for(const auto &clip:v.rounded_clips){const auto &r=clip.box;
+            if(!std::isfinite(r.x)||!std::isfinite(r.y)||!std::isfinite(r.width)||!std::isfinite(r.height)||r.width<=0||r.height<=0||
+               std::abs(r.x)>1e7||std::abs(r.y)>1e7||r.width>1e7||r.height>1e7||!std::isfinite(clip.radius)||clip.radius<0||clip.radius>8192)
+                throw std::invalid_argument("invalid rounded ancestor clip");
+        }
         if (!v.source.width || !v.source.height || v.source.width > 16384 || v.source.height > 16384)
             throw std::invalid_argument("invalid native source dimensions");
         sources.insert(v.source.name);
         if (v.fit != "contain" && v.fit != "cover" && v.fit != "stretch" && v.fit != "pixel")
             throw std::invalid_argument("invalid native fit mode");
-        for (const auto &r : {v.full, v.clip})
+        for (const auto &r : {v.full, v.clip, v.sample})
             if (!std::isfinite(r.x) || !std::isfinite(r.y) || !std::isfinite(r.width) ||
                 !std::isfinite(r.height) || r.width < 0 || r.height < 0 || std::abs(r.x) > 1e7 ||
                 std::abs(r.y) > 1e7 || r.width > 1e7 || r.height > 1e7)
@@ -505,6 +588,8 @@ void Compositor::configure(std::vector<NativeView> views, std::uint32_t w, std::
         throw std::invalid_argument("native compositor supports up to 60 distinct visible sources");
     std::unique_lock<std::mutex> lock(impl_->mutex);
     impl_->requested = std::move(views);
+    impl_->requested_effect = std::move(effect);
+    impl_->requested_overlay = std::move(overlay);
     impl_->width = w;
     impl_->height = h;
     if (impl_->closed)
@@ -531,18 +616,30 @@ void Compositor::visible(bool show) {
     }
     SetEvent(impl_->changed.value);
 }
+void Compositor::invalidate(){SetEvent(impl_->changed.value);}
+void Compositor::opacity(float value){
+    if(!std::isfinite(value)||value<0||value>1)throw std::invalid_argument("invalid compositor opacity");
+    {std::lock_guard<std::mutex> lock(impl_->mutex);if(impl_->closed)throw std::runtime_error("native compositor is closed");
+        if(impl_->requested_opacity==value)return;impl_->requested_opacity=value;}
+    SetEvent(impl_->presentation_changed.value);
+}
 CompositorMetrics Compositor::metrics() const {
     std::lock_guard<std::mutex> lock(impl_->mutex);
     return impl_->report;
 }
-void Compositor::close() {
-    if (impl_ && impl_->worker.joinable()) {
+void Compositor::request_close() {
+    if (impl_) {
         {
             std::lock_guard<std::mutex> lock(impl_->mutex);
             impl_->closed = true;
             impl_->acknowledged.notify_all();
         }
         SetEvent(impl_->stop.value);
+    }
+}
+void Compositor::close() {
+    request_close();
+    if (impl_ && impl_->worker.joinable()) {
         impl_->worker.join();
     }
 }
