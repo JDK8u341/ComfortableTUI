@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.2.0 — 2026-10-22 — Glass Workspace development
+## 0.2.0 — 2026-10-22 — Glass Workspace
+
+- Add per-node native motion instances with layout/input hooks, sleeping callbacks, restart and effect parameter updates independent of the Python GIL.
+- Add stateful native controls and nested row/column/stack containers, shared ink atlases, rounded clipping, recursive events and existing Canvas/WebView hosting.
+- Add independent overlay contributions and explicit trusted local HLSL packages with compile/reflection checks and per-device program reuse.
+- Ship Glass protocol 7, Control ABI 3, Effect ABI 2 and Motion ABI 1; rebuild older glass runtimes and control plugins. FrameProvider and browser security protocols remain unchanged.
+- Add the terminal-attached advanced example, complete extension SDK guides and automated pixel, integration and CPU/GPU stress reports.
 
 - Batch-hide workspace windows before teardown, stop compositor workers together, and reuse native UI producer devices per workspace/GPU. Stop UIA tracking before the native join, preserve synchronous consumer release, and add shutdown timings plus a real-terminal benchmark.
 - Keep surviving cards in their existing positions when a card is removed, including nested groups and selected-card fallback; release retained placement on explicit reflow or geometry changes. Add a real-terminal closure example and physical-window rectangle regressions with springs enabled.

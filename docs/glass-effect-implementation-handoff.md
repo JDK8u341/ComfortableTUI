@@ -1,6 +1,12 @@
 # Glass 效果器改造记录
 
-更新：2026-10-21。分支：`codex/liquid-glass-cards`。
+更新：2026-10-22。分支：`codex/liquid-glass-cards`。
+
+后续改造现已完成：Glass7/Control3/Effect2/Motion1。原生帧与布局目标钩子、私有控件实例、
+局部容器、圆角、独立overlay和HLSL包均已实现；下文是前批次历史记录。
+当前SDK见[动画](glass-native-motion.md)、[容器](glass-containers.md)、
+[HLSL包](glass-shader-packages.md)，结果见[最终验收](validation/glass/completion.md)。
+用户已授权完成验收后合并发布，以GitHub状态为准。
 
 之前因关机保存的草稿已继续实施。本轮完成真实图像效果链、自定义原生效果回调、
 实例生命周期、参数 API 整理、Canvas/WebView 接入、自动测试及独立 SDK 文档。
