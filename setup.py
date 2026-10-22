@@ -20,7 +20,7 @@ if os.environ.get("COMFORTABLE_TUI_BUILD_GPU") == "1" or os.environ.get("COMFORT
 
 if os.environ.get("COMFORTABLE_TUI_BUILD_GLASS") == "1":
     ext_modules.append(Pybind11Extension("comfortable_tui._native_glass",
-        ["native/glass/module.cpp", "native/glass/glass.cpp", "native/glass/control.cpp", "native/glass/effect.cpp", "native/glass/optics.cpp",
+        ["native/glass/module.cpp", "native/glass/glass.cpp", "native/glass/control.cpp", "native/glass/layout.cpp", "native/glass/effect.cpp", "native/glass/motion.cpp", "native/glass/optics.cpp",
          "native/canvas/frame_provider.cpp", "native/canvas/compositor.cpp"],
         include_dirs=["native/canvas/include", "native/glass/include"],
         libraries=["d3d11", "dxgi", "bcrypt", "dcomp", "d3dcompiler", "user32", "gdi32",

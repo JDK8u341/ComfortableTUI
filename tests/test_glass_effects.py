@@ -50,7 +50,7 @@ def test_no_duplicate_or_unimplemented_effect_controls_are_silently_accepted():
 
 def test_native_schema_is_the_authority_for_defaults_and_ranges():
     native = pytest.importorskip("comfortable_tui._native_glass")
-    assert native.glass_protocol_version == 6
+    assert native.glass_protocol_version == 7
     assert native.effect_schema("blur") == [{"name": "radius", "minimum": 0., "maximum": 24., "default": 6.}]
     assert native.validate_effect_parameters("glow", []) == [1., 18.]
     for name, values in (("blur", [25]), ("blur", [1, 2]), ("glow", [float("nan")]), ("missing", [])):

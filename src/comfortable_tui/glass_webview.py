@@ -13,7 +13,8 @@ class GlassWebView(GlassCanvas):
     terminal, and Tab traverses card controls. The caller owns the page/service.
     """
     def __init__(self, id, page, *, label="", height=240, enabled=True, fit="stretch",
-                 auto_resize=True, on_event=None, on_browser_event=None, effects=()):
+                 auto_resize=True, on_event=None, on_browser_event=None, effects=(),
+                 motion=None, visible=True, weight=1., corner_radius=0.):
         if not isinstance(page, BrowserPage):
             raise TypeError("GlassWebView needs a BrowserPage")
         if page._closed:
@@ -22,7 +23,8 @@ class GlassWebView(GlassCanvas):
             raise TypeError("auto_resize must be a bool")
         canvas = WebView(page, fit=fit, on_browser_event=on_browser_event)
         super().__init__(id, canvas, label=label, height=height, enabled=enabled,
-                         fit=fit, auto_resize=auto_resize, on_event=on_event, effects=effects)
+                         fit=fit, auto_resize=auto_resize, on_event=on_event, effects=effects,
+                         motion=motion, visible=visible, weight=weight, corner_radius=corner_radius)
         self.page = page
 
     @property

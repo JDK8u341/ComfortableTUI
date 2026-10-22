@@ -40,7 +40,8 @@ template<class Card> class GlassAccessibility final : public IAccessible {
     HRESULT STDMETHODCALLTYPE get_accState(VARIANT v,VARIANT *out)override {
         if(!out)return E_POINTER;VariantInit(out);out->vt=VT_I4;out->lVal=0;int i=index(v);
         if(i>=0){auto &x=c()->spec.controls[i];out->lVal=glass_control_type(x).focusable?STATE_SYSTEM_FOCUSABLE:0;
-            if(!x.enabled)out->lVal|=STATE_SYSTEM_UNAVAILABLE;
+            if(!x.effective_enabled)out->lVal|=STATE_SYSTEM_UNAVAILABLE;
+            if(!x.effective_visible)out->lVal|=STATE_SYSTEM_INVISIBLE;
             if(c()->focused==i&&GetFocus()==c()->hwnd)out->lVal|=STATE_SYSTEM_FOCUSED;
             if(x.kind=="toggle"&&x.value>=.5)out->lVal|=STATE_SYSTEM_CHECKED;}
         if(c()&&!IsWindowVisible(c()->hwnd))out->lVal|=STATE_SYSTEM_INVISIBLE;return S_OK;
@@ -59,7 +60,7 @@ template<class Card> class GlassAccessibility final : public IAccessible {
     HRESULT STDMETHODCALLTYPE accLocation(LONG *x,LONG *y,LONG *w,LONG *h,VARIANT v)override {
         if(!c())return CO_E_OBJNOTCONNECTED;if(!x||!y||!w||!h)return E_POINTER;
         RECT r{};GetWindowRect(c()->hwnd,&r);int i=index(v);*x=r.left;*y=r.top;*w=r.right-r.left;*h=r.bottom-r.top;
-        try{if(i>=0){*x+=static_cast<LONG>(20*c()->host->dpi);*y+=static_cast<LONG>(c()->row_top(i)*c()->host->dpi);*w=static_cast<LONG>((c()->width-40)*c()->host->dpi);*h=static_cast<LONG>(row_height(c()->spec.controls[i])*c()->host->dpi);}}catch(...){return E_FAIL;}return S_OK;
+        try{if(i>=0){const auto &node=c()->spec.controls[i];*x+=static_cast<LONG>((node.bounds.x+node.world.x)*c()->host->dpi);*y+=static_cast<LONG>((node.bounds.y+node.world.y)*c()->host->dpi);*w=static_cast<LONG>(node.bounds.width*c()->host->dpi);*h=static_cast<LONG>(node.bounds.height*c()->host->dpi);}}catch(...){return E_FAIL;}return S_OK;
     }
     HRESULT STDMETHODCALLTYPE accNavigate(LONG direction,VARIANT from,VARIANT *out)override {
         if(!out||!c())return E_INVALIDARG;VariantInit(out);int i=index(from)+1,n=static_cast<int>(c()->spec.controls.size());
@@ -73,7 +74,7 @@ template<class Card> class GlassAccessibility final : public IAccessible {
     }
     HRESULT STDMETHODCALLTYPE accDoDefaultAction(VARIANT v)override {
         int i=index(v);if(!c()||i<0||!c()->interactive(i))return E_INVALIDARG;
-        try{SetForegroundWindow(c()->hwnd);SetFocus(c()->hwnd);c()->activate(i,28+static_cast<float>(c()->spec.controls[i].value)*(c()->width-56),c()->row_top(i)+16);}catch(...){return E_FAIL;}return S_OK;
+        try{SetForegroundWindow(c()->hwnd);SetFocus(c()->hwnd);const auto &node=c()->spec.controls[i];c()->activate(i,node.bounds.x+node.world.x+8+static_cast<float>(node.value)*(node.bounds.width-16),node.bounds.y+node.world.y+16);}catch(...){return E_FAIL;}return S_OK;
     }
     HRESULT STDMETHODCALLTYPE put_accName(VARIANT,BSTR)override{return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE put_accValue(VARIANT v,BSTR value)override {

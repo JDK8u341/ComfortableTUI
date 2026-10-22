@@ -1,11 +1,13 @@
 # Glass 原生控件 SDK 与动画钩子
 
-日期：2026-10-21。Windows，Glass 控制协议 **6**，Control 扩展 ABI **2**；帧协议1、浏览器安全协议2不变。
+日期：2026-10-22。Windows，Glass 控制协议 **7**，Control 扩展 ABI **3**；帧协议1、浏览器安全协议2不变。
 
 第一批提供原生控件注册、Python Card组合、输入钩子、按需帧回调和控件墨水透明度增量。
 第二批已增加独立 EffectType、真实离屏 GPU 效果链、原生 Shader 扩展及参数增量；
 完整 API、阶段语义与运行命令见[图像效果 SDK](glass-effects-sdk.md)。
-可替换 Card 布局动画、原生帧订阅和任意内容变形的逆向命中映射仍不在当前 API 内。
+现已支持可替换Card布局动画和[原生帧钩子](glass-native-motion.md)、
+[私有实例与局部容器](glass-containers.md)、[HLSL包](glass-shader-packages.md)。
+任意内容变形的逆向命中映射不在当前 API 内。
 
 ## 设计参考
 
@@ -51,8 +53,8 @@ $env:COMFORTABLE_TUI_BUILD_GLASS='1'
 
 ```cpp
 const GlassControlType types[] = {{
-    "example.dial", 2, true, 0x33, "Adjust",
-    measure, paint, hit, input, accessible_value
+    "example.dial", 3, true, 0x33, "Adjust",
+    measure, paint, hit, input, accessible_value, create, destroy, update
 }};
 const GlassControlExtension extension = [] {
     GlassControlExtension e;
@@ -80,9 +82,9 @@ dial = GlassControl("volume", "example.dial", "Volume", value=.5)
 | accessibility_role/value/default_action | MSAA角色、值与动作；边界和命中使用同一几何，非交互控件不冒充可聚焦 |
 
 `GlassPainter`提供fill/text/line/circle，坐标相对控件左上角，尺寸为逻辑像素。
-绘制限制在行矩形内，不用视觉越界扩大命中。当前SDK支持无状态绘制类型；尚未提供控件
-局部容器布局、控件私有逐节点资源/生命周期、自定义标题栏或任意变换。Shader注册与
-效果器设备资源生命周期见独立效果SDK。
+绘制限制在局部矩形内，不用视觉越界扩大命中。create/destroy/update为可选实例钩子，
+无私有状态时三者可省略；契约与例子见[局部容器与实例](glass-containers.md)。
+自定义标题栏或任意变换尚未提供。Shader注册与效果器设备资源生命周期见独立效果SDK。
 不要用Python paint回调或每控件独立窗口绕过这个边界。
 
 扩展是**可信本机代码**，不是浏览器沙箱。注册验证ABI、描述结构、指针宽度、MSVC、
@@ -93,7 +95,7 @@ dial = GlassControl("volume", "example.dial", "Volume", value=.5)
 ## 事件、帧和呈现
 
 非Canvas控件新增pointer_enter/leave/move/down/up/cancel，与现有焦点、change/click采用
-Group预览→Control→Card→Group冒泡→Workspace路由；坐标为行局部逻辑像素。
+Group预览→局部容器预览→Control→局部容器冒泡→Card→Group冒泡→Workspace路由；坐标为节点局部逻辑像素。
 这是输入通知，原生编辑/input默认动作同步执行，不承诺Python预览能回滚。
 Card拖动/关闭仍使用原有可拦截默认行为，Canvas/WebView保持CanvasEvent。
 
@@ -117,11 +119,12 @@ request.cancel()  # 幂等，同时释放回调及节点引用
 - present(card,control,opacity=...)接受对象实例与0..1有限值，只更新控件墨水。原生合并
   同节点积压更新，最多384目标，与普通命令队列分开。不configure、不布局、不分配纹理。
   完整模型后续提交保留Python模型当前opacity；几何、命中、语义不变。
-- Canvas是独立合成层，本版拒绝其opacity，避免只淡出标题却保留画面。Card窗体变换、
-  效果参数通过独立SDK的增量通道更新；布局目标回调、原生帧订阅尚未开放，原有Card弹簧未改变。
+- Canvas是独立合成层，present拒绝其opacity，避免只淡出标题却保留画面。
+  原生GlassMotion可以统一控制Canvas视图与标题的呈现。Card布局目标/透明度、
+  原生帧订阅和效果参数更新见[原生动画SDK](glass-native-motion.md)。
 
 模型与事件带节点实例代号，同ID替换后旧事件、增量和未确认原生值不能写入新实例。
-不要复制私有代号或伪造事件。协议5及更早的原生模块必须重编为协议6。
+不要复制私有代号或伪造事件。协议6及更早的原生模块与Control扩展必须重编为协议7/ABI3。
 
 ## 验证
 

@@ -8,9 +8,10 @@
 
 namespace comfortable {
 namespace {
-enum Builtin { text,button,toggle,input,choice,slider,progress,sparkline,canvas };
+enum Builtin { text,button,toggle,input,choice,slider,progress,sparkline,canvas,container };
 template<Builtin K> float measure(const GlassControl &c) {
-    if constexpr(K==canvas)return c.canvas_height+32;
+    if constexpr(K==container)return 16;
+    else if constexpr(K==canvas)return c.canvas_height+32;
     else if constexpr(K==sparkline)return 84;
     else if constexpr(K==slider||K==progress)return 58;
     else if constexpr(K==text)return 40;
@@ -63,7 +64,7 @@ template<Builtin K> void paint(GlassPainter &p,const GlassControl &c,const Glass
     if constexpr(K==canvas){p.text(c.label,6,2,w-10,11,0xb0c3da,a);p.fill(4,22,w-8,c.canvas_height,0x060c18,.7f*a,8);}
 }
 template<Builtin K> GlassControlType builtin(const char *name,bool focusable,long role,const char *verb="") {
-    return {name,2,focusable,role,verb,measure<K>,paint<K>,rectangle,action<K>,value};
+    return {name,3,focusable,role,verb,measure<K>,paint<K>,rectangle,action<K>,value};
 }
 struct Registry {
     std::mutex mutex;
@@ -71,7 +72,7 @@ struct Registry {
     Registry(){
         for(auto type:{builtin<text>("text",false,0x29),builtin<button>("button",true,0x2b,"Press"),builtin<toggle>("toggle",true,0x2c,"Toggle"),
             builtin<input>("input",true,0x2a),builtin<choice>("choice",true,0x2e,"Next"),builtin<slider>("slider",true,0x33,"Adjust"),
-            builtin<progress>("progress",false,0x30),builtin<sparkline>("sparkline",false,0x28),builtin<canvas>("canvas",true,0x28)})types.emplace(type.name,type);
+            builtin<progress>("progress",false,0x30),builtin<sparkline>("sparkline",false,0x28),builtin<canvas>("canvas",true,0x28),builtin<container>("container",false,0x14)})types.emplace(type.name,type);
     }
 };
 Registry &registry(){static Registry r;return r;}
@@ -86,7 +87,8 @@ void register_glass_controls(const GlassControlExtension &extension) {
     std::map<std::string,GlassControlType> additions;
     for(std::size_t i=0;i<extension.count;i++) {
         auto t=extension.types[i];std::string name=t.name?t.name:"";
-        if(name.empty()||name.size()>128||t.version!=2||!t.measure||!t.paint||!t.hit_test||!t.accessible_value||
+        if(name.empty()||name.size()>128||t.version!=3||!t.measure||!t.paint||!t.hit_test||!t.accessible_value||
+           (t.create==nullptr)!=(t.destroy==nullptr)||(t.update&&!t.create)||
            t.accessibility_role<1||t.accessibility_role>0x40||
            (t.focusable&&(!t.input||!t.default_action))||r.types.count(name)||!additions.emplace(name,t).second)
             throw std::invalid_argument("invalid or duplicate Glass control type");

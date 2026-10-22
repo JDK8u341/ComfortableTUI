@@ -11,12 +11,43 @@ from typing import Callable
 from .gpu import GpuFrameInfo, GpuFrameSource
 from .overlay import FrameBuffer, TerminalHost
 
-_KINDS = {"text", "button", "toggle", "slider", "input", "choice", "progress", "sparkline", "canvas"}
+_KINDS = {"text", "button", "toggle", "slider", "input", "choice", "progress", "sparkline", "canvas", "container"}
 _HEIGHTS = {"text": 40, "slider": 58, "progress": 58, "sparkline": 84, "canvas": 128}
 _GENERATIONS = itertools.count(1)
 _EXTENSIONS = set()
 _EFFECT_EXTENSIONS = set()
 _CUSTOM_KINDS = set()
+_MOTION_EXTENSIONS = set()
+
+
+def register_glass_motions(module):
+    """Explicitly register trusted C++ frame callbacks; callbacks never call Python."""
+    if module in _MOTION_EXTENSIONS:
+        return
+    from . import _native_glass
+    if getattr(_native_glass, "glass_protocol_version", None) != 7:
+        raise RuntimeError("Rebuild Glass runtime for control protocol 7")
+    names = _native_glass.register_motions(module, module.glass_motions())
+    _MOTION_EXTENSIONS.add(module)
+    return tuple(names)
+
+
+@dataclass(frozen=True)
+class GlassMotion:
+    """Per-node native motion binding. The extension owns the motion algorithm."""
+    type: str
+    parameters: tuple[float, ...] = ()
+
+    def __post_init__(self):
+        object.__setattr__(self, "parameters", tuple(self.parameters))
+
+    def snapshot(self):
+        _text(self.type, 128, "motion type")
+        if not self.type or len(self.parameters) > 16 or any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in self.parameters):
+            raise ValueError("motion needs a type and at most 16 finite parameters")
+        from . import _native_glass
+        values = _native_glass.validate_motion_parameters(self.type, list(self.parameters))
+        return dict(type=self.type, parameters=values)
 
 
 def register_glass_controls(module):
@@ -28,8 +59,8 @@ def register_glass_controls(module):
     if module in _EXTENSIONS:
         return
     from . import _native_glass
-    if getattr(_native_glass, "glass_protocol_version", None) != 6:
-        raise RuntimeError("Rebuild Glass runtime for control protocol 6")
+    if getattr(_native_glass, "glass_protocol_version", None) != 7:
+        raise RuntimeError("Rebuild Glass runtime for control protocol 7")
     names = _native_glass.register_controls(module, module.glass_controls())
     _KINDS.update(names)
     _CUSTOM_KINDS.update(names)
@@ -43,8 +74,8 @@ def register_glass_effects(module):
     if module in _EFFECT_EXTENSIONS:
         return
     from . import _native_glass
-    if getattr(_native_glass, "glass_protocol_version", None) != 6:
-        raise RuntimeError("Rebuild Glass runtime for effect protocol 6")
+    if getattr(_native_glass, "glass_protocol_version", None) != 7:
+        raise RuntimeError("Rebuild Glass runtime for effect protocol 7")
     names = _native_glass.register_effects(module, module.glass_effects())
     _EFFECT_EXTENSIONS.add(module)
     return tuple(names)
@@ -200,6 +231,10 @@ class GlassControl:
     capture_escape: bool = False
     opacity: float = 1.
     effects: list[GlassEffect] = field(default_factory=list)
+    motion: GlassMotion | None = None
+    visible: bool = True
+    weight: float = 1.
+    corner_radius: float = 0.
     _generation: int = field(default_factory=lambda: next(_GENERATIONS), init=False, repr=False, compare=False)
     _managed = False  # Opt-in view lifecycle; ordinary controls have no per-tick hooks.
 
@@ -245,6 +280,12 @@ class GlassControl:
             raise ValueError("a control supports at most 8 GlassEffect instances")
         if self.kind == "canvas" and self.opacity != 1:
             raise ValueError("Canvas opacity needs compositor effects, not control ink opacity")
+        if self.motion is not None and not isinstance(self.motion, GlassMotion):
+            raise TypeError("motion must be a GlassMotion or None")
+        if type(self.visible) is not bool or not isinstance(self.weight, (int, float)) or not math.isfinite(self.weight) or not 0 < self.weight <= 1024:
+            raise ValueError("control visibility must be bool and weight in 0..1024")
+        if not isinstance(self.corner_radius, (int, float)) or not math.isfinite(self.corner_radius) or not 0 <= self.corner_radius <= 128:
+            raise ValueError("control corner_radius must be in 0..128")
         source = None
         if self.kind == "canvas":
             if not isinstance(self.source, (FrameBuffer, GpuFrameSource)):
@@ -260,7 +301,28 @@ class GlassControl:
                     source=source, fit=self.fit, acknowledged=self._acknowledged,
                     canvas_height=float(self.canvas_height), capture_escape=self.capture_escape,
                     generation=self._generation, opacity=float(self.opacity),
-                    effects=[effect.snapshot() for effect in self.effects])
+                    effects=[effect.snapshot() for effect in self.effects],
+                    motion=self.motion.snapshot() if self.motion is not None else None,
+                    visible=self.visible, weight=float(self.weight), corner_radius=float(self.corner_radius))
+
+
+class GlassContainer(GlassControl):
+    """Local row/column/stack container; children retain their IDs and lifetimes."""
+    def __init__(self, id, children=(), *, layout="column", gap=8., padding=0.,
+                 enabled=True, visible=True, weight=1., effects=(), motion=None,
+                 on_event=None, on_preview_event=None, corner_radius=0.):
+        super().__init__(id, "container", enabled=enabled, visible=visible, weight=weight,
+                         effects=list(effects), motion=motion, on_event=on_event, corner_radius=corner_radius)
+        self.children = list(children)
+        self.layout, self.gap, self.padding = layout, gap, padding
+        self.on_preview_event = on_preview_event
+
+    def snapshot(self):
+        if self.layout not in ("row", "column", "stack"):
+            raise ValueError("container layout must be row, column or stack")
+        if any(not isinstance(v, (int, float)) or not math.isfinite(v) or not 0 <= v <= 128 for v in (self.gap, self.padding)):
+            raise ValueError("container gap and padding must be in 0..128")
+        return dict(super().snapshot(), layout=self.layout, gap=float(self.gap), padding=float(self.padding))
 
 
 @dataclass
@@ -275,10 +337,44 @@ class GlassCard:
     draggable: bool = True
     on_event: Callable[[GlassEvent], bool | None] | None = field(default=None, repr=False, compare=False)
     effects: list[GlassEffect] = field(default_factory=list)
+    motion: GlassMotion | None = None
     _generation: int = field(default_factory=lambda: next(_GENERATIONS), init=False, repr=False, compare=False)
 
     def __post_init__(self):
         self.effects = list(self.effects)
+
+    @property
+    def nodes(self):
+        if not any(isinstance(v, GlassContainer) for v in self.controls):
+            return self.controls
+        nodes, visited = [], set()
+        def visit(node, depth):
+            if not isinstance(node, GlassControl) or id(node) in visited or depth > 8:
+                raise ValueError("invalid local control tree")
+            visited.add(id(node))
+            nodes.append(node)
+            if isinstance(node, GlassContainer):
+                for child in node.children:
+                    visit(child, depth+1)
+        for node in self.controls:
+            visit(node, 0)
+        return nodes
+
+    def control_route(self, target):
+        def visit(node, route):
+            if node is target:
+                return route
+            if isinstance(node, GlassContainer):
+                for child in node.children:
+                    result = visit(child, (*route, node))
+                    if result is not None:
+                        return result
+            return None
+        for root in self.controls:
+            result = visit(root, ())
+            if result is not None:
+                return result
+        return ()
 
     def handle_event(self, event):
         return bool(self.on_event(event)) if self.on_event else False
@@ -298,19 +394,35 @@ class GlassCard:
         _text(self.title, 4096, "title")
         _text(self.subtitle, 4096, "subtitle")
         _text(self.eyebrow, 256, "eyebrow")
-        if not math.isfinite(self.width) or not 220 <= self.width <= 1600 or len(self.controls) > 32:
-            raise ValueError("card width must be 220..1600, with at most 32 controls")
-        controls = [v.snapshot() for v in self.controls]
+        nodes = self.nodes
+        if not math.isfinite(self.width) or not 220 <= self.width <= 1600 or len(nodes) > 128:
+            raise ValueError("card width must be 220..1600, with at most 128 controls")
+        controls = [v.snapshot() for v in nodes]
+        parents = {id(child): parent.id for parent in nodes if isinstance(parent, GlassContainer) for child in parent.children}
+        for node, description in zip(nodes, controls):
+            description["parent"] = parents.get(id(node), "")
         if len({v["id"] for v in controls}) != len(controls):
             raise ValueError("control ids must be unique within a card")
-        if sum(v["kind"] == "canvas" for v in controls) > 1:
-            raise ValueError("each card supports one canvas")
+        if sum(v["kind"] == "canvas" for v in controls) > 8:
+            raise ValueError("each card supports at most 8 canvases")
+        channels = [v["source"]["name"] for v in controls if v["kind"] == "canvas"]
+        if len(set(channels)) != len(channels):
+            raise ValueError("one canvas display per channel required")
         def height(v):
             if v["kind"] in _CUSTOM_KINDS:
                 from . import _native_glass
                 return _native_glass.measure_control(v["kind"], v)
             return v["canvas_height"] + 32 if v["kind"] == "canvas" else _HEIGHTS.get(v["kind"], 46)
-        if 122 + sum(height(v) for v in controls) > 1200:
+        descriptions = {id(v): d for v, d in zip(nodes, controls)}
+        def node_height(node):
+            if not node.visible:
+                return 0
+            if not isinstance(node, GlassContainer):
+                return height(descriptions[id(node)])
+            children = [node_height(child) for child in node.children if child.visible]
+            value = sum(children)+max(0, len(children)-1)*node.gap if node.layout == "column" else max(children, default=0)
+            return max(16, value+2*node.padding)
+        if 122 + sum(node_height(v) for v in self.controls) > 1200:
             raise ValueError("card content exceeds 1200 logical pixels")
         if type(self.draggable) is not bool:
             raise ValueError("draggable must be a bool")
@@ -318,11 +430,14 @@ class GlassCard:
             raise ValueError("a card supports at most 8 GlassEffect instances")
         if self.background is not None and not isinstance(self.background, GlassBackground):
             raise TypeError("background must be a GlassBackground or None")
+        if self.motion is not None and not isinstance(self.motion, GlassMotion):
+            raise TypeError("motion must be a GlassMotion or None")
         return dict(id=self.id, title=self.title, subtitle=self.subtitle, eyebrow=self.eyebrow,
                     width=float(self.width), controls=controls, draggable=self.draggable,
                     background=self.background.snapshot() if self.background is not None else None,
                     generation=self._generation,
-                    effects=[effect.snapshot() for effect in self.effects])
+                    effects=[effect.snapshot() for effect in self.effects],
+                    motion=self.motion.snapshot() if self.motion is not None else None)
 
 
 @dataclass
@@ -367,7 +482,7 @@ class GlassWorkspace:
         self._desired_controls = self._managed_views()
 
     def _managed_views(self):
-        return {id(v): (card.id, v) for card in self.cards for v in card.controls if v._managed}
+        return {id(v): (card.id, v) for card in self.cards for v in card.nodes if v._managed}
 
     def watch_events(self, callback):
         """Poll a service once per workspace tick when no App owns its loop."""
@@ -459,7 +574,7 @@ class GlassWorkspace:
         if os.name != "nt":
             raise RuntimeError("GlassWorkspace currently requires a local Windows desktop")
         from . import _native_glass
-        if getattr(_native_glass, "glass_protocol_version", None) != 6:
+        if getattr(_native_glass, "glass_protocol_version", None) != 7:
             raise RuntimeError("Rebuild with COMFORTABLE_TUI_BUILD_GLASS=1 for GlassWorkspace")
         self._native = _native_glass.GlassHost(hwnd, inspectable_windows)
         self._dirty = True
@@ -487,9 +602,9 @@ class GlassWorkspace:
         except Exception:
             self.children = previous
             raise
-        revisions = {(c.id, v.id, v.kind): v._acknowledged for c in old_cards for v in c.controls}
+        revisions = {(c.id, v.id, v.kind): v._acknowledged for c in old_cards for v in c.nodes}
         for card in new_cards:
-            for control in card.controls:
+            for control in card.nodes:
                 control._acknowledged = max(control._acknowledged,
                                              revisions.get((card.id, control.id, control.kind), 0))
         if self.selected not in {c.id for c in self.cards}:
@@ -571,7 +686,7 @@ class GlassWorkspace:
             raise RuntimeError("workspace is closed")
         if not callable(callback):
             raise TypeError("frame callback must be callable")
-        if node is not None and not any(node is c or any(node is v for v in c.controls) for c in self.cards):
+        if node is not None and not any(node is c or any(node is v for v in c.nodes) for c in self.cards):
             raise ValueError("frame node must belong to this workspace")
         request = _FrameRequest(self, callback, node)
         self._frames[id(request)] = request
@@ -586,7 +701,7 @@ class GlassWorkspace:
         """
         if self._closed or self._native is None:
             raise RuntimeError("workspace is not running")
-        if not any(card is c for c in self.cards) or not any(control is v for v in card.controls):
+        if not any(card is c for c in self.cards) or not any(control is v for v in card.nodes):
             raise ValueError("presentation target was removed or replaced")
         if control.kind == "canvas":
             raise ValueError("Canvas opacity needs compositor effects")
@@ -606,7 +721,7 @@ class GlassWorkspace:
             raise RuntimeError("workspace is not running")
         if not isinstance(card, GlassCard) or not any(card is c for c in self.cards):
             raise ValueError("effect card was removed or replaced")
-        if node is not card and not any(node is v for v in card.controls):
+        if node is not card and not any(node is v for v in card.nodes):
             raise ValueError("effect node was removed or replaced")
         effects = card.effects if node is card else node.effects
         if not isinstance(effect, int) or not 0 <= effect < len(effects):
@@ -622,6 +737,17 @@ class GlassWorkspace:
                                            effect, binding.type, list(values))
         effects[effect] = replace(binding, parameters=values)
 
+    def restart_motion(self, card, node=None):
+        """Wake/restart an existing native instance without a scene submission."""
+        if self._closed or self._native is None:
+            raise RuntimeError("workspace is not running")
+        node = card if node is None else node
+        if not any(card is c for c in self.cards) or (node is not card and not any(node is c for c in card.nodes)):
+            raise ValueError("motion target was removed or replaced")
+        if node.motion is None:
+            raise ValueError("target has no native motion")
+        self._native.restart_motion(card.id, "" if node is card else node.id, node._generation)
+
     def _advance_frames(self):
         if not self._frames:
             return
@@ -632,11 +758,11 @@ class GlassWorkspace:
         for request in tuple(self._frames.values()):
             if request.cancelled:
                 continue
-            if request.node is not None and not any(request.node is c or any(request.node is v for v in c.controls) for c in self.cards):
+            if request.node is not None and not any(request.node is c or any(request.node is v for v in c.nodes) for c in self.cards):
                 request.cancel()
                 continue
             owner = next((c for c in self.cards if request.node is c or
-                          any(request.node is v for v in c.controls)), None) if request.node else None
+                          any(request.node is v for v in c.nodes)), None) if request.node else None
             node_hidden = visible is not None and (owner.id not in visible if owner else not visible)
             if not self.visible or not self._pane_visible or node_hidden:
                 request.last = None
@@ -711,12 +837,16 @@ class GlassWorkspace:
                 self._bound_controls.pop(token)
         windows = {w["id"]: w for w in self._metrics.get("windows", ())}
         for card_id, control in tuple(self._bound_controls.values()):
+            card = next((c for c in self.cards if c.id == card_id), None)
+            local_route = card.control_route(control) if card else ()
+            control._ancestors_visible = all(v.visible for v in local_route)
+            control._ancestors_enabled = all(v.enabled for v in local_route)
             control._poll(self, windows.get(card_id))
         for raw in self._native.events():
             event = GlassEvent(**raw)
             leaves, _, routes = self._tree()
             card = next((c for c in leaves if c.id == event.card), None)
-            control = next((v for v in card.controls if v.id == event.control), None) if card else None
+            control = next((v for v in card.nodes if v.id == event.control), None) if card else None
             target = control if event.control else card
             if event.generation and (target is None or event.generation != target._generation):
                 continue
@@ -736,12 +866,23 @@ class GlassWorkspace:
                     control.default_event(event, self)
             consumed = False
             ancestors = routes.get(event.card, ())
+            local_ancestors = card.control_route(control) if card and control else ()
             for group in ancestors:
                 if group.on_preview_event and group.on_preview_event(event):
                     consumed = True
                     break
+            if not consumed:
+                for parent in local_ancestors:
+                    if parent.on_preview_event and parent.on_preview_event(event):
+                        consumed = True
+                        break
             if not consumed and control:
                 consumed = control.handle_event(event)
+            if not consumed:
+                for parent in reversed(local_ancestors):
+                    if parent.handle_event(event):
+                        consumed = True
+                        break
             if not consumed and card:
                 consumed = card.handle_event(event)
             if not consumed:
@@ -773,7 +914,7 @@ class GlassWorkspace:
             except BaseException:
                 self._dirty = True
                 raise
-            self._pending[serial] = [v.source for c in self.cards for v in c.controls if v.source]
+            self._pending[serial] = [v.source for c in self.cards for v in c.nodes if v.source]
             self._pending_controls[serial] = controls
         # Configuration is queued first so a first-frame presentation delta can
         # target the node on the same native wake, without a full scene per frame.

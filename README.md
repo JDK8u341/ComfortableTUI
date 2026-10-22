@@ -1,6 +1,6 @@
 # ComfortableTUI
 
-Version 0.1.5 reduces Windows overlay tracking delay with a translation-only path and consistent UIA calibration.
+Version 0.2.0 adds native glass cards, independent GPU effects, native motion hooks, local containers and trusted HLSL packages.
 
 Spring-driven Python terminal interfaces, inspired by the 128×64 OLED UI in
 [osu-mc](https://github.com/chhongzh/osu-mc). Includes a retained widget tree,
@@ -11,11 +11,11 @@ Windows also has an optional **native overlay canvas**: external renderers write
 shared image buffers, displayed in transparent owned windows with scaling and
 mouse/keyboard/IME events. See the [canvas guide](docs/overlay-canvas.md).
 
-Development branch: [GlassWorkspace](docs/glass-workspace.md) adds optional Windows
+[GlassWorkspace](docs/glass-workspace.md) adds optional Windows
 cards **around the terminal**, with native glass materials, spring-driven orbit/deck/
 ribbon/focus layouts and existing CPU/shared-GPU canvas sources. Its controls use
 our own C++/Direct2D UI; no WebView is started. See the [research and plan](docs/glass-research-plan.md)
-and [standalone example](examples/glass_workspace/README.md). This feature is not in 0.1.5.
+and [standalone example](examples/glass_workspace/README.md). See the [extension SDK](docs/glass-native-motion.md) for custom controls and animations.
 
 **Platform scope:** Linux graphical/WebView support is suspended. The former Qt
 `WindowHost` was a separate application window, not an overlay in an existing
@@ -31,7 +31,7 @@ dangerous web permissions. Host Python, native extensions and frame providers re
 trusted; importing a plugin is not a sandbox. See the [security model](docs/security-model.md)
 and [reporting policy](SECURITY.md). A matching rebuilt browser helper is required.
 
-**状态：0.1.5 alpha。** 面向开发者的通用 TUI 库，Python 3.10+，支持 Windows、Linux、macOS
+**状态：0.2.0 alpha。** 面向开发者的通用 TUI 库，Python 3.10+，支持 Windows、Linux、macOS
 的 VT 终端。字符文字仍然受终端网格限制；像素画布在支持 Kitty graphics 的终端中可按像素移动。
 
 ```sh

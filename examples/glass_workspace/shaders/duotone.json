@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "example.duotone",
+  "source": "duotone.hlsl",
+  "entry": "main",
+  "sampling_radius": 0,
+  "parameters": [
+    {"name": "amount", "minimum": 0, "maximum": 1, "default": 0.65}
+  ]
+}

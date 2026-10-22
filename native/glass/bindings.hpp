@@ -4,11 +4,19 @@
 namespace comfortable {
 inline void bind_glass(pybind11::module_ &m) {
     namespace py=pybind11;
-    m.attr("glass_protocol_version")=6;
+    m.attr("glass_protocol_version")=7;
+    auto motion_owners=py::list();
+    m.def("register_motions",[motion_owners](py::object owner,py::capsule capsule)mutable{
+        if(!capsule.name()||std::string(capsule.name())!=glass_motion_extension_capsule)throw std::invalid_argument("invalid motion capsule");
+        auto extension=static_cast<const GlassMotionExtension *>(capsule.get_pointer());if(!extension)throw std::invalid_argument("empty motion capsule");
+        register_glass_motions(*extension);motion_owners.append(owner);motion_owners.append(capsule);py::list names;
+        for(std::size_t i=0;i<extension->count;i++)names.append(extension->motions[i].name);return names;
+    });
+    m.def("validate_motion_parameters",&glass_motion_parameters);
     m.def("effect_diagnostics",[]{
         auto s=glass_effect_diagnostics();py::dict out;
         out["surface_bytes"]=s.surface_bytes;out["surface_allocations"]=s.surface_allocations;
-        out["shader_compilations"]=s.shader_compilations;out["program_sets"]=s.program_sets;return out;
+        out["shader_compilations"]=s.shader_compilations;out["program_sets"]=s.program_sets;out["package_shader_compilations"]=s.package_shader_compilations;return out;
     });
     auto owners=py::list();
     auto effect_owners=py::list();
@@ -39,6 +47,12 @@ inline void bind_glass(pybind11::module_ &m) {
         }return result;
     });
     m.def("validate_effect_parameters",&glass_effect_parameters);
+    m.def("register_shader",[](const std::string &name,const std::string &source,const std::string &entry,py::list parameters,float radius){
+        std::vector<std::string> names;std::vector<GlassEffectParameter> schema;names.reserve(parameters.size());schema.reserve(parameters.size());
+        for(auto value:parameters){auto p=py::cast<py::dict>(value);names.push_back(py::cast<std::string>(p["name"]));
+            schema.push_back({names.back().c_str(),py::cast<float>(p["minimum"]),py::cast<float>(p["maximum"]),py::cast<float>(p["default"])});}
+        py::gil_scoped_release release;register_glass_shader(name,source,entry,schema,radius);
+    });
     m.def("measure_control",[](const std::string &name,py::object model){
         GlassControl c;c.kind=name;
         if(!model.is_none()) {
@@ -74,6 +88,9 @@ inline void bind_glass(pybind11::module_ &m) {
                 card.subtitle=py::cast<std::string>(d["subtitle"]);card.eyebrow=py::cast<std::string>(d["eyebrow"]);
                 card.width=py::cast<float>(d["width"]);
                 card.generation=py::cast<std::uint64_t>(d["generation"]);
+                if(d.contains("motion")&&!d["motion"].is_none()){
+                    auto m=py::cast<py::dict>(d["motion"]);card.motion.type=py::cast<std::string>(m["type"]);card.motion.parameters=py::cast<std::vector<float>>(m["parameters"]);
+                }
                 card.group=py::cast<std::string>(d["group"]);
                 card.draggable=py::cast<bool>(d["draggable"]);
                 for(auto ev:py::cast<py::list>(d["effects"])) {
@@ -97,6 +114,16 @@ inline void bind_glass(pybind11::module_ &m) {
                     auto c=py::cast<py::dict>(cv);GlassControl control;
                     control.id=py::cast<std::string>(c["id"]);control.kind=py::cast<std::string>(c["kind"]);
                     control.generation=py::cast<std::uint64_t>(c["generation"]);
+                    if(c.contains("parent"))control.parent=py::cast<std::string>(c["parent"]);
+                    if(c.contains("visible"))control.visible=py::cast<bool>(c["visible"]);
+                    if(c.contains("weight"))control.weight=py::cast<float>(c["weight"]);
+                    if(c.contains("corner_radius"))control.corner_radius=py::cast<float>(c["corner_radius"]);
+                    if(control.kind=="container"){
+                        control.layout=py::cast<std::string>(c["layout"]);control.gap=py::cast<float>(c["gap"]);control.padding=py::cast<float>(c["padding"]);
+                    }
+                    if(c.contains("motion")&&!c["motion"].is_none()){
+                        auto m=py::cast<py::dict>(c["motion"]);control.motion.type=py::cast<std::string>(m["type"]);control.motion.parameters=py::cast<std::vector<float>>(m["parameters"]);
+                    }
                     control.opacity=py::cast<float>(c["opacity"]);
                     control.label=py::cast<std::string>(c["label"]);control.text=py::cast<std::string>(c["text"]);
                     control.value=py::cast<double>(c["value"]);control.enabled=py::cast<bool>(c["enabled"]);
@@ -129,6 +156,7 @@ inline void bind_glass(pybind11::module_ &m) {
         })
         .def("command",&GlassHost::command,py::arg("action"),py::arg("value")="",py::call_guard<py::gil_scoped_release>())
         .def("begin_drag",&GlassHost::begin_drag,py::call_guard<py::gil_scoped_release>())
+        .def("restart_motion",&GlassHost::restart_motion,py::call_guard<py::gil_scoped_release>())
         .def("present",&GlassHost::present,py::call_guard<py::gil_scoped_release>())
         .def("set_effect_parameters",&GlassHost::set_effect_parameters,py::arg("card"),py::arg("node"),
              py::arg("generation"),py::arg("index"),py::arg("type"),py::arg("parameters"),

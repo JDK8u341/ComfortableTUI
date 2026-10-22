@@ -1,6 +1,6 @@
 # Glass 图像效果 SDK
 
-2026-10-21。Windows / D3D11；Glass 控制协议 **6**，效果/控件扩展 ABI **2**。
+2026-10-22。Windows / D3D11；Glass 控制协议 **7**，Effect ABI **2**、Control ABI **3**、Motion ABI **1**。
 Canvas 帧协议仍为 1，浏览器安全协议仍为 2。重编运行时和使用 Glass 头文件的原生扩展。
 
 效果器是 Card/控件的图像处理服务。它不负责打开浏览器、创建数据源或消费第二份
@@ -63,12 +63,14 @@ blur/liquid 首版要求 opacity=1，避免没有落实的混合控制。没有�
    Card 读取桌面采样材质。背景效果不会扭曲文字、Canvas 内容或输入命中。
 2. **content**：普通控件处理自身行的墨水（含焦点/悬停装饰）；Canvas/WebView 处理帧图像，
    不改变标签。Card 在自己的全部层完成后处理整卡合成图，包含子控件和材质。
-3. **overlay**：在 content 链后处理完成的节点图像，适合 glow 等后处理装饰。
-   它是效果链的末阶段；输出只替换一次，不把含原图的结果重复 alpha 混合到原图上。
+3. **overlay**：独立读取节点原始输入，输出只有装饰贡献的预乘透明纹理，
+   在内容/子树之后alpha混合。它不读取content链的输出；返回原图会重复叠色。
 
-不同阶段按以上顺序执行，同阶段保持列表顺序。首版没有“完全独立的透明装饰纹理”
-回调；自定义 overlay 回调返回包含输入的完整结果。效果输出裁剪在当前节点边界内，
-不扩大布局、命中矩形或 HWND。普通控件是整行矩形；尚未提供自定义圆角采样形状。
+同阶段保持列表顺序；阶段之间使用独立输入/输出链。overlay glow只返回halo，
+overlay tint返回着色覆盖贡献，允许按采样依赖外扩，不扩大布局、命中或 HWND。
+节点支持corner_radius与祖先圆角裁剪；overlay允许越过自己的边界但遵循祖先clip。
+容器content/overlay只处理自己的透明墨水，不自动展平后代。细节见
+[局部容器](glass-containers.md)和[HLSL包与装饰阶段](glass-shader-packages.md)。
 
 liquid 只允许 background。框架没有为任意内容几何扭曲提供逆向命中映射；
 可信扩展也必须保持 content 的交互几何不变。鼠标、焦点、Tab 和浏览器交互仍走原路径。
@@ -86,7 +88,8 @@ Card 的 background 效果需要 liquid/frosted 采样材质，不能绑定到 s
 公共头：`comfortable/glass_effect.hpp`。独立可编译示例：
 `examples/glass_workspace/native_controls/effects.cpp`。
 这是与宿主同架构、MSVC、CRT、Debug/Release 配置构建的可信原生代码，
-不是网页 Shader 沙箱，也不提供任意 HLSL 字符串的 Python 编译入口。
+不是网页 Shader 沙箱。应用可使用独立的[可信HLSL包](glass-shader-packages.md)
+入口注册本地Shader；它与这里的原生设备资源回调并列，不用于网页消息执行。
 
 ```cpp
 const GlassEffectParameter parameters[] = {{"amount", 0, 1, 1}};

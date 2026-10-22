@@ -119,7 +119,21 @@ python -m examples.glass_workspace.mixed --render-mode cpu
 ```
 
 两张卡片独立设置参数，按钮通过按需帧钩子播放用户自己的glow动画。
-使用与当前协议6运行时匹配的模块，详见[效果SDK](../../docs/glass-effects-sdk.md)。
+使用与当前协议7运行时匹配的模块，详见[效果SDK](../../docs/glass-effects-sdk.md)。
+
+## 原生动画、局部容器与HLSL混合示例
+
+```powershell
+python examples/glass_workspace/native_controls/setup.py build_ext --build-lib .build/glass-controls --build-temp .build/glass-controls-temp
+python -m examples.glass_workspace.advanced
+python -m examples.glass_workspace.advanced --webview --render-mode gpu
+```
+
+`advanced`附加当前终端，展示独立Card模板、原生有状态旋钮、row/column、圆角Canvas、
+HLSL包和原生效果脉冲；可把第二份普通图像换成已有CPU/GPU WebView。
+重播动画与改变布局不依赖Python逐帧绘制。详见
+[动画SDK](../../docs/glass-native-motion.md)、[容器](../../docs/glass-containers.md)、
+[HLSL包](../../docs/glass-shader-packages.md)。
 
 ## 自动化压力与性能
 

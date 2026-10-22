@@ -5,6 +5,7 @@ namespace comfortable {
 struct PixelBox {
     float x{}, y{}, width{}, height{};
 };
+struct RoundedClip {PixelBox box;float radius{};};
 // Optional native image service. Invoked only on the compositor's render thread,
 // after the source's single consumer has acquired its frame. Returned SRV stays
 // owned by the processor until its next call; never calls Python or publishes.
@@ -16,6 +17,8 @@ class NativeImageProcessor {
         const PixelBox &region, bool straight_alpha) = 0;
     virtual std::uint64_t passes() const = 0;
     virtual void release_device_resources() = 0;
+    virtual float outset()const{return 0;} // Physical pixels around the requested local patch.
+    virtual float shape_radius()const{return 0;}
 };
 struct NativeView {
     std::uint64_t id{};
@@ -26,6 +29,8 @@ struct NativeView {
     PixelBox full, clip;
     std::string fit{"contain"};
     bool smooth{true};
+    float opacity{1};
+    std::vector<RoundedClip> rounded_clips;
     std::shared_ptr<NativeImageProcessor> content_effect;
     std::shared_ptr<NativeImageProcessor> background_effect;
     // Optional source subrectangle; zero width means the complete source.
@@ -51,9 +56,11 @@ class Compositor {
     ~Compositor();
     Compositor(const Compositor &) = delete;
     void configure(std::vector<NativeView> views, std::uint32_t width, std::uint32_t height,
-                   std::shared_ptr<NativeImageProcessor> effect = nullptr);
+                   std::shared_ptr<NativeImageProcessor> effect = nullptr,
+                   std::shared_ptr<NativeImageProcessor> overlay = nullptr);
     void visible(bool enabled);
     void invalidate();
+    void opacity(float value); // DComp-only presentation; does not redraw source/effect textures.
     CompositorMetrics metrics() const;
     // Signal before joining a batch of compositors so their workers can stop
     // concurrently. close() still joins and releases consumer ownership.

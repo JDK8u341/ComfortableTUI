@@ -25,7 +25,7 @@ class GlassCanvas(GlassControl):
     _managed = True
 
     def __init__(self, id, canvas, *, label="", height=240, enabled=True, fit=None,
-                 auto_resize=False, on_event=None, effects=()):
+                 auto_resize=False, on_event=None, effects=(), motion=None, visible=True, weight=1., corner_radius=0.):
         if isinstance(canvas, (FrameBuffer, GpuFrameSource)):
             canvas = OverlayCanvas(canvas, fit=fit or "contain")
         if not isinstance(canvas, OverlayCanvas):
@@ -37,7 +37,8 @@ class GlassCanvas(GlassControl):
         canvas._prepare_surface()
         super().__init__(id, "canvas", label, source=canvas.buffer, enabled=enabled,
                          fit=canvas.fit if fit is None else fit, on_event=on_event,
-                         canvas_height=height, capture_escape=True, effects=list(effects))
+                         canvas_height=height, capture_escape=True, effects=list(effects), motion=motion,
+                         visible=visible, weight=weight, corner_radius=corner_radius)
         self.canvas, self.auto_resize = canvas, auto_resize
         self._inherit_fit = fit is None
         self._workspace = None
@@ -45,6 +46,7 @@ class GlassCanvas(GlassControl):
         self._display_visible, self._has_focus = False, False
         self._buttons, self._point = set(), (0., 0.)
         self._last_tick = time.perf_counter()
+        self._ancestors_visible = self._ancestors_enabled = True
 
     @property
     def _token(self):
@@ -98,12 +100,12 @@ class GlassCanvas(GlassControl):
         if not self.canvas._surface_available and self.enabled:
             self.enabled = False
             workspace.update()
-        visible = bool(window and window.get("visible") and id(self) in workspace._desired_controls
+        visible = bool(self.visible and self._ancestors_visible and window and window.get("visible") and id(self) in workspace._desired_controls
                        and workspace.visible and workspace._pane_visible and self.canvas._surface_available)
         if visible != self._display_visible:
             self._display_visible = visible
             self.canvas._emit(CanvasEvent("show" if visible else "hide"))
-        if (not visible or not self.enabled or self.canvas.disabled or not window.get("enabled", True)
+        if (not visible or not self.enabled or not self._ancestors_enabled or self.canvas.disabled or not window.get("enabled", True)
                 or not workspace._metrics.get("active")):
             self._lose_focus()
         now = time.perf_counter()
@@ -139,7 +141,7 @@ class GlassCanvas(GlassControl):
             if self.auto_resize:
                 self._pending_resize = tuple(max(1, math.floor(v + .5)) for v in event.position)
             return
-        if not self.enabled or self.canvas.disabled or not self.canvas._surface_available:
+        if not self.enabled or not self.visible or not self._ancestors_visible or not self._ancestors_enabled or self.canvas.disabled or not self.canvas._surface_available:
             return
         data = dict(native=True, modifiers=event.modifiers)
         if kind == "control_focus_in":

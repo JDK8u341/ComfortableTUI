@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Glass Workspace development
+## 0.2.0 — 2026-10-22 — Glass Workspace development
 
 - Batch-hide workspace windows before teardown, stop compositor workers together, and reuse native UI producer devices per workspace/GPU. Stop UIA tracking before the native join, preserve synchronous consumer release, and add shutdown timings plus a real-terminal benchmark.
 - Keep surviving cards in their existing positions when a card is removed, including nested groups and selected-card fallback; release retained placement on explicit reflow or geometry changes. Add a real-terminal closure example and physical-window rectangle regressions with springs enabled.

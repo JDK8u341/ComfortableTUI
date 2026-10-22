@@ -1,0 +1,34 @@
+{
+  "result": "passed",
+  "checks": [
+    "independent_native_control_and_motion_instances",
+    "resize_preserves_hwnd_and_control_private_state",
+    "custom_layout_motion_continues_without_python_or_qt_pump",
+    "settled_native_callbacks_stop",
+    "native_restart_reuses_instance_without_scene_submission",
+    "native_effect_animation_without_gil_scene_submission_allocation_or_recompile",
+    "same_id_replacement_releases_only_retired_private_state",
+    "nested_layout_hosts_two_independent_canvas_sources_and_preserves_hwnd",
+    "rounded_node_corner_is_excluded_from_pointer_hit",
+    "nested_accessibility_geometry_pointer_route_and_tab_order",
+    "ancestor_hide_disable_cancels_focus_and_preserves_application_sources",
+    "cpu_webview_in_nested_container_uses_existing_canvas_lifecycle",
+    "gpu_webview_in_nested_container_uses_existing_canvas_lifecycle"
+  ],
+  "fixture": "owned_QWidget",
+  "extension": {
+    "created": 3,
+    "destroyed": 3,
+    "updated": 10,
+    "wrong_thread": 0,
+    "motion_created": 3,
+    "motion_destroyed": 3,
+    "motion_frames": 79,
+    "motion_stops": 3,
+    "motion_wakes": 6,
+    "last_changes": 32,
+    "last_residual": 0.0,
+    "last_dt": 0.0,
+    "effect_writes": 18
+  }
+}

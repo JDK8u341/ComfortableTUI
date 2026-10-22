@@ -1,6 +1,8 @@
 // Pixel-level WARP tests. Readback is deliberately confined to this executable.
 #include "comfortable/glass_effect.hpp"
 #include "../canvas/internal.hpp"
+#include "../canvas/compositor_shader.hpp"
+#include <d3dcompiler.h>
 #include <d3d11sdklayers.h>
 #include <cmath>
 #include <iostream>
@@ -47,11 +49,46 @@ std::vector<unsigned> read(ID3D11Device *d,ID3D11DeviceContext *ctx,ID3D11Shader
     ctx->Unmap(staging.Get(),0);return result;
 }
 void bad(const std::function<void()> &fn){bool rejected=false;try{fn();}catch(const std::exception &){rejected=true;}require(rejected,"invalid input was accepted");}
+std::vector<unsigned> composite(ID3D11Device *d,ID3D11DeviceContext *ctx,ID3D11ShaderResourceView *input,
+                                const std::vector<RoundedClip> &clips,bool straight=false,bool replace=false){
+    ctx->ClearState();
+    ComPtr<ID3DBlob> vertex,pixel,errors;
+    check(D3DCompile(compositor_shader,std::strlen(compositor_shader),nullptr,nullptr,nullptr,"vs","vs_4_0",0,0,&vertex,&errors),"test compositor VS");
+    auto hr=D3DCompile(compositor_shader,std::strlen(compositor_shader),nullptr,nullptr,nullptr,"ps","ps_4_0",0,0,&pixel,&errors);
+    if(FAILED(hr))throw std::runtime_error(errors?static_cast<const char *>(errors->GetBufferPointer()):"test compositor PS");
+    ComPtr<ID3D11VertexShader> vs;ComPtr<ID3D11PixelShader> ps;
+    check(d->CreateVertexShader(vertex->GetBufferPointer(),vertex->GetBufferSize(),nullptr,&vs),"test VS");
+    check(d->CreatePixelShader(pixel->GetBufferPointer(),pixel->GetBufferSize(),nullptr,&ps),"test PS");
+    D3D11_TEXTURE2D_DESC td{};td.Width=td.Height=64;td.MipLevels=td.ArraySize=1;td.SampleDesc.Count=1;
+    td.Format=DXGI_FORMAT_B8G8R8A8_UNORM;td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+    ComPtr<ID3D11Texture2D> texture;ComPtr<ID3D11RenderTargetView> target;ComPtr<ID3D11ShaderResourceView> view;
+    check(d->CreateTexture2D(&td,nullptr,&texture),"test compositor output");
+    check(d->CreateRenderTargetView(texture.Get(),nullptr,&target),"test compositor RTV");
+    check(d->CreateShaderResourceView(texture.Get(),nullptr,&view),"test compositor SRV");
+    std::array<float,60> params={0,0,1,1,0,0,1,1,straight?1.f:0.f,1,1,0};compositor_clip_params(params,clips,replace);
+    D3D11_BUFFER_DESC bd{};bd.ByteWidth=sizeof(params);bd.Usage=D3D11_USAGE_DEFAULT;bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_SUBRESOURCE_DATA data{params.data(),0,0};ComPtr<ID3D11Buffer> constants;check(d->CreateBuffer(&bd,&data,&constants),"test compositor constants");
+    D3D11_SAMPLER_DESC sd{};sd.Filter=D3D11_FILTER_MIN_MAG_MIP_LINEAR;sd.AddressU=sd.AddressV=sd.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;sd.MaxLOD=D3D11_FLOAT32_MAX;
+    ComPtr<ID3D11SamplerState> sampler;check(d->CreateSamplerState(&sd,&sampler),"test compositor sampler");
+    D3D11_RASTERIZER_DESC rd{};rd.FillMode=D3D11_FILL_SOLID;rd.CullMode=D3D11_CULL_NONE;rd.DepthClipEnable=TRUE;
+    ComPtr<ID3D11RasterizerState> raster;check(d->CreateRasterizerState(&rd,&raster),"test compositor raster");
+    const float clear[4]={};ctx->ClearRenderTargetView(target.Get(),clear);auto *rt=target.Get();ctx->OMSetRenderTargets(1,&rt,nullptr);
+    D3D11_VIEWPORT vp{0,0,64,64,0,1};ctx->RSSetViewports(1,&vp);ctx->RSSetState(raster.Get());ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(vs.Get(),nullptr,0);ctx->PSSetShader(ps.Get(),nullptr,0);auto *cb=constants.Get();ctx->VSSetConstantBuffers(0,1,&cb);ctx->PSSetConstantBuffers(0,1,&cb);
+    auto *sample=sampler.Get();ctx->PSSetSamplers(0,1,&sample);ctx->PSSetShaderResources(0,1,&input);ctx->Draw(3,0);ctx->ClearState();return read(d,ctx,view.Get());
+}
 }
 int main(){
     try{
         ComPtr<ID3D11DeviceContext> ctx;auto d=device(ctx);
         auto solid=image(d.Get(),64,64,std::vector<unsigned>(64*64,0xffffffff));
+        auto clipped=composite(d.Get(),ctx.Get(),solid.Get(),{{{0,0,64,64},16}});
+        require(clipped.front()==0&&clipped[32*64+32]==0xffffffff,"production compositor rounded-mask pixels");
+        auto nested=composite(d.Get(),ctx.Get(),solid.Get(),{{{0,0,64,64},16},{{0,0,32,64},8}});
+        require(nested[32*64+48]==0&&nested[32*64+16]==0xffffffff,"ancestor masks intersect");
+        auto semi=image(d.Get(),1,1,{0x80ffffff});
+        auto replaced=composite(d.Get(),ctx.Get(),semi.Get(),{{{0,0,64,64},16}},true,true);
+        require((replaced[32*64+32]>>24)==128&&replaced.front()==0,"background replacement mask preserves source alpha");
         PixelBox full{0,0,64,64};
         auto tint=make_glass_effect_chain({{"tint","content",{1},0xff0000,1}},1);
         auto independent=make_glass_effect_chain({{"tint","content",{1},0x0000ff,1}},1);
@@ -69,6 +106,14 @@ int main(){
         auto glowing=read(d.Get(),ctx.Get(),glow->process(d.Get(),ctx.Get(),shape.Get(),64,64,full,false));
         require(((glowing[32*64+20]>>8)&255)>0&&(glowing[32*64+20]&255)==0,"glow must extend colored alpha outside the source");
         require(glowing[32*64+32]==0xffffffff,"glow must retain source ink");
+        auto overlay_tint=make_glass_effect_chain({{"tint","overlay",{.5f},0xff0000}},1);
+        auto tint_layer=read(d.Get(),ctx.Get(),overlay_tint->process(d.Get(),ctx.Get(),solid.Get(),64,64,full,false));
+        require((tint_layer[2080]>>24)==128&&((tint_layer[2080]>>16)&255)==128&&(tint_layer[2080]&0xffff)==0,"overlay tint is independent premultiplied decoration");
+        auto overlay_glow=make_glass_effect_chain({{"glow","overlay",{1,12},0x00ff00}},1);
+        auto halo=read(d.Get(),ctx.Get(),overlay_glow->process(d.Get(),ctx.Get(),solid.Get(),64,64,full,false));
+        auto margin=static_cast<unsigned>(overlay_glow->outset()),halo_width=64+2*margin;
+        require(halo.size()==halo_width*halo_width&&halo[(margin+32)*halo_width+margin+32]==0&&
+            (halo[(margin+32)*halo_width+margin-1]>>24)>0,"overlay glow extends beyond the node without copying its ink");
         for(unsigned pixel:glowing)require((pixel&255)<=(pixel>>24)&&((pixel>>8)&255)<=(pixel>>24)&&((pixel>>16)&255)<=(pixel>>24),"premultiplied alpha contract");
         std::vector<unsigned> checker(64*64);
         for(unsigned y=0;y<64;y++)for(unsigned x=0;x<64;x++)checker[y*64+x]=((x/3+y/3)%2)?0xff102030:0xfff0c080;
@@ -116,6 +161,22 @@ int main(){
         bad([&]{update_glass_effect_chain(tint,{{"tint","content",{std::numeric_limits<float>::quiet_NaN()}}});});
         require(read(d.Get(),ctx.Get(),tint->process(d.Get(),ctx.Get(),solid.Get(),64,64,full,false))[2080]==0xffffffff,
                 "invalid parameter update must leave normalized render state intact");
+        static const GlassEffectParameter shader_params[]={{"red",0,1,.2f},{"green",0,1,.7f}};
+        const std::string code="cbuffer P:register(b0){float4 crop;float4 params;float4 tint;float4 info;}; float4 main():SV_Target{return float4(params.xy,0,1);}";
+        register_glass_shader("test.package",code,"main",{shader_params[0],shader_params[1]},0);
+        auto package=make_glass_effect_chain({{"test.package","content",{}}},1);
+        auto package_pixel=read(d.Get(),ctx.Get(),package->process(d.Get(),ctx.Get(),solid.Get(),64,64,full,false))[2080];
+        require(((package_pixel>>16)&255)>=50&&((package_pixel>>16)&255)<=51&&((package_pixel>>8)&255)>=178,"HLSL package executes real parameterized pixels");
+        auto compiled=glass_effect_diagnostics().package_shader_compilations;
+        update_glass_effect_chain(package,{{"test.package","content",{.8f,.1f}}});
+        auto changed=read(d.Get(),ctx.Get(),package->process(d.Get(),ctx.Get(),solid.Get(),64,64,full,false))[2080];
+        require(((changed>>16)&255)>=203&&glass_effect_diagnostics().package_shader_compilations==compiled,"package parameter updates reuse bytecode");
+        package.reset();
+        bad([&]{register_glass_shader("test.package",code,"main",{},0);});
+        bad([&]{register_glass_shader("test.bad_package","Texture2D other:register(t1);float4 main():SV_Target{return other.Load(int3(0,0,0));}","main",{},0);});
+        bad([&]{glass_effect_type("test.bad_package");});
+        register_glass_shader("test.bad_package",code,"main",{shader_params[0],shader_params[1]},0);
+        bad([&]{register_glass_shader("test.include","#include \"other.hlsl\"\nfloat4 main():SV_Target{return 1;}","main",{},0);});
         bad([&]{make_glass_effect_chain({{"liquid","content",{12,1}}},1);});
         bad([&]{make_glass_effect_chain({{"blur","invalid",{4}}},1);});
         bad([&]{auto large=make_glass_effect_chain({{"blur","content",{4}}},1);large->process(d.Get(),ctx.Get(),solid.Get(),64,64,{0,0,9000,9000},false);});
@@ -125,6 +186,7 @@ int main(){
         tint->process(d.Get(),ctx.Get(),solid.Get(),64,64,full,false);
         require(glass_effect_surface_bytes()>0,"effect texture accounting");
         tint.reset();independent.reset();blur.reset();glow.reset();liquid.reset();
+        overlay_tint.reset();overlay_glow.reset();
         local_content.reset();local_background.reset();two.reset();
         require(glass_effect_surface_bytes()==0,"all effect textures must retire");
         // Different physical scales, fractional source patches, size changes and

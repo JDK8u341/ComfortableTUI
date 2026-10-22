@@ -2,6 +2,7 @@
 #include "comfortable/compositor.hpp"
 #include "comfortable/glass_control.hpp"
 #include "comfortable/glass_effect.hpp"
+#include "comfortable/glass_motion.hpp"
 
 namespace comfortable {
 struct GlassBackground {
@@ -23,6 +24,15 @@ struct GlassControl {
     std::uint64_t generation{};
     float opacity{1};
     const GlassControlType *type{};
+    GlassMotionBinding motion;
+    GlassVisual visual;
+    GlassVisual world;
+    void *instance{}; // Owned by the UI worker; never populated by Python.
+    std::string parent,layout{"column"};
+    float gap{},padding{},weight{1};
+    float corner_radius{};
+    bool visible{true},effective_visible{true},effective_enabled{true};
+    PixelBox bounds,clip,ink; // Logical layout, ancestor clip and non-overlapping ink atlas patch.
 };
 inline const GlassControlType &glass_control_type(const GlassControl &c){return c.type?*c.type:glass_control_type(c.kind);}
 struct GlassCard {
@@ -33,6 +43,8 @@ struct GlassCard {
     std::vector<GlassEffectBinding> effects;
     bool has_background{}, draggable{true};
     std::uint64_t generation{};
+    GlassMotionBinding motion;
+    float ink_height{};
 };
 struct GlassGroup {
     std::string id,parent,layout{"row"};
@@ -40,6 +52,8 @@ struct GlassGroup {
     float gap{16},padding{};
     bool visible{true},enabled{true};
 };
+float glass_card_height(const GlassCard &);
+void layout_glass_controls(GlassCard &);
 struct GlassScene {
     std::vector<GlassCard> cards;
     std::vector<GlassGroup> groups;
@@ -89,6 +103,7 @@ class GlassHost {
     std::uint64_t configure(GlassScene);
     void command(const std::string &action, const std::string &value = "");
     void begin_drag(const std::string &card,std::uint64_t pointer_sequence);
+    void restart_motion(const std::string &card,const std::string &node,std::uint64_t generation);
     void present(const std::string &card,const std::string &control,std::uint64_t generation,float opacity);
     void set_effect_parameters(const std::string &card,const std::string &node,std::uint64_t generation,
                                std::size_t index,const std::string &type,const std::vector<float> &parameters);

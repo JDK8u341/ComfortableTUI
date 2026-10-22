@@ -2,11 +2,12 @@
 
 日期：2026-10-19。基线：`b5c35bb`，分支 `codex/liquid-glass-cards`。
 
-**状态：2026-10-21第二批独立效果链与原生Shader SDK已实现。**
-实际API见[控件SDK](glass-controls-sdk.md)和[效果SDK](glass-effects-sdk.md)。
-第一批的无状态控件注册、Python帧钩子继续保留；本批已完成每节点效果绑定、真实GPU
-图像处理、扩展设备资源生命周期及动态替换。原生帧订阅、布局目标/变换钩子、独立
-HLSL包格式及控件局部容器树仍属于后续范围，本文对应条目保留为设计目标，不冒充已实现API。
+**状态：2026-10-22扩展改造已进入最终验收。** 实际API见[控件SDK](glass-controls-sdk.md)、
+[效果SDK](glass-effects-sdk.md)、[原生动画](glass-native-motion.md)、
+[局部容器/实例](glass-containers.md)和[HLSL包](glass-shader-packages.md)。
+已实现原生布局目标/帧钩子、私有控件实例、局部row/column/stack、独立装饰和圆角。
+本页下方保留早期调研与伪代码；最终可运行API以上述SDK为准。实际呈现支持平移与透明度，
+没有scale/rotation、任意内容扭曲逆命中、自动驱动恢复或完整层级UIA树。
 
 ## 结论与需求边界
 
@@ -286,5 +287,4 @@ Shader 编译次数、pass/重绘次数与输入响应；测试静止、悬停�
 resize、频繁增删、设备异常及 GIL 阻塞。GPU 计时用异步查询，不能通过每帧同步读回来测性能。
 这里不预先承诺尚未实测的 FPS、显存上限或开销百分比。
 
-本轮产物为调研和方案；不宣称新增效果器、控件注册或动画钩子已经可用，也不改变当前
-Windows-only 图形支持范围。
+本文最初为调研和方案；当前实现及验证以页首SDK链接为准，不改变Windows-only图形支持范围。

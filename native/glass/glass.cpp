@@ -52,21 +52,23 @@ std::vector<std::string> modifiers() {
 }
 #include "accessibility.hpp"
 float card_height(const GlassCard &c) {
-    float h = 102;
-    for (const auto &v : c.controls) h += row_height(v);
-    return h + 20;
+    return glass_card_height(c);
 }
 std::string source_signature(const GlassCard &card) {
-    std::string signature;float row=102;
+    std::string signature=std::to_string(card.ink_height);
     for(const auto &c:card.controls) {
-        if(c.kind=="canvas") signature=c.canvas.source.name+":"+std::to_string(c.canvas.source.width)+":"+
+        signature+=c.id+":"+std::to_string(c.bounds.x)+":"+std::to_string(c.bounds.y)+":"+std::to_string(c.bounds.width)+":"+std::to_string(c.bounds.height)+":"+std::to_string(c.corner_radius)+":"+(c.effective_visible?"v":"h");
+        if(c.kind=="canvas") signature+=c.canvas.source.name+":"+std::to_string(c.canvas.source.width)+":"+
             std::to_string(c.canvas.source.height)+":"+std::to_string(c.canvas.stride)+":"+c.canvas.pixel_format+
-            ":"+c.fit+":"+std::to_string(row)+":"+std::to_string(c.canvas_height);
-        row+=row_height(c);
+            ":"+c.fit+":"+std::to_string(c.canvas_height);
     }
     return signature;
 }
 void validate_effect(const GlassEffectBinding &effect) {validate_glass_effect(effect);}
+void validate_motion(const GlassMotionBinding &motion){
+    if(motion.type.size()>128||motion.parameters.size()>16||(motion.type.empty()&&!motion.parameters.empty()))throw std::invalid_argument("invalid native motion binding");
+    if(!motion.type.empty())glass_motion_parameters(motion.type,motion.parameters);
+}
 void validate_effects(const std::vector<GlassEffectBinding> &effects) {
     if(effects.size()>8)throw std::invalid_argument("a Glass node supports at most 8 effects");
     for(const auto &effect:effects)validate_effect(effect);
@@ -197,7 +199,7 @@ struct GlassHost::Impl {
     bool ready{}, stopping{};
     GlassScene requested, scene;
     std::uint64_t submitted{}, applied{}, event_serial{};
-    struct Action {std::string kind,id;std::uint64_t token{};};
+    struct Action {std::string kind,id;std::uint64_t token{};std::string node;};
     std::deque<Action> commands;
     struct Presentation {std::string card,control;std::uint64_t generation{};float opacity{1};};
     std::vector<Presentation> presentations;
@@ -358,7 +360,8 @@ struct GlassHost::Impl {
         GlassCard spec;
         HWND hwnd{};
         std::unique_ptr<UiSurface> ui;
-        std::unique_ptr<UiSurface> base_ui;
+        std::unique_ptr<UiSurface> atlas_ui;
+        std::unique_ptr<FrameProvider> empty_ink;
         std::unique_ptr<Compositor> compositor;
         std::unique_ptr<glass_detail::OpticalPanel> optical;
         GlassBackground background;
@@ -375,6 +378,14 @@ struct GlassHost::Impl {
         std::uint64_t pointer_sequence{};
         bool optical_dirty{true};
         std::string canvas_signature, material_key;
+        struct ControlState {
+            const GlassControlType *type{};void *instance{};std::uint64_t generation{};std::size_t index{};
+            std::unique_ptr<GlassMotionInstance> motion;
+            ~ControlState(){motion.reset();if(instance&&type->destroy)type->destroy(instance);}
+        };
+        std::map<std::string,std::unique_ptr<ControlState>> control_states;
+        std::unique_ptr<GlassMotionInstance> motion;
+        GlassVisual visual;
         std::map<std::string,std::shared_ptr<NativeImageProcessor>> effect_chains;
         int native_x{-100000},native_y{-100000};
         std::shared_ptr<Card *> accessibility=std::make_shared<Card *>(this);
@@ -399,6 +410,7 @@ struct GlassHost::Impl {
                 compositor=std::make_unique<Compositor>(reinterpret_cast<std::uintptr_t>(hwnd),d.adapter_low,d.adapter_high);
                 x.x=x.target=(h->owner_rect.left+h->owner_rect.right)/2.f-width*h->dpi/2;
                 y.x=y.target=h->owner_rect.top+42*h->dpi;
+                sync_nodes();
                 apply_material();
                 configure_canvas();
                 host->emit({"ready",spec.id,"",std::to_string(reinterpret_cast<std::uintptr_t>(hwnd))});
@@ -409,8 +421,10 @@ struct GlassHost::Impl {
             if (hwnd) ShowWindow(hwnd,SW_HIDE);
             auto start=clock_ticks();
             if (compositor) compositor->close();
+            control_states.clear();motion.reset();
             auto joined=clock_ticks();
             optical.reset();
+            atlas_ui.reset();empty_ink.reset();
             ui.reset();
             auto surfaces=clock_ticks();
             if (hwnd) DestroyWindow(hwnd);
@@ -418,6 +432,99 @@ struct GlassHost::Impl {
             host->close_join_ms+=(joined-start)*1000/clock_frequency();
             host->close_surfaces_ms+=(surfaces-joined)*1000/clock_frequency();
             host->close_windows_ms+=(end-surfaces)*1000/clock_frequency();
+        }
+        void sync_nodes(){
+            std::set<std::string> retained;
+            for(std::size_t i=0;i<spec.controls.size();i++){
+                auto &c=spec.controls[i];const auto &type=glass_control_type(c);
+                if(!type.create&&c.motion.type.empty())continue;
+                retained.insert(c.id);auto &state=control_states[c.id];
+                if(state&&(state->generation!=c.generation||state->type!=&type))state.reset();
+                if(!state){
+                    state=std::make_unique<ControlState>();state->type=&type;state->generation=c.generation;
+                    if(type.create){state->instance=type.create(c);if(!state->instance)throw std::runtime_error("control instance creation failed: "+c.kind);}
+                }
+                state->index=i;c.instance=state->instance;
+                if(type.update)type.update(state->instance,c);
+                if(c.motion.type.empty())state->motion.reset();
+                else if(!state->motion||!state->motion->matches(c.motion))state->motion=std::make_unique<GlassMotionInstance>(c.motion,c.visual);
+            }
+            for(auto it=control_states.begin();it!=control_states.end();)if(!retained.count(it->first))it=control_states.erase(it);else ++it;
+            if(spec.motion.type.empty()){motion.reset();visual.opacity=1;compositor->opacity(1);}
+            else if(!motion||!motion->matches(spec.motion))motion=std::make_unique<GlassMotionInstance>(spec.motion,visual);
+            update_visuals();
+        }
+        void update_visuals(){
+            std::map<std::string,GlassControl *> parents;
+            for(auto &c:spec.controls){
+                c.world=c.visual;c.clip={20,102,width-40,std::max(0.f,height-122)};
+                if(!c.parent.empty()){
+                    auto &parent=*parents.at(c.parent);c.world.x+=parent.world.x;c.world.y+=parent.world.y;c.world.opacity*=parent.world.opacity;
+                    auto r=parent.bounds;r.x+=parent.world.x+parent.padding;r.y+=parent.world.y+parent.padding;r.width-=2*parent.padding;r.height-=2*parent.padding;
+                    c.clip.x=std::max(r.x,parent.clip.x);c.clip.y=std::max(r.y,parent.clip.y);
+                    c.clip.width=std::max(0.f,std::min(r.x+r.width,parent.clip.x+parent.clip.width)-c.clip.x);
+                    c.clip.height=std::max(0.f,std::min(r.y+r.height,parent.clip.y+parent.clip.height)-c.clip.y);
+                }
+                if(c.kind=="container")parents[c.id]=&c;
+            }
+        }
+        void resize_surfaces(float w,float h){
+            auto d=ui->provider.descriptor();
+            compositor->configure({},static_cast<unsigned>(std::round(w*host->dpi)),static_cast<unsigned>(std::round(h*host->dpi)));
+            optical.reset();width=w;height=h;
+            ui=std::make_unique<UiSurface>(static_cast<unsigned>(std::round(w*host->dpi)),static_cast<unsigned>(std::round(h*host->dpi)),
+                host->factory.Get(),host->write.Get(),host->dpi,host->ui_device(d.adapter_low,d.adapter_high));
+            SetWindowPos(hwnd,nullptr,0,0,static_cast<int>(std::round(w*host->dpi)),static_cast<int>(std::round(h*host->dpi)),
+                SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOOWNERZORDER);
+            canvas_signature.clear();
+        }
+        struct EffectWriter final:GlassMotionEffects {
+            Card &card;std::vector<GlassEffectBinding> &model;std::string key;
+            std::array<std::vector<float>,8> updates;unsigned mask{};
+            EffectWriter(Card &c,std::vector<GlassEffectBinding> &m,std::string k):card(c),model(m),key(std::move(k)){}
+            void set(std::size_t index,const float *parameters,std::size_t count)override{
+                if(GetCurrentThreadId()!=card.host->thread_id||index>=model.size()||index>=8||count>16||(count&&!parameters))throw std::invalid_argument("invalid native animation effect update");
+                std::vector<float> values;if(count)values.assign(parameters,parameters+count);
+                if(values==model[index].parameters)return;
+                glass_effect_parameters(model[index].type,values);updates[index]=std::move(values);mask|=1u<<index;
+            }
+            void commit(){
+                if(!mask)return;
+                for(std::size_t i=0;i<model.size();i++)if(mask&(1u<<i))model[i].parameters=std::move(updates[i]);
+                for(const auto *stage:{"background","content","overlay"}){
+                    auto chain=card.effect_chains.find(key+":"+stage);if(chain==card.effect_chains.end())continue;
+                    std::vector<GlassEffectBinding> bindings;for(const auto &effect:model)if(effect.target==stage)bindings.push_back(effect);
+                    if(!update_glass_effect_chain(chain->second,bindings))throw std::runtime_error("native animation effect binding changed");
+                }card.compositor->invalidate();
+            }
+        };
+        void animate_controls(double now,bool visible,bool reduced){
+            bool configure=false;
+            for(auto &entry:control_states){
+                auto &state=*entry.second;if(!state.motion)continue;auto &c=spec.controls[state.index];
+                GlassMotionFrame f;f.time=now;f.width=c.bounds.width;f.height=c.bounds.height;f.visible=visible&&c.effective_visible;
+                EffectWriter writer(*this,c.effects,std::to_string(spec.generation)+":"+c.id+":"+std::to_string(c.generation));
+                f.effects=&writer;f.effect_count=c.effects.size();
+                f.layout_x=c.bounds.x;f.layout_y=c.bounds.y;
+                f.pointer_x=hover_x-c.bounds.x-c.world.x;f.pointer_y=hover_y-c.bounds.y-c.world.y;
+                auto contains=[&](int index){
+                    for(int depth=0;index>=0&&depth<=8;depth++){
+                        const auto &v=spec.controls[index];if(v.id==c.id)return true;
+                        auto parent=std::find_if(spec.controls.begin(),spec.controls.end(),[&](const auto &p){return p.id==v.parent;});
+                        index=parent==spec.controls.end()?-1:static_cast<int>(parent-spec.controls.begin());
+                    }return false;
+                };
+                f.hovered=contains(hovered);f.focused=GetFocus()==hwnd&&contains(focused);
+                f.pressed=pressed==static_cast<int>(state.index);f.reduced_motion=reduced;
+                auto before=c.visual;
+                if(state.motion->tick(f,c.visual)){
+                    if(before.opacity!=c.visual.opacity)dirty=true;
+                    if(before.x!=c.visual.x||before.y!=c.visual.y||((c.kind=="canvas"||c.kind=="container")&&before.opacity!=c.visual.opacity))configure=true;
+                }
+                writer.commit();
+            }
+            if(configure||dirty)update_visuals();
+            if(configure)configure_canvas();
         }
         void apply_material() {
             background=spec.background;
@@ -457,57 +564,90 @@ struct GlassHost::Impl {
             NativeView ink;ink.id=1;ink.source=ui->provider.descriptor();ink.fit="stretch";
             ink.full=ink.clip={0,0,width*host->dpi,height*host->dpi};
             std::vector<NativeView> views;
+            if(spec.ink_height>0){
+                auto aw=ink.source.width,ah=static_cast<unsigned>(std::ceil(spec.ink_height*host->dpi));
+                if(ah>16384||aw*static_cast<std::uint64_t>(ah)*12>128ull*1024*1024)throw std::invalid_argument("Glass control atlas exceeds local texture budget");
+                if(!atlas_ui||atlas_ui->provider.descriptor().width!=aw||atlas_ui->provider.descriptor().height!=ah){
+                    if(atlas_ui)compositor->configure({},ink.source.width,ink.source.height);
+                    atlas_ui=std::make_unique<UiSurface>(aw,ah,host->factory.Get(),host->write.Get(),host->dpi,
+                        host->ui_device(ink.source.adapter_low,ink.source.adapter_high));
+                }
+            }
             std::set<std::string> used_chains;
-            auto chain=[&](const std::string &key,const std::vector<GlassEffectBinding> &effects,const std::string &target){
+            auto chain=[&](const std::string &key,const std::vector<GlassEffectBinding> &effects,const std::string &target,float radius=0){
                 if(target=="background"&&(host->contrast||host->scene.reduced_transparency))return std::shared_ptr<NativeImageProcessor>{};
                 std::vector<GlassEffectBinding> selected;
                 for(const auto &effect:effects)if(effect.target==target)selected.push_back(effect);
-                if(target=="content")for(const auto &effect:effects)if(effect.target=="overlay")selected.push_back(effect);
                 std::string name=key+":"+target;
                 if(selected.empty())return std::shared_ptr<NativeImageProcessor>{};
                 used_chains.insert(name);auto &cached=effect_chains[name];
-                if(!cached||!update_glass_effect_chain(cached,selected))cached=make_glass_effect_chain(selected,host->dpi);
+                if(!cached||cached->shape_radius()!=radius||!update_glass_effect_chain(cached,selected))cached=make_glass_effect_chain(selected,host->dpi,radius);
                 return cached;
             };
             auto card_key=std::to_string(spec.generation);
             auto card_background=optical?chain(card_key,spec.effects,"background"):nullptr;
             if(optical){auto lens=ink;lens.id=3;lens.source=optical->descriptor();lens.content_effect=card_background;views.push_back(lens);}
-            bool split=std::any_of(spec.controls.begin(),spec.controls.end(),[](const auto &c){return !c.effects.empty();});
-            if(split){
-                if(!base_ui)base_ui=std::make_unique<UiSurface>(ink.source.width,ink.source.height,host->factory.Get(),host->write.Get(),host->dpi,
-                    host->ui_device(ink.source.adapter_low,ink.source.adapter_high));
-                auto base=ink;base.id=4;base.source=base_ui->provider.descriptor();views.push_back(base);
-            }
-            if(!split)views.push_back(ink);
-            else {auto header=ink;header.id=10;header.full.height=header.clip.height=102*host->dpi;header.sample={0,0,width*host->dpi,102*host->dpi};views.push_back(header);}
-            float row=102;
+            bool split=spec.ink_height>0;
+            views.push_back(ink); // Whole chrome; node ink lives in non-overlapping atlas patches.
             canvas_signature.clear();
-            for (const auto &c:spec.controls) {
+            std::function<void(const GlassControl &)> append_node;
+            append_node=[&](const GlassControl &c) {
+                if(!c.effective_visible)return;
                 auto key=card_key+":"+c.id+":"+std::to_string(c.generation);
+                NativeView decoration;auto overlay=chain(key,c.effects,"overlay",c.kind=="canvas"?0:c.corner_radius);bool decorate=false;
+                auto translated=[&](PixelBox r){r.x+=c.world.x;r.y+=c.world.y;return r;};
+                auto physical=[&](PixelBox r){r.x*=host->dpi;r.y*=host->dpi;r.width*=host->dpi;r.height*=host->dpi;return r;};
+                auto clipped=[&](PixelBox r){float right=std::min(r.x+r.width,c.clip.x+c.clip.width),bottom=std::min(r.y+r.height,c.clip.y+c.clip.height);
+                    r.x=std::max(r.x,c.clip.x);r.y=std::max(r.y,c.clip.y);r.width=std::max(0.f,right-r.x);r.height=std::max(0.f,bottom-r.y);return r;};
+                auto shapes=[&](bool self){
+                    std::vector<RoundedClip> result;const GlassControl *node=&c;
+                    for(unsigned depth=0;node&&depth<=8;depth++){
+                        if((self||node!=&c)&&node->corner_radius>0){auto r=node->bounds;r.x+=node->world.x;r.y+=node->world.y;
+                            result.push_back({physical(r),node->corner_radius*host->dpi});}
+                        auto parent=std::find_if(spec.controls.begin(),spec.controls.end(),[&](const auto &p){return p.id==node->parent;});
+                        node=parent==spec.controls.end()?nullptr:&*parent;
+                    }return result;
+                };
                 if(split){
                     auto patch=ink;patch.id=10+views.size();
-                    patch.full=patch.clip={0,row*host->dpi,width*host->dpi,row_height(c)*host->dpi};patch.sample=patch.full;
+                    patch.sample=physical(c.ink);patch.full=physical(translated(c.bounds));patch.clip=physical(clipped(translated(c.bounds)));
+                    if(atlas_ui)patch.source=atlas_ui->provider.descriptor();
+                    if(c.kind=="container"){
+                        if(!empty_ink){
+                            empty_ink=std::make_unique<FrameProvider>(1,1,host->ui_device(ink.source.adapter_low,ink.source.adapter_high).Get());
+                            auto frame=empty_ink->begin_frame();const float clear[4]={};empty_ink->context()->ClearRenderTargetView(frame.target(),clear);frame.publish();
+                        }
+                        patch.source=empty_ink->descriptor();patch.sample={0,0,c.bounds.width*host->dpi,c.bounds.height*host->dpi};
+                    }
                     patch.background_effect=chain(key,c.effects,"background");
-                    if(c.kind!="canvas")patch.content_effect=chain(key,c.effects,"content");
+                    patch.rounded_clips=shapes(true);
+                    if(c.kind!="canvas")patch.content_effect=chain(key,c.effects,"content",c.corner_radius);
                     views.push_back(patch);
+                    if(c.kind!="canvas"&&overlay){decoration=patch;decorate=true;}
                 }
                 if (c.kind=="canvas") {
                     auto v=c.canvas;v.id=2;v.fit=c.fit;
-                    v.full=v.clip={24*host->dpi,(row+22)*host->dpi,(width-48)*host->dpi,c.canvas_height*host->dpi};
+                    auto image=translated({c.bounds.x+4,c.bounds.y+22,c.bounds.width-8,c.canvas_height});
+                    v.full=physical(image);v.clip=physical(clipped(image));v.opacity=c.world.opacity;
+                    v.rounded_clips=shapes(true);
                     v.content_effect=chain(key,c.effects,"content");
                     views.push_back(v);
-                    host->emit({"transform",spec.id,c.id,"",host->dpi,width-48,c.canvas_height});
+                    if(overlay){decoration=v;decorate=true;}
+                    host->emit({"transform",spec.id,c.id,"",host->dpi,c.bounds.width-8,c.canvas_height});
                 }
-                row+=row_height(c);
-            }
-            if(split){auto footer=ink;footer.id=10+views.size();footer.full=footer.clip={0,row*host->dpi,width*host->dpi,(height-row)*host->dpi};footer.sample=footer.full;views.push_back(footer);}
+                for(const auto &child:spec.controls)if(child.parent==c.id)append_node(child);
+                if(decorate){decoration.id=10000+views.size();decoration.background_effect.reset();decoration.content_effect=overlay;decoration.clip=physical(c.clip);decoration.rounded_clips=shapes(false);views.push_back(decoration);}
+            };
+            for(const auto &c:spec.controls)if(c.parent.empty())append_node(c);
             auto card_content=chain(card_key,spec.effects,"content");
-            compositor->configure(views,ink.source.width,ink.source.height,card_content);
-            if(!split)base_ui.reset();
+            auto card_overlay=chain(card_key,spec.effects,"overlay");
+            compositor->configure(views,ink.source.width,ink.source.height,card_content,card_overlay);
+            if(spec.ink_height==0)atlas_ui.reset();
             for(auto at=effect_chains.begin();at!=effect_chains.end();)if(!used_chains.count(at->first))at=effect_chains.erase(at);else ++at;
             canvas_signature=source_signature(spec)+(optical?":optical":"");
         }
         void pointer(const std::string &kind,float px,float py) {
+            if(motion)motion->wake(kind=="pointer_down"||kind=="pointer_up"?8:2);
             POINT point{static_cast<LONG>(std::round(px*host->dpi)),static_cast<LONG>(std::round(py*host->dpi))};
             ClientToScreen(hwnd,&point);last_pointer=point;
             auto token=host->emit({kind,spec.id,"",py<96?"header":"",0,px,py});
@@ -536,48 +676,63 @@ struct GlassHost::Impl {
             }
             moving=false;pointer_sequence=0;optical_dirty=true;
         }
+        bool inside_shape(const GlassControl &c,float px,float py)const {
+            const auto &r=c.bounds;const auto &clip=c.clip;
+            if(!c.effective_visible||px<clip.x||py<clip.y||px>=clip.x+clip.width||py>=clip.y+clip.height||
+               px<r.x+c.world.x||py<r.y+c.world.y||px>=r.x+r.width+c.world.x||py>=r.y+r.height+c.world.y)return false;
+            const GlassControl *shape=&c;
+            for(unsigned depth=0;shape&&depth<=8;depth++){
+                float radius=std::min(shape->corner_radius,std::min(shape->bounds.width,shape->bounds.height)*.5f);
+                if(radius>0){
+                    float qx=std::abs(px-shape->bounds.x-shape->world.x-shape->bounds.width*.5f)-(shape->bounds.width*.5f-radius);
+                    float qy=std::abs(py-shape->bounds.y-shape->world.y-shape->bounds.height*.5f)-(shape->bounds.height*.5f-radius);
+                    if(std::hypot(std::max(0.f,qx),std::max(0.f,qy))+std::min(std::max(qx,qy),0.f)>radius)return false;
+                }
+                auto parent=std::find_if(spec.controls.begin(),spec.controls.end(),[&](const auto &p){return p.id==shape->parent;});shape=parent==spec.controls.end()?nullptr:&*parent;
+            }return true;
+        }
         int hit(float px,float py) {
-            if (px<20||px>width-20) return -1;
-            float row=102;
-            for (std::size_t i=0;i<spec.controls.size();i++) {
-                auto &c=spec.controls[i];float h=row_height(c);
-                if(py>=row&&py<row+h&&glass_control_type(c).hit_test(c,px-20,py-row,width-40,h))return static_cast<int>(i);
-                row+=row_height(spec.controls[i]);
-            }
-            return -1;
+            for(int i=static_cast<int>(spec.controls.size())-1;i>=0;i--){
+                const auto &c=spec.controls[i];if(!inside_shape(c,px,py))continue;
+                if(glass_control_type(c).hit_test(c,px-c.bounds.x-c.world.x,py-c.bounds.y-c.world.y,c.bounds.width,c.bounds.height))return i;
+            }return -1;
         }
         float row_top(int index) {
-            float row=102;
-            for(int i=0;i<index;i++) row+=row_height(spec.controls[i]);
-            return row;
+            return spec.controls[index].bounds.y;
         }
         void canvas_event(const std::string &kind,int at,float px,float py,WPARAM flags=0,const std::string &button="left",int clicks=1,double value=0) {
             auto &c=spec.controls[at];
-            double w=width-48,h=c.canvas_height,sw=c.canvas.source.width,sh=c.canvas.source.height;
+            double w=c.bounds.width-8,h=c.canvas_height,sw=c.canvas.source.width,sh=c.canvas.source.height;
             double sx=w/sw,sy=h/sh,ox=0,oy=0;
             if(c.fit!="stretch") {
                 double scale=c.fit=="pixel"?1/host->dpi:c.fit=="cover"?std::max(sx,sy):std::min(sx,sy);
                 sx=sy=scale;ox=(w-sw*scale)/2;oy=(h-sh*scale)/2;
             }
-            GlassEvent event{kind,spec.id,c.id,"",value,(px-24-ox)/sx,(py-row_top(at)-22-oy)/sy};
+            bool clipped=inside_shape(c,px,py);
+            px-=c.world.x;py-=c.world.y;
+            float left=c.bounds.x+4;
+            GlassEvent event{kind,spec.id,c.id,"",value,(px-left-ox)/sx,(py-row_top(at)-22-oy)/sy};
             event.source_name=c.canvas.source.name;
             event.modifiers=modifiers();event.button=button;event.clicks=clicks;
             event.buttons=((flags&MK_LBUTTON)?1:0)|((flags&MK_RBUTTON)?2:0)|((flags&MK_MBUTTON)?4:0);
-            event.inside_source=px>=24&&px<width-24&&py>=row_top(at)+22&&py<row_top(at)+22+h&&event.x>=0&&event.x<sw&&event.y>=0&&event.y<sh;
+            event.inside_source=clipped&&px>=left&&px<left+w&&py>=row_top(at)+22&&py<row_top(at)+22+h&&event.x>=0&&event.x<sw&&event.y>=0&&event.y<sh;
             host->emit(std::move(event));
         }
         void control_pointer(const char *kind,int at,float px,float py,WPARAM flags=0) {
             if(at<0||at>=static_cast<int>(spec.controls.size()))return;
-            auto &c=spec.controls[at];if(!c.enabled||c.kind=="canvas")return;
-            GlassEvent event{kind,spec.id,c.id,"",0,px-20,py-row_top(at)};
+            auto &c=spec.controls[at];if(!c.effective_enabled||!c.effective_visible||c.kind=="canvas")return;
+            auto state=control_states.find(c.id);if(state!=control_states.end()&&state->second->motion)state->second->motion->wake(std::string(kind)=="pointer_down"||std::string(kind)=="pointer_up"?8:2);
+            GlassEvent event{kind,spec.id,c.id,"",0,px-c.bounds.x-c.world.x,py-row_top(at)-c.world.y};
             event.buttons=((flags&MK_LBUTTON)?1:0)|((flags&MK_RBUTTON)?2:0)|((flags&MK_MBUTTON)?4:0);
             event.modifiers=modifiers();host->emit(std::move(event));
         }
         bool interactive(int at)const {
             if(at<0||at>=static_cast<int>(spec.controls.size()))return false;
-            const auto &c=spec.controls[at];return c.enabled&&glass_control_type(c).focusable;
+            const auto &c=spec.controls[at];return c.effective_enabled&&c.effective_visible&&glass_control_type(c).focusable;
         }
         void focus_event(const std::string &kind) {
+            if(motion)motion->wake(4);
+            if(focused>=0){auto state=control_states.find(spec.controls[focused].id);if(state!=control_states.end()&&state->second->motion)state->second->motion->wake(4);}
             if(focused>=0&&focused<static_cast<int>(spec.controls.size()))host->emit({kind,spec.id,spec.controls[focused].id});
         }
         void focus_control(int at) {
@@ -601,14 +756,15 @@ struct GlassHost::Impl {
         }
         void activate(int at,float px=0,float py=0) {
             if(at<0||at>=static_cast<int>(spec.controls.size())) return;
-            auto &c=spec.controls[at];if(!c.enabled)return;
-            focus_control(at);dirty=true;
+            auto &c=spec.controls[at];if(!c.effective_enabled||!c.effective_visible)return;
+            if(interactive(at))focus_control(at);dirty=true;
             if(c.kind=="canvas") {canvas_event("mouse_down",at,px,py,MK_LBUTTON);return;}
-            dispatch_input(at,{"activate",px-20,py-row_top(at),width-40,row_height(c),0});
+            dispatch_input(at,{"activate",px-c.bounds.x-c.world.x,py-row_top(at)-c.world.y,c.bounds.width,c.bounds.height,0});
         }
         bool dispatch_input(int at,const GlassControlInput &input) {
             auto &c=spec.controls[at];auto &type=glass_control_type(c);
             auto result=type.input?type.input(c,input):GlassControlAction::none;
+            if(result!=GlassControlAction::none){auto state=control_states.find(c.id);if(state!=control_states.end()&&state->second->motion)state->second->motion->wake(64);if(motion)motion->wake(64);}
             if(!std::isfinite(c.value))throw std::invalid_argument("control input produced non-finite value");
             if(result==GlassControlAction::change){dirty=true;change(c);}
             if(result==GlassControlAction::click)host->emit({"click",spec.id,c.id});
@@ -653,12 +809,12 @@ struct GlassHost::Impl {
                 TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,hwnd,0};TrackMouseEvent(&track);
                 if(dragging&&pressed>=0&&spec.controls[pressed].kind=="slider")activate(pressed,px,py);
                 int target=dragging&&pressed>=0&&spec.controls[pressed].kind=="canvas"?pressed:hovered;
-                if(target>=0&&spec.controls[target].enabled&&spec.controls[target].kind=="canvas")canvas_event("mouse_move",target,px,py,w);
+                if(target>=0&&(spec.controls[target].effective_enabled&&spec.controls[target].effective_visible)&&spec.controls[target].kind=="canvas")canvas_event("mouse_move",target,px,py,w);
                 return 0;
             }
             case WM_MOUSELEAVE:
                 control_pointer("pointer_leave",hovered,hover_x,hover_y);
-                if(hovered>=0&&spec.controls[hovered].enabled&&spec.controls[hovered].kind=="canvas")canvas_event("mouse_leave",hovered,hover_x,hover_y);
+                if(hovered>=0&&(spec.controls[hovered].effective_enabled&&spec.controls[hovered].effective_visible)&&spec.controls[hovered].kind=="canvas")canvas_event("mouse_leave",hovered,hover_x,hover_y);
                 hovered=-1;hover_x=hover_y=0;dirty=true;return 0;
             case WM_LBUTTONDOWN:
             case WM_LBUTTONDBLCLK:
@@ -666,7 +822,7 @@ struct GlassHost::Impl {
                 SetFocus(hwnd);host->select(spec.id);dragging=true;SetCapture(hwnd);
                 if(py>=0&&py<38&&px>width-46&&px<width){dragging=false;close_pressed=true;return 0;}
                 if(pressed<0&&py<96)pointer("pointer_down",px,py);
-                if(pressed>=0&&spec.controls[pressed].enabled&&spec.controls[pressed].kind=="canvas")canvas_event("mouse_down",pressed,px,py,w,"left",msg==WM_LBUTTONDBLCLK?2:1);
+                if(pressed>=0&&(spec.controls[pressed].effective_enabled&&spec.controls[pressed].effective_visible)&&spec.controls[pressed].kind=="canvas")canvas_event("mouse_down",pressed,px,py,w,"left",msg==WM_LBUTTONDBLCLK?2:1);
                 else if(pressed>=0&&spec.controls[pressed].kind=="slider")activate(pressed,px,py);
                 dirty=true;return 0;
             case WM_LBUTTONUP: {
@@ -680,7 +836,7 @@ struct GlassHost::Impl {
                 if(pointer_sequence){pointer("pointer_up",px,py);stop_drag(false);}
                 control_pointer("pointer_up",pressed,px,py,w);
                 int clicked=pressed;pressed=-1;dragging=false;ReleaseCapture();
-                if(clicked>=0 && spec.controls[clicked].kind=="canvas"&&spec.controls[clicked].enabled)canvas_event("mouse_up",clicked,px,py,w);
+                if(clicked>=0 && spec.controls[clicked].kind=="canvas"&&(spec.controls[clicked].effective_enabled&&spec.controls[clicked].effective_visible))canvas_event("mouse_up",clicked,px,py,w);
                 else if(clicked==hit(px,py)&&clicked>=0&&spec.controls[clicked].kind!="slider")activate(clicked,px,py);
                 dirty=true;return 0;
             }
@@ -692,14 +848,14 @@ struct GlassHost::Impl {
                 dragging=false;pressed=-1;return 0;
             case WM_RBUTTONDOWN:case WM_MBUTTONDOWN:case WM_RBUTTONUP:case WM_MBUTTONUP: {
                 bool down=msg==WM_RBUTTONDOWN||msg==WM_MBUTTONDOWN;
-                int at=!down&&pressed>=0?pressed:hit(px,py);if(at<0||!spec.controls[at].enabled||spec.controls[at].kind!="canvas")return 0;
+                int at=!down&&pressed>=0?pressed:hit(px,py);if(at<0||!(spec.controls[at].effective_enabled&&spec.controls[at].effective_visible)||spec.controls[at].kind!="canvas")return 0;
                 if(down){focus_control(at);SetFocus(hwnd);host->select(spec.id);pressed=at;dragging=true;SetCapture(hwnd);}
                 canvas_event(down?"mouse_down":"mouse_up",at,px,py,w,(msg==WM_RBUTTONDOWN||msg==WM_RBUTTONUP)?"right":"middle");
                 if(!down&&!(w&(MK_LBUTTON|MK_RBUTTON|MK_MBUTTON))){pressed=-1;dragging=false;ReleaseCapture();}return 0;
             }
             case WM_MOUSEWHEEL:case WM_MOUSEHWHEEL:
                 if(hovered>=0&&spec.controls[hovered].kind=="canvas") {
-                    if(spec.controls[hovered].enabled){POINT point{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&point);
+                    if((spec.controls[hovered].effective_enabled&&spec.controls[hovered].effective_visible)){POINT point{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&point);
                         canvas_event(msg==WM_MOUSEHWHEEL?"wheel_horizontal":"wheel",hovered,point.x/host->dpi,point.y/host->dpi,w,"left",1,GET_WHEEL_DELTA_WPARAM(w)/120.);}
                 }
                 else host->cycle(GET_WHEEL_DELTA_WPARAM(w)>0?-1:1);
@@ -717,9 +873,9 @@ struct GlassHost::Impl {
                 }
                 if(focused>=0&&focused<static_cast<int>(spec.controls.size())) {
                     auto &c=spec.controls[focused];
-                    if(!c.enabled)return 0;
+                    if(!c.effective_enabled||!c.effective_visible)return 0;
                     if(c.kind=="canvas") {key_event("key_down",w,l);return 0;}
-                    if(dispatch_input(focused,{"key",0,0,width-40,row_height(c),static_cast<unsigned>(w)}))return 0;
+                    if(dispatch_input(focused,{"key",0,0,c.bounds.width,c.bounds.height,static_cast<unsigned>(w)}))return 0;
                     if(c.kind=="input") {
                         if(w=='A'&&(GetKeyState(VK_CONTROL)&0x8000)){input_selected=true;dirty=true;return 0;}
                         if(w=='V'&&(GetKeyState(VK_CONTROL)&0x8000)&&OpenClipboard(hwnd)) {
@@ -749,7 +905,7 @@ struct GlassHost::Impl {
                         GlassEvent event{"text",spec.id,spec.controls[focused].id,utf8(value)};event.source_name=spec.controls[focused].canvas.source.name;host->emit(std::move(event));}
                     surrogate=0;return 0;
                 }
-                if(focused>=0&&spec.controls[focused].kind=="input"&&spec.controls[focused].enabled) {
+                if(focused>=0&&spec.controls[focused].kind=="input"&&(spec.controls[focused].effective_enabled&&spec.controls[focused].effective_visible)) {
                     auto &c=spec.controls[focused];auto text=utf16(c.text);
                     if(w>=0xd800&&w<=0xdbff){surrogate=static_cast<wchar_t>(w);return 0;}
                     if(w<32&&w!=8)return 0;
@@ -767,16 +923,13 @@ struct GlassHost::Impl {
         void draw() {
             bool solid=actual_material=="solid";
             float alpha=solid?1:actual_material=="mica"?.06f:0;
-            if(base_ui){
-                auto base=base_ui->begin();if(base){base_ui->fill(D2D1::RectF(0,0,width,height),solid?(background.kind=="solid"?background.tint:0x192130):0x121a2a,alpha,background.corner_radius);base_ui->end(base);}
-            }
             auto f=ui->begin();if(!f)return;
             auto &p=*ui;bool selected=host->scene.selected==spec.id;
             // Match the system-rounded surface: a larger ink radius would
             // expose an untinted Acrylic wedge outside the self-drawn rim.
             float radius=background.corner_radius;
             p.glyph_shadow=!solid;
-            if(!base_ui)p.fill(D2D1::RectF(0,0,width,height),solid?(background.kind=="solid"?background.tint:0x192130):0x121a2a,alpha,radius);
+            p.fill(D2D1::RectF(0,0,width,height),solid?(background.kind=="solid"?background.tint:0x192130):0x121a2a,alpha,radius);
             // Local readability treatment; the card centre stays clear.
             if(!solid){p.fill(D2D1::RectF(18,40,width-18,95),0x08101b,.18f,14);}
             // Wide grazing highlight, concentrated rim and a quiet accent pool.
@@ -797,25 +950,28 @@ struct GlassHost::Impl {
             p.text("×",width-36,14,20,19,0xb7c7da);
             p.text(spec.title,24,41,width-48,23,0xf1f7ff,1,true);
             p.text(spec.subtitle,24,74,width-48,11,0xa0b1c8);
-            float row=102;
+            p.fill(D2D1::RectF(24,height-12,width-24,height-11),host->scene.accent,selected?.28f:.08f);
+            WriteFrame atlas_frame;
+            if(atlas_ui){ui->end(f);atlas_frame=atlas_ui->begin();if(!atlas_frame)return;}
+            auto &paint=atlas_ui?*atlas_ui:p;
+            paint.glyph_shadow=!solid;
             for(std::size_t i=0;i<spec.controls.size();i++) {
-                const auto &c=spec.controls[i];float h=row_height(c);
+                const auto &c=spec.controls[i];if(!c.effective_visible||c.kind=="container")continue;
+                float h=c.bounds.height,w=c.bounds.width,row=c.ink.y,left=c.ink.x;
                 bool over=hovered==static_cast<int>(i), focus=focused==static_cast<int>(i)&&GetFocus()==hwnd;
-                float a=(c.enabled&&group_enabled?1.f:.42f)*c.opacity;
-                auto box=D2D1::RectF(20,row+2,width-20,row+h-6);
-                if(over||focus)p.fill(box,host->scene.accent,(pressed==static_cast<int>(i)?.19f:.09f)*a,10);
-                if(focus){p.brush->SetColor(color(host->scene.accent,.7f));p.dc->DrawRoundedRectangle(D2D1::RoundedRect(box,10,10),p.brush.Get(),1);}
-                ControlPainter painter(p,20,row);
-                GlassControlPaint state{width-40,h,host->dpi,a,host->scene.accent,over,focus,pressed==static_cast<int>(i),input_selected,
+                float a=(c.effective_enabled&&group_enabled?1.f:.42f)*c.opacity*c.world.opacity;
+                auto box=D2D1::RectF(left,row+2,left+w,row+h-6);
+                if(over||focus)paint.fill(box,host->scene.accent,(pressed==static_cast<int>(i)?.19f:.09f)*a,10);
+                if(focus){paint.brush->SetColor(color(host->scene.accent,.7f));paint.dc->DrawRoundedRectangle(D2D1::RoundedRect(box,10,10),paint.brush.Get(),1);}
+                ControlPainter painter(paint,left,row);
+                GlassControlPaint state{w,h,host->dpi,a,host->scene.accent,over,focus,pressed==static_cast<int>(i),input_selected,
                     host->scene.reduced_motion||!host->system_animation};
                 // Keep extension ink local: visual overdraw never changes hit/semantics.
-                p.dc->PushAxisAlignedClip(D2D1::RectF(20,row,width-20,row+h),D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                paint.dc->PushAxisAlignedClip(D2D1::RectF(left,row,left+w,row+h),D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                 glass_control_type(c).paint(painter,c,state);
-                p.dc->PopAxisAlignedClip();
-                row+=h;
+                paint.dc->PopAxisAlignedClip();
             }
-            p.fill(D2D1::RectF(24,height-12,width-24,height-11),host->scene.accent,selected?.28f:.08f);
-            ui->end(f);dirty=false;
+            if(atlas_ui)atlas_ui->end(atlas_frame);else ui->end(f);dirty=false;
             std::lock_guard<std::mutex> lock(host->mutex);host->report.frames++;
         }
     };
@@ -918,9 +1074,10 @@ struct GlassHost::Impl {
         double bytes=0;
         for(auto &c:next.cards) {
             c.width=std::min(c.width,(work.right-work.left-24*dpi)/dpi);
+            layout_glass_controls(c);
             if(c.width<180||card_height(c)*dpi>work.bottom-work.top-24*dpi)
                 throw std::invalid_argument("Glass card is too tall for this monitor; use fewer controls or shorter cards");
-            bytes+=c.width*card_height(c)*dpi*dpi*4*5;
+            bytes+=(c.width*card_height(c)*4*5+c.width*c.ink_height*12)*dpi*dpi;
         }
         if(bytes>256*1024*1024)throw std::invalid_argument("Glass UI GPU surface budget exceeds 256 MiB");
         bool compatible=compatible_layout(scene,next);
@@ -936,31 +1093,38 @@ struct GlassHost::Impl {
         for(const auto &spec:scene.cards) {
             auto it=std::find_if(cards.begin(),cards.end(),[&](const auto &c){return c->spec.id==spec.id;});
             std::string signature=source_signature(spec);
-            if(it!=cards.end() && ((*it)->width!=spec.width||(*it)->height!=card_height(spec))) {
-                it=cards.erase(it);it=cards.end();
-            }
             if(it==cards.end())cards.push_back(std::make_unique<Card>(this,spec));
             else {
                 auto &card=**it;
                 auto id=[&](int at){return at>=0&&at<static_cast<int>(card.spec.controls.size())?card.spec.controls[at].id:"";};
                 auto focus_id=id(card.focused),hover_id=id(card.hovered),pressed_id=id(card.pressed);
                 auto old_controls=card.spec.controls;
+                if(card.spec.generation!=spec.generation){card.motion.reset();card.visual={};}
                 card.spec=spec;card.focused=-1;card.hovered=-1;card.pressed=-1;
                 for(auto &control:card.spec.controls) {
                     auto old=std::find_if(old_controls.begin(),old_controls.end(),[&](const auto &v){return v.id==control.id&&v.kind==control.kind&&v.generation==control.generation;});
                     if(old!=old_controls.end()) {
+                        control.visual=old->visual;
+                        if(control.motion.type.empty())control.visual={};
                         control.edit_serial=old->edit_serial;
                         if(control.acknowledged<old->edit_serial&&(control.kind!="choice"||control.options==old->options)) {
                             control.value=old->value;control.text=old->text;
                         }
                     }
                 }
+                if(card.width!=spec.width||card.height!=card_height(spec))card.resize_surfaces(spec.width,card_height(spec));
                 for(std::size_t i=0;i<spec.controls.size();i++) {
                     if(spec.controls[i].id==focus_id&&std::any_of(old_controls.begin(),old_controls.end(),[&](const auto &old){return old.id==focus_id&&old.generation==spec.controls[i].generation;}))card.focused=static_cast<int>(i);
                     if(spec.controls[i].id==hover_id&&std::any_of(old_controls.begin(),old_controls.end(),[&](const auto &old){return old.id==hover_id&&old.generation==spec.controls[i].generation;}))card.hovered=static_cast<int>(i);
                     if(spec.controls[i].id==pressed_id&&std::any_of(old_controls.begin(),old_controls.end(),[&](const auto &old){return old.id==pressed_id&&old.generation==spec.controls[i].generation;}))card.pressed=static_cast<int>(i);
                 }
                 if(card.focused>=0&&!card.interactive(card.focused))card.focus_control(-1);
+                if(card.pressed>=0&&!card.interactive(card.pressed)){
+                    if(card.spec.controls[card.pressed].kind=="canvas")emit({"mouse_cancel",spec.id,card.spec.controls[card.pressed].id});
+                    card.pressed=-1;
+                }
+                if(!pressed_id.empty()&&card.pressed<0&&GetCapture()==card.hwnd){card.dragging=false;ReleaseCapture();}
+                card.sync_nodes();
                 card.dirty=true;card.apply_material();
                 if(reflow)card.pinned=false;
                 if(!card.spec.draggable&&card.dragging){card.stop_drag(true);card.dragging=false;if(GetCapture()==card.hwnd)ReleaseCapture();}
@@ -1082,7 +1246,20 @@ struct GlassHost::Impl {
                 tx=(owner_rect.left+owner_rect.right)/2.f-cw/2;ty=owner_rect.top+24*dpi;
             }
             c.x.target=tx;c.y.target=ty;
-            bool motion=c.x.step(dt,reduced)|c.y.step(dt,reduced);
+            bool motion=false;
+            if(c.motion&&!c.moving){
+                GlassMotionFrame f;f.time=clock_ticks()/clock_frequency();f.width=c.width;f.height=c.height;
+                Card::EffectWriter writer(c,c.spec.effects,std::to_string(c.spec.generation));f.effects=&writer;f.effect_count=c.spec.effects.size();
+                f.card=true;
+                f.pointer_x=c.hover_x;f.pointer_y=c.hover_y;
+                f.target_x=(tx-owner_rect.left)/dpi;f.target_y=(ty-owner_rect.top)/dpi;
+                f.layout_x=f.target_x;f.layout_y=f.target_y;
+                f.reduced_motion=reduced;f.visible=card_show;f.exiting=!card_show&&c.shown;f.hovered=c.hover_x>0;f.focused=GetFocus()==c.hwnd;
+                c.visual.x=static_cast<float>((c.x.x-owner_rect.left)/dpi);c.visual.y=static_cast<float>((c.y.x-owner_rect.top)/dpi);
+                c.motion->tick(f,c.visual);writer.commit();c.x.x=owner_rect.left+c.visual.x*dpi;c.y.x=owner_rect.top+c.visual.y*dpi;
+                c.x.v=c.y.v=0;c.compositor->opacity(c.visual.opacity);motion=c.motion->active();
+            }else motion=c.x.step(dt,reduced)|c.y.step(dt,reduced);
+            c.animate_controls(clock_ticks()/clock_frequency(),card_show,reduced);
             // Keep a visible card moving back to its origin during dismissal.
             if(card_show||c.shown) {
                 int nx=static_cast<int>(std::round(c.x.x)),ny=static_cast<int>(std::round(c.y.x));
@@ -1206,11 +1383,10 @@ struct GlassHost::Impl {
                 }
                 for(auto *card:effect_dirty){
                     auto update=[&](const std::string &key,const std::vector<GlassEffectBinding> &effects){
-                        for(const auto *target:{"background","content"}){
+                        for(const auto *target:{"background","content","overlay"}){
                             auto at=card->effect_chains.find(key+":"+target);if(at==card->effect_chains.end())continue;
                             std::vector<GlassEffectBinding> selected;
                             for(const auto &effect:effects)if(effect.target==target)selected.push_back(effect);
-                            if(std::string(target)=="content")for(const auto &effect:effects)if(effect.target=="overlay")selected.push_back(effect);
                             if(!update_glass_effect_chain(at->second,selected))throw std::runtime_error("effect binding changed during parameter update");
                         }
                     };
@@ -1234,6 +1410,10 @@ struct GlassHost::Impl {
                     else if(a.kind=="dismiss")dismiss();
                     else if(a.kind=="reflow"){retain_positions=false;for(auto &c:cards)c->pinned=false;}
                     else if(a.kind=="begin_drag"){for(auto &c:cards)if(c->spec.id==a.id)c->begin_drag(a.token);}
+                    else if(a.kind=="restart_motion")for(auto &c:cards)if(c->spec.id==a.id){
+                        if(a.node.empty()){if(c->spec.generation==a.token&&c->motion)c->motion->restart();}
+                        else {auto state=c->control_states.find(a.node);if(state!=c->control_states.end()&&state->second->generation==a.token&&state->second->motion)state->second->motion->restart();}
+                    }
                 }
                 double now=clock_ticks()/clock_frequency();
                 if(now>=deadline||serial) {
@@ -1334,10 +1514,12 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
     std::set<std::string> ids,channels;
     for(auto &card:scene.cards) {
         for(auto &control:card.controls)control.type=&glass_control_type(control.kind);
-        if(card.id.empty()||card.id.size()>128||!ids.insert(card.id).second||card.controls.size()>32||
+        layout_glass_controls(card);
+        if(card.id.empty()||card.id.size()>128||!ids.insert(card.id).second||card.controls.size()>128||
            !std::isfinite(card.width)||card.width<220||card.width>1600||card_height(card)>1200||
            card.title.size()>4096||card.subtitle.size()>4096||card.eyebrow.size()>256)throw std::invalid_argument("invalid glass card");
         validate_effects(card.effects);
+        validate_motion(card.motion);
         if(std::any_of(card.effects.begin(),card.effects.end(),[](const auto &e){return e.target=="background";})&&
            (card.has_background?card.background.kind!="liquid"&&card.background.kind!="frosted":scene.material!="glass"&&scene.material!="liquid"&&scene.material!="frosted"))
             throw std::invalid_argument("Card background effects require a sampled liquid/frosted material source");
@@ -1351,6 +1533,8 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
             if(c.id.empty()||c.id.size()>128||!controls.insert(c.id).second||c.text.size()>8192||c.label.size()>4096||
                !std::isfinite(c.opacity)||c.opacity<0||c.opacity>1||!std::isfinite(c.value)||c.series.size()>256||c.options.size()>16||!std::isfinite(c.canvas_height)||c.canvas_height<16||c.canvas_height>1024)throw std::invalid_argument("invalid glass control");
             validate_effects(c.effects);
+            if(!std::isfinite(c.corner_radius)||c.corner_radius<0||c.corner_radius>128)throw std::invalid_argument("invalid node corner radius");
+            validate_motion(c.motion);
             if((c.kind=="slider"||c.kind=="progress"||c.kind=="toggle")&&(c.value<0||c.value>1))throw std::invalid_argument("control value outside 0..1");
             if(c.kind=="choice"&&(c.options.empty()||c.value<0||c.value>=c.options.size()||std::floor(c.value)!=c.value))throw std::invalid_argument("invalid glass choice");
             if(c.kind=="input"&&utf16(c.text).size()>2048)throw std::invalid_argument("input text too long");
@@ -1358,7 +1542,7 @@ std::uint64_t GlassHost::configure(GlassScene scene) {
             for(const auto &s:c.options)if(s.size()>1024)throw std::invalid_argument("choice text too long");
             if(c.kind=="canvas") {
                 if(c.opacity!=1)throw std::invalid_argument("Canvas opacity requires compositor effects");
-                if(++canvases>1||!channels.insert(c.canvas.source.name).second)throw std::invalid_argument("one canvas per card and one card per channel required");
+                if(++canvases>8||!channels.insert(c.canvas.source.name).second)throw std::invalid_argument("at most 8 canvases per card; one display per channel required");
                 if(c.fit!="contain"&&c.fit!="cover"&&c.fit!="stretch"&&c.fit!="pixel")throw std::invalid_argument("invalid canvas fit");
                 if(!c.canvas.source.width||!c.canvas.source.height||c.canvas.source.width>16384||c.canvas.source.height>16384)throw std::invalid_argument("invalid canvas dimensions");
             }
@@ -1404,6 +1588,12 @@ void GlassHost::begin_drag(const std::string &card,std::uint64_t sequence) {
     if(impl_->stopping)throw std::runtime_error("GlassHost is closed");
     if(impl_->commands.size()>=64)throw std::runtime_error("glass command queue full");
     impl_->commands.push_back({"begin_drag",card,sequence});SetEvent(impl_->changed.value);
+}
+void GlassHost::restart_motion(const std::string &card,const std::string &node,std::uint64_t generation){
+    if(card.empty()||card.size()>128||node.size()>128||!generation)throw std::invalid_argument("invalid motion restart");
+    std::lock_guard<std::mutex> lock(impl_->mutex);if(impl_->stopping)throw std::runtime_error("GlassHost is closed");
+    if(impl_->commands.size()>=64)throw std::runtime_error("glass command queue full");
+    impl_->commands.push_back({"restart_motion",card,generation,node});SetEvent(impl_->changed.value);
 }
 void GlassHost::present(const std::string &card,const std::string &control,std::uint64_t generation,float opacity) {
     if(card.empty()||card.size()>128||control.empty()||control.size()>128||!generation||!std::isfinite(opacity)||opacity<0||opacity>1)
